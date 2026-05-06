@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"net/http"
@@ -20,6 +21,8 @@ type fakeRelayStartupTGClient struct {
 	getMeCalls int
 }
 
+const testRelayStartupBotUsername = "ValeraBot"
+
 func (f *fakeRelayStartupTGClient) GetMeWithResponse(_ context.Context, _ ...client.RequestEditorFn) (*client.GetMeResponse, error) {
 	f.getMeCalls++
 	if f.getMeErr != nil {
@@ -31,7 +34,7 @@ func (f *fakeRelayStartupTGClient) GetMeWithResponse(_ context.Context, _ ...cli
 func TestRelayHandlerOnStart_FailsWhenGetMeTransportFails(t *testing.T) {
 	handler := newRelayStartupHandlerForTest(t, &fakeRelayStartupTGClient{
 		getMeErr: errors.New("network timeout"),
-	})
+	}, "", zerolog.Nop())
 
 	err := handler.onStart(context.Background())
 	if err == nil {
@@ -53,7 +56,7 @@ func TestRelayHandlerOnStart_FailsWhenGetMeUnauthorized(t *testing.T) {
 				Description: "Unauthorized",
 			},
 		},
-	})
+	}, "", zerolog.Nop())
 
 	err := handler.onStart(context.Background())
 	if err == nil {
@@ -78,7 +81,7 @@ func TestRelayHandlerOnStart_FailsWhenGetMeUsernameEmpty(t *testing.T) {
 				},
 			},
 		},
-	})
+	}, "", zerolog.Nop())
 
 	err := handler.onStart(context.Background())
 	if err == nil {
@@ -90,7 +93,7 @@ func TestRelayHandlerOnStart_FailsWhenGetMeUsernameEmpty(t *testing.T) {
 }
 
 func TestRelayHandlerOnStart_LoadsBotIdentityWhenGetMeSucceeds(t *testing.T) {
-	username := "ValeraBot"
+	username := testRelayStartupBotUsername
 	tgClient := &fakeRelayStartupTGClient{
 		getMeResp: &client.GetMeResponse{
 			HTTPResponse: &http.Response{StatusCode: http.StatusOK, Status: "200 OK"},
@@ -106,7 +109,7 @@ func TestRelayHandlerOnStart_LoadsBotIdentityWhenGetMeSucceeds(t *testing.T) {
 			},
 		},
 	}
-	handler := newRelayStartupHandlerForTest(t, tgClient)
+	handler := newRelayStartupHandlerForTest(t, tgClient, "", zerolog.Nop())
 
 	if err := handler.onStart(context.Background()); err != nil {
 		t.Fatalf("onStart() error = %v", err)
@@ -118,12 +121,87 @@ func TestRelayHandlerOnStart_LoadsBotIdentityWhenGetMeSucceeds(t *testing.T) {
 	if gotBotID != 7791683989 {
 		t.Fatalf("bot user id = %d, want 7791683989", gotBotID)
 	}
-	if gotUsername != "ValeraBot" {
-		t.Fatalf("bot username = %q, want ValeraBot", gotUsername)
+	if gotUsername != testRelayStartupBotUsername {
+		t.Fatalf("bot username = %q, want %s", gotUsername, testRelayStartupBotUsername)
 	}
 }
 
-func newRelayStartupHandlerForTest(t *testing.T, tgClient client.ClientWithResponsesInterface) *RelayHandler {
+func TestRelayHandlerOnStart_LogsOwnerAuthWhenOwnerUnknown(t *testing.T) {
+	username := testRelayStartupBotUsername
+	tgClient := &fakeRelayStartupTGClient{
+		getMeResp: &client.GetMeResponse{
+			HTTPResponse: &http.Response{StatusCode: http.StatusOK, Status: "200 OK"},
+			JSON200: &struct {
+				Ok     client.GetMe200Ok `json:"ok"`
+				Result client.User       `json:"result"`
+			}{
+				Ok: true,
+				Result: client.User{
+					Id:       7791683989,
+					Username: &username,
+				},
+			},
+		},
+	}
+
+	var buf bytes.Buffer
+	handler := newRelayStartupHandlerForTest(t, tgClient, "owner-token", zerolog.New(&buf))
+
+	if err := handler.onStart(context.Background()); err != nil {
+		t.Fatalf("onStart() error = %v", err)
+	}
+
+	output := buf.String()
+	if !strings.Contains(output, "/start owner=owner-token") {
+		t.Fatalf("startup log missing auth command, output=%q", output)
+	}
+	if !strings.Contains(output, "https://t.me/"+testRelayStartupBotUsername+"?start=owner_owner-token") {
+		t.Fatalf("startup log missing auth url, output=%q", output)
+	}
+}
+
+func TestRelayHandlerOnStart_DoesNotLogOwnerAuthWhenOwnerRegistered(t *testing.T) {
+	username := testRelayStartupBotUsername
+	tgClient := &fakeRelayStartupTGClient{
+		getMeResp: &client.GetMeResponse{
+			HTTPResponse: &http.Response{StatusCode: http.StatusOK, Status: "200 OK"},
+			JSON200: &struct {
+				Ok     client.GetMe200Ok `json:"ok"`
+				Result client.User       `json:"result"`
+			}{
+				Ok: true,
+				Result: client.User{
+					Id:       7791683989,
+					Username: &username,
+				},
+			},
+		},
+	}
+
+	var buf bytes.Buffer
+	handler := newRelayStartupHandlerForTest(t, tgClient, "owner-token", zerolog.New(&buf))
+	if _, err := handler.ownerStore.RegisterOwner(42, 0, "owner", "Relay", "Owner", false); err != nil {
+		t.Fatalf("RegisterOwner() error = %v", err)
+	}
+
+	err := handler.onStart(context.Background())
+	if err == nil {
+		t.Fatal("onStart() error = nil, want missing chat id error")
+	}
+	if !strings.Contains(err.Error(), "owner.chat_id is required") {
+		t.Fatalf("onStart() error = %q, want missing chat id error", err.Error())
+	}
+
+	output := buf.String()
+	if strings.Contains(output, "/start owner=owner-token") {
+		t.Fatalf("startup log unexpectedly included auth command, output=%q", output)
+	}
+	if strings.Contains(output, "https://t.me/"+testRelayStartupBotUsername+"?start=owner_owner-token") {
+		t.Fatalf("startup log unexpectedly included auth url, output=%q", output)
+	}
+}
+
+func newRelayStartupHandlerForTest(t *testing.T, tgClient client.ClientWithResponsesInterface, authToken string, logger zerolog.Logger) *RelayHandler {
 	t.Helper()
 
 	ownerStore, err := auth.NewOwnerStore(&fakeOwnerKVStore{})
@@ -134,7 +212,7 @@ func newRelayStartupHandlerForTest(t *testing.T, tgClient client.ClientWithRespo
 	return &RelayHandler{
 		ownerStore: ownerStore,
 		tgClient:   tgClient,
-		logger:     zerolog.Nop(),
+		authToken:  authToken,
+		logger:     logger,
 	}
 }
-

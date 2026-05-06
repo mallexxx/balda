@@ -34,7 +34,7 @@ relay start
 ```
 
 3. Authenticate in Telegram:
-- open the auth URL printed by `relay init`, or
+- open the auth URL printed by `relay init` or, while no owner is registered yet, by `relay start`, or
 - send `/start owner=<owner_token>` in a direct message to your bot
 
 4. Start a topic session:

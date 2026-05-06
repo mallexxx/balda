@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"context"
 	"fmt"
+	"github.com/normahq/relay/internal/apps/relay/auth"
 	"github.com/spf13/cobra"
 	"gopkg.in/yaml.v3"
 	"os"
@@ -138,8 +139,8 @@ func initCommand() *cobra.Command {
 			_, _ = fmt.Fprintf(relayInitOutput, "relay provider: %s\n", selectedRelayProvider)
 			_, _ = fmt.Fprintf(relayInitOutput, "telegram token stored in: %s\n", storageTarget)
 			_, _ = fmt.Fprintf(relayInitOutput, "start command: relay start\n")
-			_, _ = fmt.Fprintf(relayInitOutput, "auth command: /start owner=%s\n", ownerToken)
-			_, _ = fmt.Fprintf(relayInitOutput, "auth url: %s\n", buildAuthURL(bot.username, ownerToken))
+			_, _ = fmt.Fprintf(relayInitOutput, "auth command: %s\n", auth.BuildOwnerAuthCommand(ownerToken))
+			_, _ = fmt.Fprintf(relayInitOutput, "auth url: %s\n", auth.BuildOwnerAuthURL(bot.username, ownerToken))
 
 			return nil
 		},

@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/normahq/relay/internal/apps/relay/auth"
 	relaytelegram "github.com/normahq/relay/internal/apps/relay/channel/telegram"
 	relaysession "github.com/normahq/relay/internal/apps/relay/session"
 	"github.com/rs/zerolog/log"
@@ -95,6 +96,7 @@ func (h *RelayHandler) onStart(ctx context.Context) error {
 	if err := h.initializeBotUsername(ctx); err != nil {
 		return fmt.Errorf("resolve relay telegram bot identity: %w", err)
 	}
+	h.logOwnerAuthIfNeeded()
 
 	if !h.ownerStore.HasOwner() {
 		return nil
@@ -170,6 +172,22 @@ func (h *RelayHandler) initializeBotUsername(ctx context.Context) error {
 	}
 	h.logger.Info().Int64("bot_user_id", botUserID).Str("bot_username", username).Msg("relay bot identity loaded")
 	return nil
+}
+
+func (h *RelayHandler) logOwnerAuthIfNeeded() {
+	if h.authToken == "" || h.ownerStore.HasOwner() {
+		return
+	}
+
+	_, username := h.getBotIdentity()
+	if strings.TrimSpace(username) == "" {
+		return
+	}
+
+	h.logger.Info().
+		Str("auth_command", auth.BuildOwnerAuthCommand(h.authToken)).
+		Str("auth_url", auth.BuildOwnerAuthURL(username, h.authToken)).
+		Msg("relay owner authentication required")
 }
 
 func (h *RelayHandler) getProviderName() string {

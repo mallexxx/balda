@@ -66,11 +66,3 @@ func loadBotIdentity(ctx context.Context, tgClient telegramMeClient) (botIdentit
 
 	return identity, nil
 }
-
-func buildAuthURL(botUsername, ownerToken string) string {
-	username := strings.TrimSpace(botUsername)
-	if username == "" {
-		username = "<bot_username>"
-	}
-	return fmt.Sprintf("https://t.me/%s?start=owner_%s", username, ownerToken)
-}

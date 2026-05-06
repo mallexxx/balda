@@ -226,7 +226,8 @@ The relay MCP server (`relay`) is automatically included in all sessions when wo
   - Default: `.config/relay`
 - owner auth token is generated during `relay init`, persisted in `relay.db`, and reused by `relay start`
   - if token is missing in existing state, `relay start` backfills one-time and persists it
-  - startup logs expose bot identity only; owner auth tokens and auth URLs are intentionally not emitted in normal startup logs
+  - if no owner is registered yet, `relay start` logs the owner bootstrap command and deeplink again to help finish first-time onboarding
+  - after the first successful owner auth, normal startup logs go back to bot identity only and no longer expose owner auth tokens or auth URLs
 - bundled relay MCP listener always binds to local ephemeral address (`127.0.0.1:0`)
   - bundled routes on this listener:
     - `/mcp` and `/mcp/relay` for the built-in relay MCP server
