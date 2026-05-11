@@ -4,4 +4,8 @@ services:
     working_dir: /workspace
     volumes:
       - .:/workspace
+      - relay-home:/home/node
     command: start
+
+volumes:
+  relay-home:

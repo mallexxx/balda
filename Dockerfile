@@ -1,21 +1,44 @@
 FROM node:lts-bookworm
 
+ARG RELAY_NPM_PACKAGE=@normahq/relay
+ARG CODEX_NPM_PACKAGE=@openai/codex
+ARG OPENCODE_NPM_PACKAGE=opencode-ai
+ARG GEMINI_NPM_PACKAGE=@google/gemini-cli
+ARG CLAUDE_CODE_NPM_PACKAGE=@anthropic-ai/claude-code
+ARG COPILOT_NPM_PACKAGE=@github/copilot
+
 RUN apt-get update \
  && apt-get install -y --no-install-recommends \
       ca-certificates \
       curl \
       git \
       openssh-client \
+      ripgrep \
  && rm -rf /var/lib/apt/lists/*
 
-RUN npm install -g @normahq/relay \
+RUN npm install -g \
+      "${RELAY_NPM_PACKAGE}" \
+      "${CODEX_NPM_PACKAGE}" \
+      "${OPENCODE_NPM_PACKAGE}" \
+      "${GEMINI_NPM_PACKAGE}" \
+      "${CLAUDE_CODE_NPM_PACKAGE}" \
+      "${COPILOT_NPM_PACKAGE}" \
  && npm cache clean --force
 
-# Install the provider CLI used by relay.provider here when building a custom
-# runtime image, for example Codex, Gemini, Claude Code, opencode, Copilot, or
-# another ACP-compatible command.
+RUN command -v relay \
+ && command -v codex \
+ && command -v opencode \
+ && command -v gemini \
+ && command -v claude \
+ && command -v copilot \
+ && ! command -v claudecode \
+ && node --version \
+ && npm --version \
+ && npx --version \
+ && git --version \
+ && rg --version
 
-RUN node --version && npm --version && npx --version && git --version
+USER node
 
 WORKDIR /workspace
 ENTRYPOINT ["relay"]

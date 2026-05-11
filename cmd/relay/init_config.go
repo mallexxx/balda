@@ -30,7 +30,7 @@ func buildRelayInitDocument(workingDir string) (map[string]any, []string, error)
 	detectedAgents := detectRelayInitAgents()
 	if len(detectedAgents) == 0 {
 		return nil, nil, fmt.Errorf(
-			"no supported agent CLI detected in PATH; install at least one of: codex, opencode, copilot, gemini, claudecode/claude",
+			"no supported agent CLI detected in PATH; install at least one of: codex, opencode, copilot, gemini, claude",
 		)
 	}
 

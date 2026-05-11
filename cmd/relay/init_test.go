@@ -147,6 +147,16 @@ func TestInitCommand_NonInteractiveAutoSelectsRootAndGeneratesDetectedAgents(t *
 	}
 }
 
+func TestInitCommand_DoesNotDetectLegacyClaudecodeBinary(t *testing.T) {
+	setDetectedBinaries(t, "claudecode")
+
+	if _, _, err := buildRelayInitDocument(t.TempDir()); err == nil {
+		t.Fatal("buildRelayInitDocument succeeded with only claudecode in PATH, want error")
+	} else if !strings.Contains(err.Error(), "codex, opencode, copilot, gemini, claude") {
+		t.Fatalf("buildRelayInitDocument error = %v, want supported CLI list with claude", err)
+	}
+}
+
 func TestInitCommand_InteractiveSelectionAndToken(t *testing.T) {
 	workingDir := setWorkingDir(t)
 	setDetectedBinaries(t, "codex", "opencode", "gemini")

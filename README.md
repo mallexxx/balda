@@ -60,15 +60,26 @@ RUN apt-get update \
       curl \
       git \
       openssh-client \
+      ripgrep \
  && rm -rf /var/lib/apt/lists/*
 
-RUN npm install -g @normahq/relay \
+RUN npm install -g \
+      @normahq/relay \
+      @openai/codex \
+      opencode-ai \
+      @google/gemini-cli \
+      @anthropic-ai/claude-code \
+      @github/copilot \
  && npm cache clean --force
 
-# Install the provider CLI used by relay.provider here, for example Codex,
-# Gemini, Claude Code, opencode, or another ACP-compatible command.
+RUN command -v relay \
+ && command -v codex \
+ && command -v opencode \
+ && command -v gemini \
+ && command -v claude \
+ && command -v copilot
 
-RUN node --version && npm --version && npx --version && git --version
+USER node
 
 WORKDIR /workspace
 ENTRYPOINT ["relay"]
@@ -76,8 +87,12 @@ ENTRYPOINT ["relay"]
 
 `node:lts-bookworm` is intentionally used instead of `node:lts-bookworm-slim`.
 Relay is distributed through npm, MCP examples commonly use `npx`, and Git
-workspace mode shells out to `git`. If you need fully repeatable builds, pin a
-concrete supported Bookworm tag such as `node:24-bookworm`.
+workspace mode shells out to `git`. The image also bundles the provider CLIs
+detected by `relay init`: Codex, opencode, Gemini CLI, Claude Code (`claude`),
+and GitHub Copilot. If you need fully repeatable builds, pin a concrete
+supported Bookworm tag such as `node:24-bookworm` and/or the Dockerfile package
+build args: `RELAY_NPM_PACKAGE`, `CODEX_NPM_PACKAGE`, `OPENCODE_NPM_PACKAGE`,
+`GEMINI_NPM_PACKAGE`, `CLAUDE_CODE_NPM_PACKAGE`, and `COPILOT_NPM_PACKAGE`.
 
 The maintained `compose.yaml` uses the current directory as a bind-mounted
 workspace:
@@ -89,12 +104,17 @@ services:
     working_dir: /workspace
     volumes:
       - .:/workspace
+      - relay-home:/home/node
     command: start
+
+volumes:
+  relay-home:
 ```
 
 Run setup and start Relay from the repository root:
 
 ```bash
+docker compose build relay
 docker compose run --rm relay init
 docker compose up -d relay
 ```
@@ -106,6 +126,11 @@ project checkout, `.git`, `.env`, `.config/relay/config.yaml`, and
 
 Relay auto-loads `/workspace/.env`; adding `env_file: .env` is optional after
 the file exists.
+
+Provider credentials are not baked into the image. Authenticate through
+provider environment variables or by running provider login commands through
+Compose; `relay-home` persists provider CLI home config across container
+recreates.
 
 The default Telegram mode is polling and does not need a published port. For
 webhook mode, configure `relay.telegram.webhook.*` or the matching `RELAY_*`

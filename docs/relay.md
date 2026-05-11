@@ -135,14 +135,26 @@ RUN apt-get update \
       curl \
       git \
       openssh-client \
+      ripgrep \
  && rm -rf /var/lib/apt/lists/*
 
-RUN npm install -g @normahq/relay \
+RUN npm install -g \
+      @normahq/relay \
+      @openai/codex \
+      opencode-ai \
+      @google/gemini-cli \
+      @anthropic-ai/claude-code \
+      @github/copilot \
  && npm cache clean --force
 
-# Install the provider CLI used by relay.provider here.
+RUN command -v relay \
+ && command -v codex \
+ && command -v opencode \
+ && command -v gemini \
+ && command -v claude \
+ && command -v copilot
 
-RUN node --version && npm --version && npx --version && git --version
+USER node
 
 WORKDIR /workspace
 ENTRYPOINT ["relay"]
@@ -157,7 +169,11 @@ services:
     working_dir: /workspace
     volumes:
       - .:/workspace
+      - relay-home:/home/node
     command: start
+
+volumes:
+  relay-home:
 ```
 
 With `.:/workspace`, Relay resolves the default runtime paths inside the mounted
@@ -169,18 +185,20 @@ project:
   Telegram polling offsets on the host.
 - `.git` stays visible to `relay.workspace.mode=auto|on`, so workspace mode sees
   the same repository as host execution.
+- `relay-home` persists provider CLI auth/config written under `/home/node`.
 
 Relay auto-loads `/workspace/.env`. `env_file: .env` is optional after the file
 exists, but should not be required for the first `docker compose run --rm relay init`.
 
-The container image must include Relay and the provider command referenced by
-`relay.provider`. For example, if the selected provider launches Codex, Gemini,
-Claude Code, opencode, Copilot, or a generic ACP command, install that CLI in the
-image as part of the deployment wrapper. Use a Node Bookworm image with
-`npm`/`npx`, `git`, certificates, `curl`, and `openssh-client`; avoid the slim
-variant as the default because it omits common runtime tools. If you need fully
-repeatable builds, pin a concrete supported Bookworm tag such as
-`node:24-bookworm`.
+The container image bundles Relay plus every provider CLI detected by
+`relay init`: `codex`, `opencode`, `copilot`, `gemini`, and `claude`. Claude
+Code is detected through the real `claude` binary; `claudecode` is not a
+supported binary name. Provider credentials are not baked into the image.
+Authenticate through provider environment variables or by running provider login
+commands through Compose. If you need fully repeatable builds, pin a concrete
+supported Bookworm tag such as `node:24-bookworm` and/or the Dockerfile package
+build args: `RELAY_NPM_PACKAGE`, `CODEX_NPM_PACKAGE`, `OPENCODE_NPM_PACKAGE`,
+`GEMINI_NPM_PACKAGE`, `CLAUDE_CODE_NPM_PACKAGE`, and `COPILOT_NPM_PACKAGE`.
 
 Polling mode is the default and does not require a published port. Webhook mode
 requires `relay.telegram.webhook.enabled=true`,
