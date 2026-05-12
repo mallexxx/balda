@@ -164,13 +164,15 @@ profiles:
 ### Docker Compose Runtime
 
 Relay ships a maintained root `Dockerfile` and `compose.yaml` for local Docker
-Compose runtime. The Compose service builds a local image and mounts the current
-project directory as the runtime workspace.
+Compose runtime. This image is a local runtime convenience, not the canonical
+OSS release artifact. The Compose service builds a local image and mounts the
+current project directory as the runtime workspace.
 
 The `Dockerfile` uses a Node Bookworm runtime with the common tools Relay needs:
 
 ```dockerfile
-FROM node:lts-bookworm
+ARG NODE_IMAGE=node:24-bookworm
+FROM ${NODE_IMAGE}
 
 RUN apt-get update \
  && apt-get install -y --no-install-recommends \
@@ -241,10 +243,11 @@ The container image bundles Relay plus every provider CLI detected by
 Code is detected through the real `claude` binary; `claudecode` is not a
 supported binary name. Provider credentials are not baked into the image.
 Authenticate through provider environment variables or by running provider login
-commands through Compose. If you need fully repeatable builds, pin a concrete
-supported Bookworm tag such as `node:24-bookworm` and/or the Dockerfile package
-build args: `RELAY_NPM_PACKAGE`, `CODEX_NPM_PACKAGE`, `OPENCODE_NPM_PACKAGE`,
-`GEMINI_NPM_PACKAGE`, `CLAUDE_CODE_NPM_PACKAGE`, and `COPILOT_NPM_PACKAGE`.
+commands through Compose. If you need fully repeatable builds, pin `NODE_IMAGE`
+to a digest or concrete supported Bookworm tag, and pin the Dockerfile package
+build args to exact npm versions: `RELAY_NPM_PACKAGE`, `CODEX_NPM_PACKAGE`,
+`OPENCODE_NPM_PACKAGE`, `GEMINI_NPM_PACKAGE`, `CLAUDE_CODE_NPM_PACKAGE`, and
+`COPILOT_NPM_PACKAGE`.
 
 Polling mode is the default and does not require a published port. Webhook mode
 requires `relay.telegram.webhook.enabled=true`,

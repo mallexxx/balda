@@ -1,6 +1,7 @@
 package messenger
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"net/http"
@@ -21,6 +22,7 @@ type fakeChatActionClient struct {
 	chatActionResults  []sendChatActionResult
 	chatActionContexts []context.Context
 	messages           []client.SendMessageJSONRequestBody
+	drafts             []client.SendMessageDraftJSONRequestBody
 	sendMessageResults []sendMessageResult
 	messageContexts    []context.Context
 }
@@ -85,6 +87,54 @@ func (f *fakeChatActionClient) SendMessageWithResponse(
 		return result.resp, result.err
 	}
 	return successfulSendMessageResponse(len(f.messages)), nil
+}
+
+func (f *fakeChatActionClient) SendMessageDraftWithResponse(
+	ctx context.Context,
+	body client.SendMessageDraftJSONRequestBody,
+	_ ...client.RequestEditorFn,
+) (*client.SendMessageDraftResponse, error) {
+	f.messageContexts = append(f.messageContexts, ctx)
+	f.drafts = append(f.drafts, body)
+	return &client.SendMessageDraftResponse{
+		HTTPResponse: &http.Response{StatusCode: http.StatusOK, Status: "200 OK"},
+		JSON200: &struct {
+			Ok     client.SendMessageDraft200Ok `json:"ok"`
+			Result bool                         `json:"result"`
+		}{
+			Ok:     true,
+			Result: true,
+		},
+	}, nil
+}
+
+func TestMessengerDebugLogsDoNotIncludeMessageContent(t *testing.T) {
+	t.Parallel()
+
+	var logs bytes.Buffer
+	tgClient := &fakeChatActionClient{}
+	logger := zerolog.New(&logs).Level(zerolog.DebugLevel)
+	m := NewMessenger(tgClient, logger)
+
+	if err := m.SendDraftPlain(context.Background(), 9001, 1, "secret draft text", 0); err != nil {
+		t.Fatalf("SendDraftPlain() error = %v", err)
+	}
+	m.SetAgentReplyFormattingMode(telegramfmt.ModeHTML)
+	if err := m.SendAgentReply(context.Background(), 9001, "secret reply text", 0); err != nil {
+		t.Fatalf("SendAgentReply() error = %v", err)
+	}
+
+	got := logs.String()
+	for _, forbidden := range []string{"secret draft text", "secret reply text"} {
+		if strings.Contains(got, forbidden) {
+			t.Fatalf("debug logs contain message content %q: %s", forbidden, got)
+		}
+	}
+	for _, want := range []string{"draft_text_bytes", "telegram_payload_bytes"} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("debug logs missing safe metadata %q: %s", want, got)
+		}
+	}
 }
 
 func TestSendPlainUsesBoundedSendContext(t *testing.T) {

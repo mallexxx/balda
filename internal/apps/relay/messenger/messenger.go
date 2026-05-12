@@ -43,7 +43,7 @@ func (m *Messenger) SendDraftPlain(ctx context.Context, chatID int64, draftID in
 	m.logger.Debug().
 		Int64("chat_id", chatID).
 		Int("draft_id", draftID).
-		Str("draft_text", text).
+		Int("draft_text_bytes", len(text)).
 		Msg("sending plain draft")
 	req := client.SendMessageDraftJSONRequestBody{
 		ChatId:  chatID,
@@ -121,7 +121,7 @@ func (m *Messenger) sendMessageWithMode(ctx context.Context, chatID int64, text 
 	m.logger.Debug().
 		Int64("chat_id", chatID).
 		Str("mode", mode).
-		Str("telegram_payload", text).
+		Int("telegram_payload_bytes", len(text)).
 		Msg("sending telegram message")
 	req := client.SendMessageJSONRequestBody{
 		ChatId: chatID,

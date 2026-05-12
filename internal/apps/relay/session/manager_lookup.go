@@ -15,6 +15,7 @@ func (m *Manager) GetSession(locator SessionLocator) (*TopicSession, error) {
 
 	m.mu.RLock()
 	ts := m.sessions[sessionID]
+	activeSessions := len(m.sessions)
 	m.mu.RUnlock()
 
 	if ts == nil {
@@ -22,7 +23,7 @@ func (m *Manager) GetSession(locator SessionLocator) (*TopicSession, error) {
 			Str("session_id", sessionID).
 			Str("channel_type", locator.ChannelType).
 			Str("address_key", locator.AddressKey).
-			Int("active_sessions", len(m.sessions)).
+			Int("active_sessions", activeSessions).
 			Msg("session not found")
 		return nil, fmt.Errorf("no session for %s", locator.AddressKey)
 	}

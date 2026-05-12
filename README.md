@@ -55,7 +55,8 @@ create a named topic session:
 ## Docker Compose
 
 Relay ships a root [`Dockerfile`](Dockerfile) and [`compose.yaml`](compose.yaml)
-for local Docker Compose runtime. The service builds a local image, runs
+for local Docker Compose runtime. This image is a local runtime convenience, not
+the canonical OSS release artifact. The service builds a local image, runs
 `relay`, and bind-mounts the current directory as `/workspace`.
 
 ```bash
@@ -71,6 +72,8 @@ baking local state into the image.
 Provider credentials are not baked into the image. Authenticate with provider
 environment variables or provider login commands run through Compose;
 `relay-home` persists provider CLI home config across container recreates.
+For repeatable image builds, pin `NODE_IMAGE` and the `*_NPM_PACKAGE` Docker
+build args to concrete versions.
 
 Polling mode is the default and does not require publishing a port. Webhook
 setup and image details are documented in [`docs/relay.md`](docs/relay.md).

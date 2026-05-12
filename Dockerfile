@@ -1,4 +1,5 @@
-FROM node:lts-bookworm
+ARG NODE_IMAGE=node:24-bookworm
+FROM ${NODE_IMAGE}
 
 ARG RELAY_NPM_PACKAGE=@normahq/relay
 ARG CODEX_NPM_PACKAGE=@openai/codex
