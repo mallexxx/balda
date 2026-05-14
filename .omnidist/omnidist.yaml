@@ -1,8 +1,8 @@
 profiles:
-  relay:
+  balda:
     tool:
-      name: relay
-      main: ./cmd/relay
+      name: balda
+      main: ./cmd/balda
     readme-path: ./README.md
     version:
       source: git-tag
@@ -23,7 +23,7 @@ profiles:
       cgo: false
     distributions:
       npm:
-        package: '@normahq/relay'
+        package: '@normahq/balda'
         registry: https://registry.npmjs.org
         access: public
         include-readme: true

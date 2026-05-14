@@ -27,11 +27,11 @@ func TestWorkspaceServerPublishesInstructionsAndToolDescriptions(t *testing.T) {
 		toolByName[tool.Name] = tool
 	}
 
-	if got := toolByName["relay.workspace.import"].Description; !strings.Contains(got, "discards uncommitted workspace changes") {
-		t.Fatalf("relay.workspace.import description = %q, want destructive import guidance", got)
+	if got := toolByName["balda.workspace.import"].Description; !strings.Contains(got, "discards uncommitted workspace changes") {
+		t.Fatalf("balda.workspace.import description = %q, want destructive import guidance", got)
 	}
-	if got := toolByName["relay.workspace.export"].Description; !strings.Contains(got, "Conventional Commit") {
-		t.Fatalf("relay.workspace.export description = %q, want commit-message guidance", got)
+	if got := toolByName["balda.workspace.export"].Description; !strings.Contains(got, "Conventional Commit") {
+		t.Fatalf("balda.workspace.export description = %q, want commit-message guidance", got)
 	}
 }
 

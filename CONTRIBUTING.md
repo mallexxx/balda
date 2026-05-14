@@ -1,6 +1,6 @@
 # Contributing
 
-Thanks for contributing to `relay`.
+Thanks for contributing to `balda`.
 
 ## Development Setup
 
@@ -11,10 +11,10 @@ Thanks for contributing to `relay`.
 go mod tidy
 ```
 
-3. Run relay locally when needed:
+3. Run balda locally when needed:
 
 ```bash
-go run ./cmd/relay --help
+go run ./cmd/balda --help
 ```
 
 ## Required Quality Gates
@@ -43,6 +43,6 @@ go tool golangci-lint run
 ## Documentation Policy
 
 - Keep `README.md` focused on installation and usage.
-- Keep `docs/relay.md` focused on technical architecture/spec details.
+- Keep `docs/balda.md` focused on technical architecture/spec details.
 - Keep `AGENTS.md` focused on agent workflow guardrails.
-- If bot commands or config contracts change, update both `README.md` and `docs/relay.md`.
+- If bot commands or config contracts change, update both `README.md` and `docs/balda.md`.

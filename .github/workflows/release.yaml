@@ -31,8 +31,8 @@ jobs:
           build_date="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
           ldflags="-s -w -X main.version=${version} -X main.commit=${GITHUB_SHA} -X main.date=${build_date}"
 
-          binary="relay"
-          main_pkg="./cmd/relay"
+          binary="balda"
+          main_pkg="./cmd/balda"
           mkdir -p dist
 
           targets=(

@@ -1,11 +1,11 @@
 services:
-  relay:
+  balda:
     build: .
     working_dir: /workspace
     volumes:
       - .:/workspace
-      - relay-home:/home/node
+      - balda-home:/home/node
     command: start
 
 volumes:
-  relay-home:
+  balda-home:

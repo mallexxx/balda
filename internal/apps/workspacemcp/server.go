@@ -20,12 +20,12 @@ const (
 	httpIdleTimeout       = 60 * time.Second
 )
 
-const serverInstructions = `Use this server to sync and land relay workspaces when relay workspace mode is enabled.
+const serverInstructions = `Use this server to sync and land balda workspaces when balda workspace mode is enabled.
 
-- relay.workspace.import rebases the session workspace branch onto the configured base branch.
-- relay.workspace.import discards uncommitted workspace changes before rebasing.
-- relay.workspace.export squash-merges the session workspace branch into the configured base branch.
-- relay.workspace.export requires a Conventional Commit message.`
+- balda.workspace.import rebases the session workspace branch onto the configured base branch.
+- balda.workspace.import discards uncommitted workspace changes before rebasing.
+- balda.workspace.export squash-merges the session workspace branch into the configured base branch.
+- balda.workspace.export requires a Conventional Commit message.`
 
 type ToolError struct {
 	Operation string `json:"operation" jsonschema:"tool name that produced the error"`
@@ -175,17 +175,17 @@ type service struct {
 
 func (s *service) registerTools(server *mcp.Server) {
 	mcp.AddTool(server, &mcp.Tool{
-		Name:        "relay.workspace.import",
+		Name:        "balda.workspace.import",
 		Description: "Rebase the session workspace branch onto the configured base branch. Requires workspace mode and discards uncommitted workspace changes before rebasing.",
 	}, s.importTool)
 	mcp.AddTool(server, &mcp.Tool{
-		Name:        "relay.workspace.export",
+		Name:        "balda.workspace.export",
 		Description: "Squash-merge the session workspace branch into the configured base branch and create a commit using the provided Conventional Commit message. Requires workspace mode.",
 	}, s.exportTool)
 }
 
 type importInput struct {
-	SessionID string `json:"session_id" jsonschema:"relay session ID whose workspace should be rebased onto the configured base branch"`
+	SessionID string `json:"session_id" jsonschema:"Balda session ID whose workspace should be rebased onto the configured base branch"`
 }
 
 type importOutput struct {
@@ -194,12 +194,12 @@ type importOutput struct {
 
 func (s *service) importTool(ctx context.Context, _ *mcp.CallToolRequest, in importInput) (*mcp.CallToolResult, importOutput, error) {
 	if strings.TrimSpace(in.SessionID) == "" {
-		result, out := validationFailure("relay.workspace.import", "session_id is required")
+		result, out := validationFailure("balda.workspace.import", "session_id is required")
 		return result, importOutput{ToolOutcome: out}, nil
 	}
 
 	if err := s.svc.Import(ctx, in.SessionID); err != nil {
-		result, out := backendFailure("relay.workspace.import", err)
+		result, out := backendFailure("balda.workspace.import", err)
 		return result, importOutput{ToolOutcome: out}, nil
 	}
 
@@ -209,7 +209,7 @@ func (s *service) importTool(ctx context.Context, _ *mcp.CallToolRequest, in imp
 }
 
 type exportInput struct {
-	SessionID     string `json:"session_id" jsonschema:"relay session ID whose workspace should be exported to the configured base branch"`
+	SessionID     string `json:"session_id" jsonschema:"Balda session ID whose workspace should be exported to the configured base branch"`
 	CommitMessage string `json:"commit_message" jsonschema:"Conventional Commit message for the squash-merge commit"`
 }
 
@@ -219,16 +219,16 @@ type exportOutput struct {
 
 func (s *service) exportTool(ctx context.Context, _ *mcp.CallToolRequest, in exportInput) (*mcp.CallToolResult, exportOutput, error) {
 	if strings.TrimSpace(in.SessionID) == "" {
-		result, out := validationFailure("relay.workspace.export", "session_id is required")
+		result, out := validationFailure("balda.workspace.export", "session_id is required")
 		return result, exportOutput{ToolOutcome: out}, nil
 	}
 	if strings.TrimSpace(in.CommitMessage) == "" {
-		result, out := validationFailure("relay.workspace.export", "commit_message is required")
+		result, out := validationFailure("balda.workspace.export", "commit_message is required")
 		return result, exportOutput{ToolOutcome: out}, nil
 	}
 
 	if err := s.svc.Export(ctx, in.SessionID, in.CommitMessage); err != nil {
-		result, out := backendFailure("relay.workspace.export", err)
+		result, out := backendFailure("balda.workspace.export", err)
 		return result, exportOutput{ToolOutcome: out}, nil
 	}
 

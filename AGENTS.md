@@ -28,24 +28,25 @@ go tool golangci-lint run
 - Keep Relay startup order strict: config load -> bundled MCP lifecycle -> relay provider -> channel runtime.
 - Keep channel/session boundaries stable (`chat_id`, `topic_id`) and preserve lazy restore semantics.
 - Keep workspace mode behavior stable (`on|off|auto`) with safe defaults and explicit failures.
-- Keep Relay MCP/server contracts backward compatible (`relay.workspace.*` and alias tools).
-- Keep config loading via app-specific `.config/relay/config.yaml` with `RELAY_*` env overrides.
+- Keep Relay MCP/server contracts backward compatible (`balda.workspace.*` and alias tools).
+- Keep config loading via app-specific `.config/balda/config.yaml` with `BALDA_*` env overrides.
 
 ## Bot Commands (Current Contract)
 
 - `/start owner=<owner_token>`: direct message only; owner authentication/bootstrap entrypoint.
 - `/start invite=<invite_token>`: direct message only; collaborator invite onboarding entrypoint.
 - `/topic <name>`: owner/collaborator, direct message only; creates a topic session labeled `<name>` using the configured relay provider.
+- `/goal <objective>`: owner/collaborator; starts a Goalkeeper loop in the current session context/workspace with started/iteration/final updates.
 - `/close`: owner/collaborator, direct message only; closes a topic session or stops the owner session.
-- `/cancel`: owner/collaborator; cancels in-flight turn processing for the current session and drops queued turns.
+- `/cancel`: owner/collaborator; cancels in-flight turn processing, drops queued turns, and aborts active `/goal` run for the current session.
 - `/user add|list|remove <user_id>`: owner only; collaborator invite and management commands.
-- Keep command behavior and access expectations backward compatible; when changing commands, update `README.md` and `docs/relay.md` as part of the same change.
+- Keep command behavior and access expectations backward compatible; when changing commands, update `README.md` and `docs/balda.md` as part of the same change.
 
 ## Documentation
 
 - Product installation/usage docs are in `README.md`.
 - Development/contribution workflow is in `CONTRIBUTING.md`.
-- Relay technical spec and operational details are in `docs/relay.md`.
+- Relay technical spec and operational details are in `docs/balda.md`.
 
 ## Release
 
@@ -53,25 +54,100 @@ go tool golangci-lint run
 - Version source is Git tags (`version.source: git-tag`).
 - Publish flows are tag-driven via GitHub Actions (`release.yaml`, `omnidist-release.yaml`).
 
-<!-- BEGIN BEADS INTEGRATION v:1 profile:minimal hash:ca08a54f -->
-## Beads Issue Tracker
+<!-- BEGIN BEADS INTEGRATION v:1 profile:full hash:f65d5d33 -->
+## Issue Tracking with bd (beads)
 
-This project uses **bd (beads)** for issue tracking. Run `bd prime` to see full workflow context and commands.
+**IMPORTANT**: This project uses **bd (beads)** for ALL issue tracking. Do NOT use markdown TODOs, task lists, or other tracking methods.
 
-### Quick Reference
+### Why bd?
+
+- Dependency-aware: Track blockers and relationships between issues
+- Git-friendly: Dolt-powered version control with native sync
+- Agent-optimized: JSON output, ready work detection, discovered-from links
+- Prevents duplicate tracking systems and confusion
+
+### Quick Start
+
+**Check for ready work:**
 
 ```bash
-bd ready              # Find available work
-bd show <id>          # View issue details
-bd update <id> --claim  # Claim work
-bd close <id>         # Complete work
+bd ready --json
 ```
 
-### Rules
+**Create new issues:**
 
-- Use `bd` for ALL task tracking — do NOT use TodoWrite, TaskCreate, or markdown TODO lists
-- Run `bd prime` for detailed command reference and session close protocol
-- Use `bd remember` for persistent knowledge — do NOT use MEMORY.md files
+```bash
+bd create "Issue title" --description="Detailed context" -t bug|feature|task -p 0-4 --json
+bd create "Issue title" --description="What this issue is about" -p 1 --deps discovered-from:bd-123 --json
+```
+
+**Claim and update:**
+
+```bash
+bd update <id> --claim --json
+bd update bd-42 --priority 1 --json
+```
+
+**Complete work:**
+
+```bash
+bd close bd-42 --reason "Completed" --json
+```
+
+### Issue Types
+
+- `bug` - Something broken
+- `feature` - New functionality
+- `task` - Work item (tests, docs, refactoring)
+- `epic` - Large feature with subtasks
+- `chore` - Maintenance (dependencies, tooling)
+
+### Priorities
+
+- `0` - Critical (security, data loss, broken builds)
+- `1` - High (major features, important bugs)
+- `2` - Medium (default, nice-to-have)
+- `3` - Low (polish, optimization)
+- `4` - Backlog (future ideas)
+
+### Workflow for AI Agents
+
+1. **Check ready work**: `bd ready` shows unblocked issues
+2. **Claim your task atomically**: `bd update <id> --claim`
+3. **Work on it**: Implement, test, document
+4. **Discover new work?** Create linked issue:
+   - `bd create "Found bug" --description="Details about what was found" -p 1 --deps discovered-from:<parent-id>`
+5. **Complete**: `bd close <id> --reason "Done"`
+
+### Quality
+- Use `--acceptance` and `--design` fields when creating issues
+- Use `--validate` to check description completeness
+
+### Lifecycle
+- `bd defer <id>` / `bd supersede <id>` for issue management
+- `bd stale` / `bd orphans` / `bd lint` for hygiene
+- `bd human <id>` to flag for human decisions
+- `bd formula list` / `bd mol pour <name>` for structured workflows
+
+### Auto-Sync
+
+bd automatically syncs via Dolt:
+
+- Each write auto-commits to Dolt history
+- Use `bd dolt push`/`bd dolt pull` for remote sync
+- No manual export/import needed!
+
+### Important Rules
+
+- ✅ Use bd for ALL task tracking
+- ✅ Always use `--json` flag for programmatic use
+- ✅ Link discovered work with `discovered-from` dependencies
+- ✅ Check `bd ready` before asking "what should I work on?"
+- ❌ Do NOT create markdown TODO lists
+- ❌ Do NOT use external issue trackers
+- ❌ Do NOT duplicate tracking systems
+
+For more details, see README.md and docs/QUICKSTART.md.
 
 ## Session Completion
 
@@ -98,4 +174,5 @@ bd close <id>         # Complete work
 - NEVER stop before pushing - that leaves work stranded locally
 - NEVER say "ready to push when you are" - YOU must push
 - If push fails, resolve and retry until it succeeds
+
 <!-- END BEADS INTEGRATION -->

@@ -1,7 +1,7 @@
 ARG NODE_IMAGE=node:24-bookworm
 FROM ${NODE_IMAGE}
 
-ARG RELAY_NPM_PACKAGE=@normahq/relay
+ARG BALDA_NPM_PACKAGE=@normahq/balda
 ARG CODEX_NPM_PACKAGE=@openai/codex
 ARG OPENCODE_NPM_PACKAGE=opencode-ai
 ARG GEMINI_NPM_PACKAGE=@google/gemini-cli
@@ -18,7 +18,7 @@ RUN apt-get update \
  && rm -rf /var/lib/apt/lists/*
 
 RUN npm install -g \
-      "${RELAY_NPM_PACKAGE}" \
+      "${BALDA_NPM_PACKAGE}" \
       "${CODEX_NPM_PACKAGE}" \
       "${OPENCODE_NPM_PACKAGE}" \
       "${GEMINI_NPM_PACKAGE}" \
@@ -26,7 +26,7 @@ RUN npm install -g \
       "${COPILOT_NPM_PACKAGE}" \
  && npm cache clean --force
 
-RUN command -v relay \
+RUN command -v balda \
  && command -v codex \
  && command -v opencode \
  && command -v gemini \
@@ -42,4 +42,4 @@ RUN command -v relay \
 USER node
 
 WORKDIR /workspace
-ENTRYPOINT ["relay"]
+ENTRYPOINT ["balda"]

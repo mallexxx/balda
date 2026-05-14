@@ -1,15 +1,15 @@
 # Telegram Message Formatting
 
-Relay sends final assistant responses to Telegram with the configured
-`relay.telegram.formatting_mode`.
+Balda sends final assistant responses to Telegram with the configured
+`balda.telegram.formatting_mode`.
 
 Allowed values:
 
-- `markdownv2` (default): agent output is normal Markdown or plain text. Relay converts it to Telegram MarkdownV2 and sends with `parse_mode=MarkdownV2`.
-- `html`: agent output is Telegram HTML. Relay escapes unsafe raw text while preserving supported Telegram HTML tags and sends with `parse_mode=HTML`.
-- `none`: Relay sends raw text without `parse_mode`.
+- `markdownv2` (default): agent output is normal Markdown or plain text. Balda converts it to Telegram MarkdownV2 and sends with `parse_mode=MarkdownV2`.
+- `html`: agent output is Telegram HTML. Balda escapes unsafe raw text while preserving supported Telegram HTML tags and sends with `parse_mode=HTML`.
+- `none`: Balda sends raw text without `parse_mode`.
 
-Relay follows Telegram Bot API formatting rules:
+Balda follows Telegram Bot API formatting rules:
 <https://core.telegram.org/bots/api#formatting-options>
 
 ## MarkdownV2 Mode
@@ -26,7 +26,7 @@ Supported input:
 - blockquotes
 - unordered, nested, and ordered lists
 
-Relay behavior:
+Balda behavior:
 
 - Converts normal Markdown/plain text to Telegram MarkdownV2.
 - Escapes Telegram MarkdownV2 reserved characters in generated payloads.
@@ -40,7 +40,7 @@ Not supported or not recommended:
 
 - Do not ask agents to write raw Telegram MarkdownV2 syntax.
 - Do not pre-escape Telegram MarkdownV2 reserved characters in agent instructions.
-- Do not rely on exact rendered bullet glyphs; Relay may normalize list markers for Telegram.
+- Do not rely on exact rendered bullet glyphs; Balda may normalize list markers for Telegram.
 - Do not rely on raw Telegram entity syntax in Markdown mode.
 - Do not use `---` as prose decoration on its own line unless a message split is intended.
 
@@ -49,7 +49,7 @@ Example model output:
 ~~~markdown
 **Build:** success
 
-- Run `relay start`
+- Run `balda start`
 - Check logs
 
 ```bash
@@ -69,7 +69,7 @@ Second Telegram message.
 
 ## HTML Mode
 
-Use `html` when agents should write Telegram HTML directly. Relay preserves supported Telegram HTML and escapes unsafe raw text.
+Use `html` when agents should write Telegram HTML directly. Balda preserves supported Telegram HTML and escapes unsafe raw text.
 
 Supported tags and attributes:
 
@@ -87,7 +87,7 @@ Supported tags and attributes:
 - `<tg-emoji emoji-id="...">`
 - `<tg-time unix="..." format="...">`; `format` is optional
 
-Relay behavior:
+Balda behavior:
 
 - Preserves supported Telegram HTML tags.
 - Preserves only supported attributes for supported tags.
@@ -108,7 +108,7 @@ Example model output:
 
 ```html
 <b>Build:</b> success.
-Run <code>relay start</code>.
+Run <code>balda start</code>.
 
 <pre><code class="language-bash">go test ./...</code></pre>
 ```
@@ -117,7 +117,7 @@ Run <code>relay start</code>.
 
 Use `none` when the response must be delivered exactly as raw text.
 
-Relay behavior:
+Balda behavior:
 
 - Omits Telegram `parse_mode`.
 - Does not escape Markdown or HTML.

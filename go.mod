@@ -1,4 +1,4 @@
-module github.com/normahq/relay
+module github.com/normahq/balda
 
 go 1.26.3
 

@@ -22,12 +22,12 @@ const (
 	httpIdleTimeout       = 60 * time.Second
 )
 
-const serverInstructions = `Use this server to persist relay state in relay.db.
+const serverInstructions = `Use this server to persist balda state in balda.db.
 
-- relay.state.* reads and writes session or app key-value data.
-- relay.state.ns_* scopes keys under an explicit namespace such as a session ID or agent name.
-- relay.state.clear deletes all data owned by this server and is destructive.
-- relay.state.get_json, set_json, and merge_json are for JSON values rather than raw strings.`
+- balda.state.* reads and writes session or app key-value data.
+- balda.state.ns_* scopes keys under an explicit namespace such as a session ID or agent name.
+- balda.state.clear deletes all data owned by this server and is destructive.
+- balda.state.get_json, set_json, and merge_json are for JSON values rather than raw strings.`
 
 // Run serves the session state MCP server over stdio.
 func Run(ctx context.Context, store Store) error {
@@ -141,22 +141,22 @@ type service struct {
 
 func (s *service) registerTools(server *mcp.Server) {
 	// Basic key-value operations
-	mcp.AddTool(server, &mcp.Tool{Name: "relay.state.get", Description: "Read a raw string value from persistent relay state by exact key."}, s.getKey)
-	mcp.AddTool(server, &mcp.Tool{Name: "relay.state.set", Description: "Write a raw string value to persistent relay state under an exact key."}, s.setKey)
-	mcp.AddTool(server, &mcp.Tool{Name: "relay.state.delete", Description: "Delete one exact key from persistent relay state."}, s.deleteKey)
-	mcp.AddTool(server, &mcp.Tool{Name: "relay.state.list", Description: "List persistent relay-state keys, optionally restricted to a prefix."}, s.listKeys)
-	mcp.AddTool(server, &mcp.Tool{Name: "relay.state.clear", Description: "Delete all keys stored by relay.state. This is destructive and affects every session using this state store."}, s.clearState)
+	mcp.AddTool(server, &mcp.Tool{Name: "balda.state.get", Description: "Read a raw string value from persistent balda state by exact key."}, s.getKey)
+	mcp.AddTool(server, &mcp.Tool{Name: "balda.state.set", Description: "Write a raw string value to persistent balda state under an exact key."}, s.setKey)
+	mcp.AddTool(server, &mcp.Tool{Name: "balda.state.delete", Description: "Delete one exact key from persistent balda state."}, s.deleteKey)
+	mcp.AddTool(server, &mcp.Tool{Name: "balda.state.list", Description: "List persistent balda-state keys, optionally restricted to a prefix."}, s.listKeys)
+	mcp.AddTool(server, &mcp.Tool{Name: "balda.state.clear", Description: "Delete all keys stored by balda.state. This is destructive and affects every session using this state store."}, s.clearState)
 
 	// JSON operations
-	mcp.AddTool(server, &mcp.Tool{Name: "relay.state.get_json", Description: "Read a key from persistent relay state and return its parsed JSON value."}, s.getJSON)
-	mcp.AddTool(server, &mcp.Tool{Name: "relay.state.set_json", Description: "Write a JSON value to persistent relay state under an exact key."}, s.setJSON)
-	mcp.AddTool(server, &mcp.Tool{Name: "relay.state.merge_json", Description: "Merge object fields into an existing JSON object stored at a key and return the merged object."}, s.mergeJSON)
+	mcp.AddTool(server, &mcp.Tool{Name: "balda.state.get_json", Description: "Read a key from persistent balda state and return its parsed JSON value."}, s.getJSON)
+	mcp.AddTool(server, &mcp.Tool{Name: "balda.state.set_json", Description: "Write a JSON value to persistent balda state under an exact key."}, s.setJSON)
+	mcp.AddTool(server, &mcp.Tool{Name: "balda.state.merge_json", Description: "Merge object fields into an existing JSON object stored at a key and return the merged object."}, s.mergeJSON)
 
 	// Namespaced operations for agent/session isolation
-	mcp.AddTool(server, &mcp.Tool{Name: "relay.state.ns_get", Description: "Read a raw string value from a namespace-scoped key. Use namespaces such as session IDs or agent names to avoid collisions."}, s.nsGet)
-	mcp.AddTool(server, &mcp.Tool{Name: "relay.state.ns_set", Description: "Write a raw string value to a namespace-scoped key for session or agent isolation."}, s.nsSet)
-	mcp.AddTool(server, &mcp.Tool{Name: "relay.state.ns_set_json", Description: "Write a JSON value to a namespace-scoped key for session or agent isolation."}, s.nsSetJSON)
-	mcp.AddTool(server, &mcp.Tool{Name: "relay.state.ns_list", Description: "List keys stored inside one namespace without returning keys from other namespaces."}, s.nsList)
+	mcp.AddTool(server, &mcp.Tool{Name: "balda.state.ns_get", Description: "Read a raw string value from a namespace-scoped key. Use namespaces such as session IDs or agent names to avoid collisions."}, s.nsGet)
+	mcp.AddTool(server, &mcp.Tool{Name: "balda.state.ns_set", Description: "Write a raw string value to a namespace-scoped key for session or agent isolation."}, s.nsSet)
+	mcp.AddTool(server, &mcp.Tool{Name: "balda.state.ns_set_json", Description: "Write a JSON value to a namespace-scoped key for session or agent isolation."}, s.nsSetJSON)
+	mcp.AddTool(server, &mcp.Tool{Name: "balda.state.ns_list", Description: "List keys stored inside one namespace without returning keys from other namespaces."}, s.nsList)
 }
 
 // nsKey builds a namespaced key for isolation.
@@ -169,13 +169,13 @@ func nsKey(namespace, key string) string {
 func (s *service) getKey(ctx context.Context, _ *mcp.CallToolRequest, in getKeyInput) (*mcp.CallToolResult, getKeyOutput, error) {
 	key := strings.TrimSpace(in.Key)
 	if key == "" {
-		result, out := validationFailure("relay.state.get", "key is required")
+		result, out := validationFailure("balda.state.get", "key is required")
 		return result, getKeyOutput{ToolOutcome: out}, nil
 	}
 
 	value, ok, err := s.store.Get(ctx, key)
 	if err != nil {
-		result, out := backendFailure("relay.state.get", err)
+		result, out := backendFailure("balda.state.get", err)
 		return result, getKeyOutput{ToolOutcome: out}, nil
 	}
 	return nil, getKeyOutput{ToolOutcome: okOutcome(), Value: value, Found: ok}, nil
@@ -184,12 +184,12 @@ func (s *service) getKey(ctx context.Context, _ *mcp.CallToolRequest, in getKeyI
 func (s *service) setKey(ctx context.Context, _ *mcp.CallToolRequest, in setKeyInput) (*mcp.CallToolResult, basicOutput, error) {
 	key := strings.TrimSpace(in.Key)
 	if key == "" {
-		result, out := validationFailure("relay.state.set", "key is required")
+		result, out := validationFailure("balda.state.set", "key is required")
 		return result, basicOutput{ToolOutcome: out}, nil
 	}
 
 	if err := s.store.Set(ctx, key, in.Value); err != nil {
-		result, out := backendFailure("relay.state.set", err)
+		result, out := backendFailure("balda.state.set", err)
 		return result, basicOutput{ToolOutcome: out}, nil
 	}
 	return nil, basicOutput{ToolOutcome: okOutcome()}, nil
@@ -198,12 +198,12 @@ func (s *service) setKey(ctx context.Context, _ *mcp.CallToolRequest, in setKeyI
 func (s *service) deleteKey(ctx context.Context, _ *mcp.CallToolRequest, in deleteKeyInput) (*mcp.CallToolResult, basicOutput, error) {
 	key := strings.TrimSpace(in.Key)
 	if key == "" {
-		result, out := validationFailure("relay.state.delete", "key is required")
+		result, out := validationFailure("balda.state.delete", "key is required")
 		return result, basicOutput{ToolOutcome: out}, nil
 	}
 
 	if err := s.store.Delete(ctx, key); err != nil {
-		result, out := backendFailure("relay.state.delete", err)
+		result, out := backendFailure("balda.state.delete", err)
 		return result, basicOutput{ToolOutcome: out}, nil
 	}
 	return nil, basicOutput{ToolOutcome: okOutcome()}, nil
@@ -214,7 +214,7 @@ func (s *service) listKeys(ctx context.Context, _ *mcp.CallToolRequest, in listK
 
 	keys, err := s.store.List(ctx, prefix)
 	if err != nil {
-		result, out := backendFailure("relay.state.list", err)
+		result, out := backendFailure("balda.state.list", err)
 		return result, listKeysOutput{ToolOutcome: out}, nil
 	}
 	return nil, listKeysOutput{ToolOutcome: okOutcome(), Keys: keys}, nil
@@ -222,7 +222,7 @@ func (s *service) listKeys(ctx context.Context, _ *mcp.CallToolRequest, in listK
 
 func (s *service) clearState(ctx context.Context, _ *mcp.CallToolRequest, _ noInput) (*mcp.CallToolResult, basicOutput, error) {
 	if err := s.store.Clear(ctx); err != nil {
-		result, out := backendFailure("relay.state.clear", err)
+		result, out := backendFailure("balda.state.clear", err)
 		return result, basicOutput{ToolOutcome: out}, nil
 	}
 	return nil, basicOutput{ToolOutcome: okOutcome()}, nil
@@ -233,13 +233,13 @@ func (s *service) clearState(ctx context.Context, _ *mcp.CallToolRequest, _ noIn
 func (s *service) getJSON(ctx context.Context, _ *mcp.CallToolRequest, in getJSONInput) (*mcp.CallToolResult, getJSONOutput, error) {
 	key := strings.TrimSpace(in.Key)
 	if key == "" {
-		result, out := validationFailure("relay.state.get_json", "key is required")
+		result, out := validationFailure("balda.state.get_json", "key is required")
 		return result, getJSONOutput{ToolOutcome: out}, nil
 	}
 
 	value, ok, err := s.store.GetJSON(ctx, key)
 	if err != nil {
-		result, out := backendFailure("relay.state.get_json", err)
+		result, out := backendFailure("balda.state.get_json", err)
 		return result, getJSONOutput{ToolOutcome: out}, nil
 	}
 	return nil, getJSONOutput{ToolOutcome: okOutcome(), Value: value, Found: ok}, nil
@@ -248,12 +248,12 @@ func (s *service) getJSON(ctx context.Context, _ *mcp.CallToolRequest, in getJSO
 func (s *service) setJSON(ctx context.Context, _ *mcp.CallToolRequest, in setJSONInput) (*mcp.CallToolResult, basicOutput, error) {
 	key := strings.TrimSpace(in.Key)
 	if key == "" {
-		result, out := validationFailure("relay.state.set_json", "key is required")
+		result, out := validationFailure("balda.state.set_json", "key is required")
 		return result, basicOutput{ToolOutcome: out}, nil
 	}
 
 	if err := s.store.SetJSON(ctx, key, in.Value); err != nil {
-		result, out := backendFailure("relay.state.set_json", err)
+		result, out := backendFailure("balda.state.set_json", err)
 		return result, basicOutput{ToolOutcome: out}, nil
 	}
 	return nil, basicOutput{ToolOutcome: okOutcome()}, nil
@@ -262,17 +262,17 @@ func (s *service) setJSON(ctx context.Context, _ *mcp.CallToolRequest, in setJSO
 func (s *service) mergeJSON(ctx context.Context, _ *mcp.CallToolRequest, in mergeJSONInput) (*mcp.CallToolResult, mergeJSONOutput, error) {
 	key := strings.TrimSpace(in.Key)
 	if key == "" {
-		result, out := validationFailure("relay.state.merge_json", "key is required")
+		result, out := validationFailure("balda.state.merge_json", "key is required")
 		return result, mergeJSONOutput{ToolOutcome: out}, nil
 	}
 	if len(in.Value) == 0 {
-		result, out := validationFailure("relay.state.merge_json", "value must have at least one field")
+		result, out := validationFailure("balda.state.merge_json", "value must have at least one field")
 		return result, mergeJSONOutput{ToolOutcome: out}, nil
 	}
 
 	merged, err := s.store.MergeJSON(ctx, key, in.Value)
 	if err != nil {
-		result, out := backendFailure("relay.state.merge_json", err)
+		result, out := backendFailure("balda.state.merge_json", err)
 		return result, mergeJSONOutput{ToolOutcome: out}, nil
 	}
 	return nil, mergeJSONOutput{ToolOutcome: okOutcome(), Merged: merged}, nil
@@ -283,18 +283,18 @@ func (s *service) mergeJSON(ctx context.Context, _ *mcp.CallToolRequest, in merg
 func (s *service) nsGet(ctx context.Context, _ *mcp.CallToolRequest, in keyspaceInput) (*mcp.CallToolResult, getKeyOutput, error) {
 	namespace := strings.TrimSpace(in.Namespace)
 	if namespace == "" {
-		result, out := validationFailure("relay.state.ns_get", "namespace is required")
+		result, out := validationFailure("balda.state.ns_get", "namespace is required")
 		return result, getKeyOutput{ToolOutcome: out}, nil
 	}
 	key := strings.TrimSpace(in.Key)
 	if key == "" {
-		result, out := validationFailure("relay.state.ns_get", "key is required")
+		result, out := validationFailure("balda.state.ns_get", "key is required")
 		return result, getKeyOutput{ToolOutcome: out}, nil
 	}
 
 	value, ok, err := s.store.Get(ctx, nsKey(namespace, key))
 	if err != nil {
-		result, out := backendFailure("relay.state.ns_get", err)
+		result, out := backendFailure("balda.state.ns_get", err)
 		return result, getKeyOutput{ToolOutcome: out}, nil
 	}
 	return nil, getKeyOutput{ToolOutcome: okOutcome(), Value: value, Found: ok}, nil
@@ -303,17 +303,17 @@ func (s *service) nsGet(ctx context.Context, _ *mcp.CallToolRequest, in keyspace
 func (s *service) nsSet(ctx context.Context, _ *mcp.CallToolRequest, in keyspaceValueInput) (*mcp.CallToolResult, basicOutput, error) {
 	namespace := strings.TrimSpace(in.Namespace)
 	if namespace == "" {
-		result, out := validationFailure("relay.state.ns_set", "namespace is required")
+		result, out := validationFailure("balda.state.ns_set", "namespace is required")
 		return result, basicOutput{ToolOutcome: out}, nil
 	}
 	key := strings.TrimSpace(in.Key)
 	if key == "" {
-		result, out := validationFailure("relay.state.ns_set", "key is required")
+		result, out := validationFailure("balda.state.ns_set", "key is required")
 		return result, basicOutput{ToolOutcome: out}, nil
 	}
 
 	if err := s.store.Set(ctx, nsKey(namespace, key), in.Value); err != nil {
-		result, out := backendFailure("relay.state.ns_set", err)
+		result, out := backendFailure("balda.state.ns_set", err)
 		return result, basicOutput{ToolOutcome: out}, nil
 	}
 	return nil, basicOutput{ToolOutcome: okOutcome()}, nil
@@ -322,17 +322,17 @@ func (s *service) nsSet(ctx context.Context, _ *mcp.CallToolRequest, in keyspace
 func (s *service) nsSetJSON(ctx context.Context, _ *mcp.CallToolRequest, in keyspaceJSONInput) (*mcp.CallToolResult, basicOutput, error) {
 	namespace := strings.TrimSpace(in.Namespace)
 	if namespace == "" {
-		result, out := validationFailure("relay.state.ns_set_json", "namespace is required")
+		result, out := validationFailure("balda.state.ns_set_json", "namespace is required")
 		return result, basicOutput{ToolOutcome: out}, nil
 	}
 	key := strings.TrimSpace(in.Key)
 	if key == "" {
-		result, out := validationFailure("relay.state.ns_set_json", "key is required")
+		result, out := validationFailure("balda.state.ns_set_json", "key is required")
 		return result, basicOutput{ToolOutcome: out}, nil
 	}
 
 	if err := s.store.SetJSON(ctx, nsKey(namespace, key), in.Value); err != nil {
-		result, out := backendFailure("relay.state.ns_set_json", err)
+		result, out := backendFailure("balda.state.ns_set_json", err)
 		return result, basicOutput{ToolOutcome: out}, nil
 	}
 	return nil, basicOutput{ToolOutcome: okOutcome()}, nil
@@ -341,14 +341,14 @@ func (s *service) nsSetJSON(ctx context.Context, _ *mcp.CallToolRequest, in keys
 func (s *service) nsList(ctx context.Context, _ *mcp.CallToolRequest, in namespaceOnlyInput) (*mcp.CallToolResult, listKeysOutput, error) {
 	namespace := strings.TrimSpace(in.Namespace)
 	if namespace == "" {
-		result, out := validationFailure("relay.state.ns_list", "namespace is required")
+		result, out := validationFailure("balda.state.ns_list", "namespace is required")
 		return result, listKeysOutput{ToolOutcome: out}, nil
 	}
 
 	prefix := nsKey(namespace, "")
 	keys, err := s.store.List(ctx, prefix)
 	if err != nil {
-		result, out := backendFailure("relay.state.ns_list", err)
+		result, out := backendFailure("balda.state.ns_list", err)
 		return result, listKeysOutput{ToolOutcome: out}, nil
 	}
 
