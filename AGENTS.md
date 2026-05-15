@@ -51,7 +51,7 @@ go tool golangci-lint run
 
 ## Release
 
-- Omnidist profile is authoritative (`.omnidist/omnidist.yaml`, profile `relay`).
+- Omnidist profile is authoritative (`.omnidist/omnidist.yaml`, profile `balda`).
 - Version source is Git tags (`version.source: git-tag`).
 - Publish flows are tag-driven via GitHub Actions (`release.yaml`, `omnidist-release.yaml`).
 
