@@ -221,6 +221,35 @@ func TestListKeys(t *testing.T) {
 	}
 }
 
+func TestDeleteAndClearAffectMemoryStore(t *testing.T) {
+	ResetSharedStore()
+	ctx, cleanup, session := newTestSession(t, NewMemoryStore())
+	defer cleanup()
+	_ = session.InitializeResult()
+
+	assertOk(t, callTool(t, ctx, session, "balda.state.set", map[string]any{"key": "keep", "value": "v"}))
+	assertOk(t, callTool(t, ctx, session, "balda.state.set", map[string]any{"key": "remove", "value": "v"}))
+	assertOk(t, callTool(t, ctx, session, "balda.state.delete", map[string]any{"key": "remove"}))
+
+	deleted := callTool(t, ctx, session, "balda.state.get", map[string]any{"key": "remove"})
+	if payload := structuredResultMap(t, deleted); payload["found"] != false {
+		t.Fatalf("deleted key found = %v, want false", payload["found"])
+	}
+	remaining := callTool(t, ctx, session, "balda.state.list", map[string]any{})
+	remainingPayload := structuredResultMap(t, remaining)
+	remainingKeys := remainingPayload["keys"].([]any)
+	if len(remainingKeys) != 1 || remainingKeys[0] != "keep" {
+		t.Fatalf("remaining keys = %v, want [keep]", remainingKeys)
+	}
+
+	assertOk(t, callTool(t, ctx, session, "balda.state.clear", map[string]any{}))
+	cleared := callTool(t, ctx, session, "balda.state.list", map[string]any{})
+	clearedPayload := structuredResultMap(t, cleared)
+	if clearedKeys, ok := clearedPayload["keys"].([]any); ok && len(clearedKeys) != 0 {
+		t.Fatalf("keys after clear = %v, want empty", clearedKeys)
+	}
+}
+
 func TestNamespaceIsolation(t *testing.T) {
 	ctx, cleanup, session := newTestSession(t, NewMemoryStore())
 	defer cleanup()

@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sort"
 	"strings"
@@ -336,6 +337,10 @@ func (s *JobScheduler) executeJobTurn(
 ) error {
 	reply, err := runGoalIteration(ctx, ts.GetRunner(), ts.GetUserID(), ts.GetAgentSessionID(), prompt)
 	if err != nil {
+		if isScheduledJobCancellation(ctx, err) {
+			s.logger.Info().Str("job_id", jobID).Msg("scheduled job turn canceled")
+			return nil
+		}
 		_ = s.markFailure(context.Background(), jobID, fmt.Errorf("execute scheduled job: %w", err))
 		_ = s.channel.SendPlain(context.Background(), locator, fmt.Sprintf("Scheduled job %s failed: %v", jobID, err))
 		return err
@@ -348,6 +353,16 @@ func (s *JobScheduler) executeJobTurn(
 		return s.channel.SendAgentReply(ctx, locator, reply)
 	}
 	return s.channel.SendPlain(ctx, locator, fmt.Sprintf("Scheduled job %s completed.", jobID))
+}
+
+func isScheduledJobCancellation(ctx context.Context, err error) bool {
+	if errors.Is(err, context.Canceled) {
+		return true
+	}
+	if ctx != nil && errors.Is(ctx.Err(), context.Canceled) {
+		return true
+	}
+	return false
 }
 
 func (s *JobScheduler) markSuccess(ctx context.Context, jobID string) error {

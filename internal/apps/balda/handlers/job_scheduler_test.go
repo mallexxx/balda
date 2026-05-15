@@ -422,6 +422,74 @@ func TestJobSchedulerExecuteJobTurn_SuccessResetsRetryAndSendsReply(t *testing.T
 	}
 }
 
+func TestJobSchedulerExecuteJobTurn_CanceledContextDoesNotMarkFailure(t *testing.T) {
+	t.Parallel()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	store := newSchedulerJobStore(t)
+	locator := relaytelegram.NewLocator(9001, 112)
+	now := time.Date(2026, time.May, 14, 15, 30, 0, 0, time.UTC)
+
+	record := relaystate.ScheduledJobRecord{
+		JobID:        "job-canceled",
+		SessionID:    locator.SessionID,
+		ChannelType:  locator.ChannelType,
+		AddressKey:   locator.AddressKey,
+		AddressJSON:  locator.AddressJSON,
+		Prompt:       "run once",
+		ScheduleSpec: "@every 30s",
+		Status:       relaystate.ScheduledJobStatusActive,
+		MaxRetries:   3,
+		NextRunAt:    now.Add(30 * time.Second),
+	}
+	if err := store.Upsert(context.Background(), record); err != nil {
+		t.Fatalf("Upsert() error = %v", err)
+	}
+
+	ts := newSchedulerTopicSession(t, locator, "tg-101", "adk-canceled", nil)
+	channel := &fakeSchedulerChannel{}
+	scheduler := &JobScheduler{
+		jobStore: store,
+		channel:  channel,
+		logger:   zerolog.Nop(),
+		now: func() time.Time {
+			return now
+		},
+	}
+
+	if err := scheduler.executeJobTurn(ctx, locator, record.JobID, "ship it", ts); err != nil {
+		t.Fatalf("executeJobTurn() error = %v, want nil for cancellation", err)
+	}
+	if got := len(channel.plainTexts); got != 0 {
+		t.Fatalf("plain failure messages = %d, want 0", got)
+	}
+	if got := len(channel.agentReplies); got != 0 {
+		t.Fatalf("agent replies = %d, want 0", got)
+	}
+
+	updated, ok, err := store.GetByID(context.Background(), record.JobID)
+	if err != nil {
+		t.Fatalf("GetByID() error = %v", err)
+	}
+	if !ok {
+		t.Fatal("GetByID() = not found")
+	}
+	if got := updated.RetryCount; got != 0 {
+		t.Fatalf("RetryCount after cancellation = %d, want 0", got)
+	}
+	if got := updated.LastError; got != "" {
+		t.Fatalf("LastError after cancellation = %q, want empty", got)
+	}
+	if !updated.LastRunAt.IsZero() {
+		t.Fatalf("LastRunAt after cancellation = %s, want zero", updated.LastRunAt)
+	}
+	if got := updated.Status; got != relaystate.ScheduledJobStatusActive {
+		t.Fatalf("Status after cancellation = %q, want active", got)
+	}
+}
+
 type fakeSchedulerSessionManager struct {
 	session      *relaysession.TopicSession
 	getErr       error

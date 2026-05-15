@@ -3,12 +3,10 @@ package sessionmcp
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
+	"sort"
 	"strings"
 	"sync"
-
-	"google.golang.org/adk/session"
 )
 
 // Store is the interface for session state storage drivers.
@@ -32,70 +30,64 @@ type Store interface {
 	MergeJSON(ctx context.Context, key string, fields map[string]interface{}) (merged map[string]interface{}, err error)
 }
 
-// Global shared session for inter-process state sharing.
-// All MemoryStore instances share this single session so state is visible
-// across different processes/agents connecting to the same server.
+// Global shared state for in-process MemoryStore instances.
+// All MemoryStore instances share this map so state is visible across agents
+// connecting to the same embedded server.
 var (
-	sharedSession     session.Session
-	sharedSessionOnce sync.Once
+	sharedMemoryMu sync.Mutex
+	sharedMemory   *memoryState
 )
 
-func getSharedSession() session.Session {
-	sharedSessionOnce.Do(func() {
-		sharedSession = createSharedSession()
-	})
-	return sharedSession
+type memoryState struct {
+	mu     sync.RWMutex
+	values map[string]any
 }
 
-func createSharedSession() session.Session {
-	svc := session.InMemoryService()
-	ctx := context.Background()
+func newMemoryState() *memoryState {
+	return &memoryState{values: make(map[string]any)}
+}
 
-	resp, err := svc.Create(ctx, &session.CreateRequest{
-		AppName: "norma-session-state",
-		UserID:  "shared",
-	})
-	if err != nil {
-		panic(fmt.Sprintf("failed to create shared session: %v", err))
+func getSharedMemoryState() *memoryState {
+	sharedMemoryMu.Lock()
+	defer sharedMemoryMu.Unlock()
+	if sharedMemory == nil {
+		sharedMemory = newMemoryState()
 	}
-	return resp.Session
+	return sharedMemory
 }
 
 // ResetSharedStore resets the global shared store for testing purposes.
 // This allows tests to start with a clean state.
 func ResetSharedStore() {
-	sharedSession = createSharedSession()
+	sharedMemoryMu.Lock()
+	defer sharedMemoryMu.Unlock()
+	sharedMemory = newMemoryState()
 }
 
-// MemoryStore is an in-memory session state store backed by ADK session.State.
-// This is the default driver for inter-process state sharing.
+// MemoryStore is an in-memory session state store.
+// This is the default driver for embedded MCP state sharing.
 //
-// All MemoryStore instances share a single global ADK session, so state set
-// by one process is visible to all other processes connected to the same server.
+// All MemoryStore instances share a single in-process map, so state set by one
+// agent is visible to other agents connected to the same server.
 type MemoryStore struct {
-	session session.Session
+	state *memoryState
 }
 
-// NewMemoryStore creates a new in-memory store using the shared ADK session.
+// NewMemoryStore creates a new in-memory store using the shared state map.
 // Multiple calls return stores backed by the same underlying state.
 func NewMemoryStore() *MemoryStore {
 	return &MemoryStore{
-		session: getSharedSession(),
+		state: getSharedMemoryState(),
 	}
 }
 
 func (s *MemoryStore) Get(_ context.Context, key string) (string, bool, error) {
-	state := s.session.State()
-	val, err := state.Get(key)
-	if err != nil {
-		if errors.Is(err, session.ErrStateKeyNotExist) {
-			return "", false, nil
-		}
-		return "", false, fmt.Errorf("get state: %w", err)
+	val, ok := s.get(key)
+	if !ok {
+		return "", false, nil
 	}
 	str, ok := val.(string)
 	if !ok {
-		// Marshal non-string values to JSON
 		b, err := json.Marshal(val)
 		if err != nil {
 			return "", false, fmt.Errorf("marshal value: %w", err)
@@ -106,72 +98,71 @@ func (s *MemoryStore) Get(_ context.Context, key string) (string, bool, error) {
 }
 
 func (s *MemoryStore) Set(_ context.Context, key, value string) error {
-	state := s.session.State()
-	if err := state.Set(key, value); err != nil {
-		return fmt.Errorf("set state: %w", err)
-	}
+	s.set(key, value)
 	return nil
 }
 
 func (s *MemoryStore) Delete(_ context.Context, key string) error {
-	// ADK State doesn't have Delete - set to empty marker
-	// For true deletion, the server should be restarted
+	s.state.mu.Lock()
+	defer s.state.mu.Unlock()
+	delete(s.state.values, strings.TrimSpace(key))
 	return nil
 }
 
 func (s *MemoryStore) List(_ context.Context, prefix string) ([]string, error) {
-	state := s.session.State()
+	s.state.mu.RLock()
+	defer s.state.mu.RUnlock()
+
+	trimmedPrefix := strings.TrimSpace(prefix)
 	keys := make([]string, 0)
-	for key := range state.All() {
-		if prefix == "" || strings.HasPrefix(key, prefix) {
+	for key := range s.state.values {
+		if trimmedPrefix == "" || strings.HasPrefix(key, trimmedPrefix) {
 			keys = append(keys, key)
 		}
 	}
+	sort.Strings(keys)
 	return keys, nil
 }
 
 func (s *MemoryStore) Clear(_ context.Context) error {
-	// ADK State doesn't support clear - state persists for session lifetime
+	s.state.mu.Lock()
+	defer s.state.mu.Unlock()
+	s.state.values = make(map[string]any)
 	return nil
 }
 
 // GetJSON retrieves a value by key and unmarshals it as JSON.
 func (s *MemoryStore) GetJSON(_ context.Context, key string) (interface{}, bool, error) {
-	state := s.session.State()
-	val, err := state.Get(key)
-	if err != nil {
-		if errors.Is(err, session.ErrStateKeyNotExist) {
-			return nil, false, nil
-		}
-		return nil, false, fmt.Errorf("get state: %w", err)
+	val, ok := s.get(key)
+	if !ok {
+		return nil, false, nil
 	}
 	return val, true, nil
 }
 
 // SetJSON stores a value by key as JSON.
 func (s *MemoryStore) SetJSON(_ context.Context, key string, value interface{}) error {
-	state := s.session.State()
-	if err := state.Set(key, value); err != nil {
-		return fmt.Errorf("set state: %w", err)
-	}
+	s.set(key, value)
 	return nil
 }
 
 // MergeJSON merges fields into an existing JSON object at key.
 // If the key doesn't exist, it creates a new object with the provided fields.
 func (s *MemoryStore) MergeJSON(_ context.Context, key string, fields map[string]interface{}) (map[string]interface{}, error) {
-	state := s.session.State()
-
-	var existing map[string]interface{}
-	val, err := state.Get(key)
-	if err != nil && !errors.Is(err, session.ErrStateKeyNotExist) {
-		return nil, fmt.Errorf("get state: %w", err)
+	trimmedKey := strings.TrimSpace(key)
+	if trimmedKey == "" {
+		return nil, fmt.Errorf("key is required")
 	}
 
-	if val != nil {
+	var existing map[string]interface{}
+
+	s.state.mu.Lock()
+	defer s.state.mu.Unlock()
+
+	if val, ok := s.state.values[trimmedKey]; ok {
 		switch v := val.(type) {
 		case map[string]interface{}:
-			existing = v
+			existing = copyStringAnyMap(v)
 		default:
 			existing = make(map[string]interface{})
 		}
@@ -183,9 +174,39 @@ func (s *MemoryStore) MergeJSON(_ context.Context, key string, fields map[string
 		existing[k] = v
 	}
 
-	if err := state.Set(key, existing); err != nil {
-		return nil, fmt.Errorf("set state: %w", err)
-	}
+	s.state.values[trimmedKey] = copyStringAnyMap(existing)
 
 	return existing, nil
+}
+
+func (s *MemoryStore) get(key string) (any, bool) {
+	trimmedKey := strings.TrimSpace(key)
+	if trimmedKey == "" {
+		return nil, false
+	}
+
+	s.state.mu.RLock()
+	defer s.state.mu.RUnlock()
+
+	val, ok := s.state.values[trimmedKey]
+	return val, ok
+}
+
+func (s *MemoryStore) set(key string, value any) {
+	trimmedKey := strings.TrimSpace(key)
+	if trimmedKey == "" {
+		return
+	}
+
+	s.state.mu.Lock()
+	defer s.state.mu.Unlock()
+	s.state.values[trimmedKey] = value
+}
+
+func copyStringAnyMap(in map[string]interface{}) map[string]interface{} {
+	out := make(map[string]interface{}, len(in))
+	for key, value := range in {
+		out[key] = value
+	}
+	return out
 }

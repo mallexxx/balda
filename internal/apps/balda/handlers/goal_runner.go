@@ -26,11 +26,11 @@ type goalCommandRunner interface {
 type goalRunnerParams struct {
 	fx.In
 
-	LC            fx.Lifecycle
+	LC             fx.Lifecycle
 	SessionManager *relaysession.Manager
-	Channel       *relaytelegram.Adapter
-	Logger        zerolog.Logger
-	MaxIterations int `name:"relay_goal_max_iterations"`
+	Channel        *relaytelegram.Adapter
+	Logger         zerolog.Logger
+	MaxIterations  int `name:"relay_goal_max_iterations"`
 }
 
 // GoalRunner executes /goal loops per session with cancellation support.
@@ -194,6 +194,12 @@ func runGoalIteration(
 	goalSessionID string,
 	prompt string,
 ) (string, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if err := ctx.Err(); err != nil {
+		return "", err
+	}
 	if r == nil {
 		return "", fmt.Errorf("runner is required")
 	}
@@ -309,4 +315,3 @@ func (g *GoalRunner) stopAll() {
 		cancel()
 	}
 }
-
