@@ -2,18 +2,23 @@ package agent
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"io"
+	"iter"
 	"strings"
 
 	"github.com/normahq/balda/internal/apps/balda/goalkeeper"
 	"github.com/normahq/runtime/agentfactory"
 	adkagent "google.golang.org/adk/agent"
+	adksession "google.golang.org/adk/session"
+	"google.golang.org/genai"
 )
 
 const (
 	goalkeeperWorkerName           = "GoalkeeperWorker"
 	goalkeeperValidatorName        = "GoalkeeperValidator"
-	goalkeeperWorkerOutputStateKey = "app:goalkeeper_worker_output"
+	goalkeeperWorkerOutputStateKey = "goalkeeper_worker_output"
 )
 
 // GoalkeeperBuildConfig configures the Balda Goalkeeper workflow agent.
@@ -72,7 +77,7 @@ func (b *Builder) BuildGoalkeeperWorkflow(ctx context.Context, cfg GoalkeeperBui
 		return nil, err
 	}
 
-	validator, err := b.buildGoalkeeperChildAgent(ctx, goalkeeperChildAgentConfig{
+	rawValidator, err := b.buildGoalkeeperChildAgent(ctx, goalkeeperChildAgentConfig{
 		ProviderID:        providerID,
 		Name:              goalkeeperValidatorName,
 		Description:       "Goalkeeper validator agent",
@@ -80,11 +85,17 @@ func (b *Builder) BuildGoalkeeperWorkflow(ctx context.Context, cfg GoalkeeperBui
 		SessionBranch:     sessionBranch,
 		WorkspaceDir:      workspaceDir,
 		RepoBranchAtStart: repoBranchAtStart,
-		RoleInstruction:   goalkeeperValidatorInstruction(goalkeeperWorkerOutputStateKey),
+		RoleInstruction:   goalkeeperValidatorInstruction(),
 		MCPServerIDs:      mcpServerIDs,
 	})
 	if err != nil {
 		_ = closeRuntimeAgent(worker)
+		return nil, err
+	}
+	validator, err := wrapGoalkeeperValidatorWithWorkerOutput(rawValidator, goalkeeperWorkerOutputStateKey)
+	if err != nil {
+		_ = closeRuntimeAgent(worker)
+		_ = closeRuntimeAgent(rawValidator)
 		return nil, err
 	}
 
@@ -163,16 +174,17 @@ func goalkeeperWorkerInstruction() string {
 		"You receive one user goal as plain text.",
 		"Use the available goal and context.",
 		"Do the requested work in the current working directory.",
+		"Prefer direct execution over clarification when execution is possible.",
+		"Ask clarifying questions only when execution is blocked by missing critical information.",
 		"Return a concise plain-text summary of what changed and what evidence supports it.",
 		"Run only lightweight sanity checks directly relevant to the work unless the goal asks for broader verification.",
 	}, "\n")
 }
 
-func goalkeeperValidatorInstruction(workerOutputStateKey string) string {
+func goalkeeperValidatorInstruction() string {
 	return strings.Join([]string{
 		"You are the Goalkeeper validator agent.",
 		"Validate the prior worker result against the original user goal using the shared ADK session context.",
-		fmt.Sprintf("The worker final visible result is available in session state as `{%s?}`.", strings.TrimSpace(workerOutputStateKey)),
 		"Inspect the current working directory as needed.",
 		"Do not intentionally mutate files or continue the worker's implementation work.",
 		"Start with exactly `verdict: pass` or `verdict: fail`.",
@@ -180,4 +192,109 @@ func goalkeeperValidatorInstruction(workerOutputStateKey string) string {
 		"`verdict: fail` means the goal was not reached.",
 		"Then provide brief evidence and a concise final summary.",
 	}, "\n")
+}
+
+func wrapGoalkeeperValidatorWithWorkerOutput(inner adkagent.Agent, workerOutputStateKey string) (adkagent.Agent, error) {
+	key := strings.TrimSpace(workerOutputStateKey)
+	if key == "" {
+		return nil, fmt.Errorf("worker output state key is required")
+	}
+
+	base, err := adkagent.New(adkagent.Config{
+		Name:        inner.Name(),
+		Description: inner.Description(),
+		SubAgents:   inner.SubAgents(),
+		Run: func(ctx adkagent.InvocationContext) iter.Seq2[*adksession.Event, error] {
+			return func(yield func(*adksession.Event, error) bool) {
+				prompt := buildGoalkeeperValidatorPrompt(ctx.UserContent(), sessionStateString(ctx, key))
+				wrappedCtx := goalkeeperUserContentContext{
+					InvocationContext: ctx,
+					userContent:       genai.NewContentFromText(prompt, genai.RoleUser),
+				}
+				for ev, err := range inner.Run(wrappedCtx) {
+					if !yield(ev, err) {
+						return
+					}
+					if err != nil {
+						return
+					}
+				}
+			}
+		},
+	})
+	if err != nil {
+		return nil, err
+	}
+	closer, ok := inner.(io.Closer)
+	if !ok {
+		return base, nil
+	}
+	return goalkeeperValidatorWrapper{Agent: base, closer: closer}, nil
+}
+
+type goalkeeperValidatorWrapper struct {
+	adkagent.Agent
+	closer io.Closer
+}
+
+func (w goalkeeperValidatorWrapper) Close() error {
+	if w.closer == nil {
+		return nil
+	}
+	return w.closer.Close()
+}
+
+func sessionStateString(ctx adkagent.InvocationContext, key string) string {
+	if ctx == nil || ctx.Session() == nil {
+		return ""
+	}
+	value, err := ctx.Session().State().Get(key)
+	if err != nil {
+		if errors.Is(err, adksession.ErrStateKeyNotExist) {
+			return ""
+		}
+		return ""
+	}
+	if value == nil {
+		return ""
+	}
+	return strings.TrimSpace(fmt.Sprintf("%v", value))
+}
+
+func buildGoalkeeperValidatorPrompt(userContent *genai.Content, workerOutput string) string {
+	goal := visibleContentText(userContent)
+	workerOutput = strings.TrimSpace(workerOutput)
+	if goal == "" {
+		goal = "Goal:"
+	}
+	if workerOutput == "" {
+		return goal + "\n\nWorker result:\n(none)"
+	}
+	return goal + "\n\nWorker result:\n" + workerOutput
+}
+
+func visibleContentText(content *genai.Content) string {
+	if content == nil {
+		return ""
+	}
+	var parts []string
+	for _, part := range content.Parts {
+		if part == nil || part.Thought {
+			continue
+		}
+		text := strings.TrimSpace(part.Text)
+		if text != "" {
+			parts = append(parts, text)
+		}
+	}
+	return strings.Join(parts, "\n\n")
+}
+
+type goalkeeperUserContentContext struct {
+	adkagent.InvocationContext
+	userContent *genai.Content
+}
+
+func (c goalkeeperUserContentContext) UserContent() *genai.Content {
+	return c.userContent
 }
