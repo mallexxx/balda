@@ -16,6 +16,7 @@ import (
 	"github.com/normahq/balda/internal/apps/balda/paths"
 	"github.com/normahq/balda/internal/apps/balda/shutdown"
 	baldastate "github.com/normahq/balda/internal/apps/balda/state"
+	"github.com/normahq/balda/internal/apps/balda/swarm"
 	"github.com/normahq/balda/internal/apps/balda/telegramfmt"
 	"github.com/normahq/balda/internal/apps/balda/tgbotkit"
 	"github.com/normahq/balda/internal/apps/sessionmcp"
@@ -296,6 +297,7 @@ func Module(
 			)
 		}),
 		tgbotkit.Module,
+		swarm.Module,
 		handlers.Module,
 		fx.Provide(
 			handlers.NewInternalMCPManager,

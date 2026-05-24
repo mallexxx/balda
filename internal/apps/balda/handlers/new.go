@@ -10,6 +10,7 @@ import (
 	"github.com/normahq/balda/internal/apps/balda/memory"
 	"github.com/normahq/balda/internal/apps/balda/messenger"
 	"github.com/normahq/balda/internal/apps/balda/session"
+	"github.com/normahq/balda/internal/apps/balda/swarm"
 	"github.com/normahq/balda/internal/apps/balda/tgbotkit"
 	baldawelcome "github.com/normahq/balda/internal/apps/balda/welcome"
 	"github.com/rs/zerolog/log"
@@ -32,6 +33,7 @@ type CommandHandler struct {
 	channel           *baldatelegram.Adapter
 	sessionManager    commandSessionManager
 	turnDispatcher    turnQueue
+	swarmCoordinator  *swarm.Coordinator
 	goalRunner        goalCommandRunner
 	messenger         *messenger.Messenger
 	userHandler       *userHandler
@@ -50,6 +52,7 @@ type commandHandlerParams struct {
 	Channel           *baldatelegram.Adapter
 	SessionManager    *session.Manager
 	TurnDispatcher    *TurnDispatcher
+	SwarmCoordinator  *swarm.Coordinator
 	GoalRunner        *GoalRunner
 	Messenger         *messenger.Messenger
 	UserHandler       *userHandler
@@ -64,6 +67,7 @@ func NewCommandHandler(params commandHandlerParams) *CommandHandler {
 		channel:           params.Channel,
 		sessionManager:    params.SessionManager,
 		turnDispatcher:    params.TurnDispatcher,
+		swarmCoordinator:  params.SwarmCoordinator,
 		goalRunner:        params.GoalRunner,
 		messenger:         params.Messenger,
 		userHandler:       params.UserHandler,
@@ -126,7 +130,7 @@ func (h *CommandHandler) onGoalCommand(ctx context.Context, commandCtx baldatele
 		return nil
 	}
 
-	started, err := h.goalRunner.Start(ctx, commandCtx.Locator, objective, baldatelegram.UserID(commandCtx.UserID))
+	started, err := h.submitGoalTask(ctx, commandCtx.Locator, objective, baldatelegram.UserID(commandCtx.UserID))
 	if err != nil {
 		log.Warn().Err(err).Str("session_id", commandCtx.Locator.SessionID).Msg("failed to start /goal run")
 		if sendErr := h.channel.SendAgentReply(ctx, commandCtx.Locator, fmt.Sprintf("Failed to start goal run: %v", err)); sendErr != nil {
@@ -404,13 +408,26 @@ func (h *CommandHandler) onCancelCommand(ctx context.Context, commandCtx baldate
 		}
 		return nil
 	}
+	mailboxDropped := 0
+	if h.swarmCoordinator != nil {
+		canceled, cancelErr := h.swarmCoordinator.Cancel(ctx, swarm.ActorAddress{
+			Target: swarm.ActorTypeSession,
+			Key:    commandCtx.Locator.SessionID,
+		})
+		if cancelErr != nil {
+			log.Warn().Err(cancelErr).Str("session_id", commandCtx.Locator.SessionID).Msg("failed to cancel session mailbox")
+		} else {
+			mailboxDropped = canceled
+		}
+	}
 
 	goalCanceled := false
 	if h.goalRunner != nil {
 		goalCanceled = h.goalRunner.Cancel(commandCtx.Locator)
 	}
 
-	if !hadInFlight && dropped == 0 && !goalCanceled {
+	totalDropped := dropped + mailboxDropped
+	if !hadInFlight && totalDropped == 0 && !goalCanceled {
 		if err := h.channel.SendPlain(ctx, commandCtx.Locator, "No running or queued turns for this session."); err != nil {
 			return err
 		}
@@ -421,8 +438,8 @@ func (h *CommandHandler) onCancelCommand(ctx context.Context, commandCtx baldate
 	if !hadInFlight {
 		response = "No running turn to cancel."
 	}
-	if dropped > 0 {
-		response = fmt.Sprintf("%s Dropped %d queued message(s).", response, dropped)
+	if totalDropped > 0 {
+		response = fmt.Sprintf("%s Dropped %d queued message(s).", response, totalDropped)
 	}
 	if goalCanceled {
 		response = fmt.Sprintf("%s Canceled active goal run.", response)

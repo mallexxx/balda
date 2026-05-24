@@ -72,6 +72,7 @@ type inboundWebhookSessionManager interface {
 }
 
 type inboundTurnExecutor interface {
+	submitSessionTurn(ctx context.Context, payload sessionTurnPayload) (int, error)
 	runTurnTaskWithDelivery(
 		ctx context.Context,
 		text string,
@@ -440,31 +441,14 @@ func (r *InboundWebhookReceiver) handleInboundWebhook(w http.ResponseWriter, req
 		return
 	}
 
-	position, enqueueErr := r.dispatch.Enqueue(TurnTask{
-		SessionID: ts.GetSessionID(),
-		Run: func(runCtx context.Context) error {
-			if _, getErr := r.sessions.GetSession(target.Locator); getErr != nil {
-				r.logger.Debug().
-					Str("request_id", requestID).
-					Str("session_id", target.Locator.SessionID).
-					Msg("dropping inbound webhook turn for inactive session")
-				return nil
-			}
-
-			return r.balda.runTurnTaskWithDelivery(
-				runCtx,
-				env.Content,
-				ts.GetRunner(),
-				ts.GetUserID(),
-				ts.GetSessionID(),
-				ts.GetAgentSessionID(),
-				target.Locator,
-				0,
-				target.TopicID,
-				inboundWebhookProgressPolicy(),
-				env.ReportTo != nil,
-			)
-		},
+	position, enqueueErr := r.balda.submitSessionTurn(req.Context(), sessionTurnPayload{
+		Text:           env.Content,
+		Locator:        target.Locator,
+		UserID:         ts.GetUserID(),
+		AgentSessionID: ts.GetAgentSessionID(),
+		TopicID:        target.TopicID,
+		ProgressPolicy: inboundWebhookProgressPolicy(),
+		Deliver:        env.ReportTo != nil,
 	})
 	if enqueueErr != nil {
 		if errors.Is(enqueueErr, ErrTurnQueueFull) {

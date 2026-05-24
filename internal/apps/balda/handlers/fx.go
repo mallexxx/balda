@@ -5,6 +5,7 @@ import (
 	baldatelegram "github.com/normahq/balda/internal/apps/balda/channel/telegram"
 	"github.com/normahq/balda/internal/apps/balda/messenger"
 	"github.com/normahq/balda/internal/apps/balda/session"
+	"github.com/normahq/balda/internal/apps/balda/swarm"
 	"github.com/normahq/balda/internal/apps/balda/tgbotkit"
 	"github.com/rs/zerolog"
 	"github.com/tgbotkit/client"
@@ -38,6 +39,16 @@ var Module = fx.Module("balda_handlers",
 		NewBaldaHandler,
 		NewCommandHandler,
 		NewUserHandler,
+		fx.Annotate(
+			newSessionActorExecutor,
+			fx.As(new(swarm.Executor)),
+			fx.ResultTags(`group:"balda_swarm_executors"`),
+		),
+		fx.Annotate(
+			newTaskActorExecutor,
+			fx.As(new(swarm.Executor)),
+			fx.ResultTags(`group:"balda_swarm_executors"`),
+		),
 		fx.Annotate(
 			registerStartHandler,
 			fx.As(new(tgbotkit.Handler)),

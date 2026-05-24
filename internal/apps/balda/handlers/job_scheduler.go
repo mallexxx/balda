@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"sort"
@@ -13,6 +14,7 @@ import (
 	baldatelegram "github.com/normahq/balda/internal/apps/balda/channel/telegram"
 	baldasession "github.com/normahq/balda/internal/apps/balda/session"
 	baldastate "github.com/normahq/balda/internal/apps/balda/state"
+	"github.com/normahq/balda/internal/apps/balda/swarm"
 	"github.com/robfig/cron/v3"
 	"github.com/rs/zerolog"
 	"go.uber.org/fx"
@@ -54,6 +56,7 @@ type jobSchedulerParams struct {
 	StateProvider  baldastate.Provider
 	SessionManager *baldasession.Manager
 	TurnDispatcher *TurnDispatcher
+	Coordinator    *swarm.Coordinator
 	Channel        *baldatelegram.Adapter
 	OwnerStore     *auth.OwnerStore
 	Logger         zerolog.Logger
@@ -62,13 +65,14 @@ type jobSchedulerParams struct {
 
 // JobScheduler dispatches due locator-bound recurring jobs into the turn queue.
 type JobScheduler struct {
-	jobStore baldastate.ScheduledJobStore
-	sessions schedulerSessionManager
-	dispatch turnQueue
-	channel  schedulerChannel
-	owner    *auth.OwnerStore
-	logger   zerolog.Logger
-	config   JobSchedulerConfig
+	jobStore    baldastate.ScheduledJobStore
+	sessions    schedulerSessionManager
+	dispatch    turnQueue
+	coordinator *swarm.Coordinator
+	channel     schedulerChannel
+	owner       *auth.OwnerStore
+	logger      zerolog.Logger
+	config      JobSchedulerConfig
 
 	pollInterval time.Duration
 	dueBatchSize int
@@ -103,6 +107,7 @@ func NewJobScheduler(params jobSchedulerParams) (*JobScheduler, error) {
 		jobStore:     params.StateProvider.ScheduledJobs(),
 		sessions:     params.SessionManager,
 		dispatch:     params.TurnDispatcher,
+		coordinator:  params.Coordinator,
 		channel:      params.Channel,
 		owner:        params.OwnerStore,
 		logger:       params.Logger.With().Str("component", "balda.job_scheduler").Logger(),
@@ -297,6 +302,10 @@ func (s *JobScheduler) dispatchJob(ctx context.Context, job baldastate.Scheduled
 	}
 
 	prompt := strings.TrimSpace(current.Prompt)
+	if s.coordinator != nil {
+		return s.dispatchScheduledJobTask(ctx, current, target, prompt, dispatchKey)
+	}
+
 	if _, err := s.dispatch.Enqueue(TurnTask{
 		SessionID: ts.GetSessionID(),
 		Run: func(runCtx context.Context) error {
@@ -306,6 +315,36 @@ func (s *JobScheduler) dispatchJob(ctx context.Context, job baldastate.Scheduled
 		return s.markFailure(ctx, jobID, fmt.Errorf("enqueue scheduled job: %w", err))
 	}
 
+	return nil
+}
+
+func (s *JobScheduler) dispatchScheduledJobTask(
+	ctx context.Context,
+	job baldastate.ScheduledJobRecord,
+	target resolvedEnvelopeTarget,
+	prompt string,
+	dispatchKey string,
+) error {
+	payload := taskEnvelopePayload{
+		Kind: taskPayloadKindScheduledJob,
+		ScheduledJob: &scheduledJobTaskPayload{
+			JobID:   job.JobID,
+			Prompt:  prompt,
+			Locator: target.Locator,
+			UserID:  target.UserID,
+			TopicID: target.TopicID,
+		},
+	}
+	data, err := json.Marshal(payload)
+	if err != nil {
+		return s.markFailure(ctx, job.JobID, fmt.Errorf("encode scheduled job task: %w", err))
+	}
+	if _, err := s.coordinator.Submit(ctx, swarm.Envelope{
+		Target:  swarm.ActorAddress{Target: swarm.ActorTypeTask, Key: "scheduled-" + job.JobID + "-" + dispatchKey},
+		Content: string(data),
+	}); err != nil {
+		return s.markFailure(ctx, job.JobID, fmt.Errorf("enqueue scheduled job task: %w", err))
+	}
 	return nil
 }
 
@@ -360,6 +399,26 @@ func (s *JobScheduler) executeJobTurn(
 		s.logger.Warn().Err(err).Str("job_id", jobID).Msg("failed to mark scheduled job success")
 	}
 	return nil
+}
+
+func (s *JobScheduler) executeScheduledJobTask(ctx context.Context, payload scheduledJobTaskPayload) error {
+	jobID := strings.TrimSpace(payload.JobID)
+	if jobID == "" {
+		return fmt.Errorf("job id is required")
+	}
+	userID := strings.TrimSpace(payload.UserID)
+	if userID == "" {
+		return s.markFailure(ctx, jobID, fmt.Errorf("scheduler task user id is required"))
+	}
+	ts, err := s.resolveTopicSession(ctx, resolvedEnvelopeTarget{
+		Locator: payload.Locator,
+		UserID:  userID,
+		TopicID: payload.TopicID,
+	})
+	if err != nil {
+		return s.markFailure(ctx, jobID, fmt.Errorf("resolve session: %w", err))
+	}
+	return s.executeJobTurn(ctx, payload.Locator, jobID, strings.TrimSpace(payload.Prompt), ts)
 }
 
 func isScheduledJobCancellation(ctx context.Context, err error) bool {

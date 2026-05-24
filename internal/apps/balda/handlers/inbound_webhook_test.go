@@ -144,12 +144,10 @@ func TestInboundWebhookReceiver_QueueFull(t *testing.T) {
 	sessionMgr := &fakeInboundSessionManager{
 		session: ts,
 	}
-	queue := &fakeInboundTurnQueue{
-		enqueueErr: ErrTurnQueueFull,
-	}
+	executor := &fakeInboundTurnExecutor{submitErr: ErrTurnQueueFull}
 	receiver := newInboundWebhookReceiverForTest(t)
 	receiver.sessions = sessionMgr
-	receiver.dispatch = queue
+	receiver.balda = executor
 	receiver.routes = map[string]inboundWebhookRoute{
 		"/webhook1": {
 			Name:           "webhook1",
@@ -215,8 +213,8 @@ func TestInboundWebhookReceiver_AcceptsAndDispatches(t *testing.T) {
 	if got, want := response.SessionID, locator.SessionID; got != want {
 		t.Fatalf("session_id = %q, want %q", got, want)
 	}
-	if got := len(queue.tasks); got != 1 {
-		t.Fatalf("queued tasks = %d, want 1", got)
+	if got := len(queue.tasks); got != 0 {
+		t.Fatalf("queued tasks = %d, want 0 with swarm submit path", got)
 	}
 	if got := executor.calls; got != 1 {
 		t.Fatalf("executor calls = %d, want 1", got)
@@ -320,9 +318,20 @@ func (*fakeInboundTurnQueue) CancelSession(baldasession.SessionLocator, bool) (b
 }
 
 type fakeInboundTurnExecutor struct {
-	calls   int
-	prompt  string
-	deliver bool
+	calls     int
+	prompt    string
+	deliver   bool
+	submitErr error
+}
+
+func (f *fakeInboundTurnExecutor) submitSessionTurn(_ context.Context, payload sessionTurnPayload) (int, error) {
+	if f.submitErr != nil {
+		return 0, f.submitErr
+	}
+	f.calls++
+	f.prompt = payload.Text
+	f.deliver = payload.Deliver
+	return 0, nil
 }
 
 func (f *fakeInboundTurnExecutor) runTurnTaskWithDelivery(

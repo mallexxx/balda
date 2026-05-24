@@ -13,6 +13,7 @@ import (
 	baldatelegram "github.com/normahq/balda/internal/apps/balda/channel/telegram"
 	"github.com/normahq/balda/internal/apps/balda/messenger"
 	baldasession "github.com/normahq/balda/internal/apps/balda/session"
+	"github.com/normahq/balda/internal/apps/balda/swarm"
 	"github.com/normahq/balda/internal/apps/balda/tgbotkit"
 	"github.com/normahq/balda/internal/throttle"
 	"github.com/rs/zerolog"
@@ -57,6 +58,7 @@ type BaldaHandler struct {
 	channel            *baldatelegram.Adapter
 	sessionManager     *baldasession.Manager
 	turnDispatcher     turnQueue
+	swarmCoordinator   *swarm.Coordinator
 	messenger          *messenger.Messenger
 	tgClient           client.ClientWithResponsesInterface
 	authToken          string
@@ -82,6 +84,7 @@ type baldaHandlerDeps struct {
 	Channel            *baldatelegram.Adapter
 	SessionManager     *baldasession.Manager
 	TurnDispatcher     *TurnDispatcher
+	SwarmCoordinator   *swarm.Coordinator
 	Messenger          *messenger.Messenger
 	TGClient           client.ClientWithResponsesInterface
 	AuthToken          string `name:"balda_auth_token"`
@@ -98,6 +101,7 @@ func NewBaldaHandler(deps baldaHandlerDeps) (*BaldaHandler, error) {
 		channel:            deps.Channel,
 		sessionManager:     deps.SessionManager,
 		turnDispatcher:     deps.TurnDispatcher,
+		swarmCoordinator:   deps.SwarmCoordinator,
 		messenger:          deps.Messenger,
 		tgClient:           deps.TGClient,
 		authToken:          strings.TrimSpace(deps.AuthToken),
@@ -295,29 +299,15 @@ func (h *BaldaHandler) enqueueTurn(
 		return fmt.Errorf("topic session is required")
 	}
 
-	position, err := h.turnDispatcher.Enqueue(TurnTask{
-		SessionID: ts.GetSessionID(),
-		Run: func(runCtx context.Context) error {
-			if _, getErr := h.sessionManager.GetSession(locator); getErr != nil {
-				h.logger.Debug().
-					Str("session_id", locator.SessionID).
-					Str("address_key", locator.AddressKey).
-					Msg("dropping queued turn for inactive session")
-				return nil
-			}
-			return h.runTurnTask(
-				runCtx,
-				text,
-				ts.GetRunner(),
-				ts.GetUserID(),
-				ts.GetSessionID(),
-				ts.GetAgentSessionID(),
-				locator,
-				messageID,
-				topicID,
-				progressPolicy,
-			)
-		},
+	position, err := h.submitSessionTurn(ctx, sessionTurnPayload{
+		Text:           text,
+		Locator:        locator,
+		UserID:         ts.GetUserID(),
+		AgentSessionID: ts.GetAgentSessionID(),
+		MessageID:      messageID,
+		TopicID:        topicID,
+		ProgressPolicy: progressPolicy,
+		Deliver:        true,
 	})
 	if err != nil {
 		return err

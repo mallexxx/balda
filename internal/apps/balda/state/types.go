@@ -2,12 +2,16 @@ package state
 
 import (
 	"context"
+	"errors"
 	"time"
 
 	"github.com/normahq/balda/internal/apps/balda/auth"
 	"github.com/tgbotkit/runtime/updatepoller"
 	adksession "google.golang.org/adk/session"
 )
+
+// ErrMailboxFull means the target mailbox reached its active queue limit.
+var ErrMailboxFull = errors.New("mailbox is full")
 
 const (
 	// NamespaceApp stores balda app internal state (for example owner auth).
@@ -25,6 +29,17 @@ const (
 	ScheduledJobStatusActive = "active"
 	// ScheduledJobStatusPaused means the job is persisted but not dispatched.
 	ScheduledJobStatusPaused = "paused"
+
+	// MailboxMessageStatusPending means the message is waiting for its actor.
+	MailboxMessageStatusPending = "pending"
+	// MailboxMessageStatusRunning means an actor claimed the message.
+	MailboxMessageStatusRunning = "running"
+	// MailboxMessageStatusDone means the actor completed the message.
+	MailboxMessageStatusDone = "done"
+	// MailboxMessageStatusFailed means the actor failed the message.
+	MailboxMessageStatusFailed = "failed"
+	// MailboxMessageStatusCanceled means the message was canceled before completion.
+	MailboxMessageStatusCanceled = "canceled"
 )
 
 // Provider exposes balda state capabilities behind a backend-agnostic interface.
@@ -35,6 +50,7 @@ type Provider interface {
 	SessionMCPKV() KVStore
 	Sessions() SessionStore
 	ScheduledJobs() ScheduledJobStore
+	Mailboxes() MailboxMessageStore
 	PollingOffsetStore() updatepoller.OffsetStore
 	Collaborators() CollaboratorStore
 	Close() error
@@ -112,4 +128,36 @@ type ScheduledJobStore interface {
 	ListByAddress(ctx context.Context, channelType, addressKey string) ([]ScheduledJobRecord, error)
 	ListDue(ctx context.Context, now time.Time, limit int) ([]ScheduledJobRecord, error)
 	Delete(ctx context.Context, jobID string) error
+}
+
+// MailboxMessageRecord persists one actor mailbox message.
+type MailboxMessageRecord struct {
+	Sequence       int64
+	MessageID      string
+	MailboxID      string
+	ActorType      string
+	ActorKey       string
+	Subject        string
+	PayloadJSON    string
+	Status         string
+	IdempotencyKey string
+	Attempts       int
+	LastError      string
+	AvailableAt    time.Time
+	ClaimedAt      time.Time
+	CompletedAt    time.Time
+	CreatedAt      time.Time
+	UpdatedAt      time.Time
+}
+
+// MailboxMessageStore persists actor mailbox messages.
+type MailboxMessageStore interface {
+	Enqueue(ctx context.Context, record MailboxMessageRecord, activeLimit int) (int, error)
+	ClaimNext(ctx context.Context, mailboxID string, now time.Time) (MailboxMessageRecord, bool, error)
+	Complete(ctx context.Context, messageID string) error
+	Fail(ctx context.Context, messageID string, cause error) error
+	CancelMailbox(ctx context.Context, mailboxID string) (int, error)
+	ResetRunning(ctx context.Context) (int, error)
+	ListPendingMailboxes(ctx context.Context, limit int) ([]string, error)
+	GetByID(ctx context.Context, messageID string) (MailboxMessageRecord, bool, error)
 }
