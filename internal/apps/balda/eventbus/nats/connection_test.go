@@ -145,6 +145,69 @@ func TestBus_CommandLifecycleEventsUseDistinctDedupeIDs(t *testing.T) {
 	}
 }
 
+func TestBus_CommandRunningEventFailureDoesNotBlockCommandHandling(t *testing.T) {
+	busRaw, err := NewCommandBus(Params{
+		LC:     fxtest.NewLifecycle(t),
+		Config: baldaeventbus.Config{Embedded: true, JetStream: true},
+		Swarm: swarm.Config{Enabled: true, Commands: swarm.CommandConfig{
+			AckWait:    "1s",
+			FetchWait:  "50ms",
+			MaxDeliver: 2,
+		}},
+		WorkingDir: t.TempDir(),
+		Logger:     zerolog.Nop(),
+	})
+	if err != nil {
+		t.Fatalf("NewCommandBus() error = %v", err)
+	}
+	bus := busRaw.(*Bus)
+	defer func() { _ = bus.Drain(context.Background()) }()
+
+	if _, err := bus.PublishCommand(context.Background(), commandTestEnvelope("running-event-fails")); err != nil {
+		t.Fatalf("PublishCommand() error = %v", err)
+	}
+	if err := bus.js.DeleteStream(context.Background(), swarm.DefaultEventStream); err != nil {
+		t.Fatalf("DeleteStream(events) error = %v", err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	handled := make(chan struct{}, 1)
+	var calls atomic.Int32
+	go func() {
+		_ = bus.RunCommandConsumer(ctx, func(context.Context, swarm.CommandMessage) error {
+			calls.Add(1)
+			handled <- struct{}{}
+			return nil
+		})
+	}()
+	select {
+	case <-handled:
+	case <-ctx.Done():
+		t.Fatal("timed out waiting for command handler")
+	}
+	for {
+		status, err := bus.streamStatus(context.Background(), swarm.DefaultCommandStream)
+		if err != nil {
+			t.Fatalf("command stream status: %v", err)
+		}
+		info, err := bus.consumer.Info(context.Background())
+		if err != nil {
+			t.Fatalf("command consumer info: %v", err)
+		}
+		if status.Messages == 0 && info.NumAckPending == 0 && info.NumPending == 0 {
+			break
+		}
+		select {
+		case <-ctx.Done():
+			t.Fatalf("command state = messages:%d ack_pending:%d pending:%d, want settled", status.Messages, info.NumAckPending, info.NumPending)
+		case <-time.After(25 * time.Millisecond):
+		}
+	}
+	if got := calls.Load(); got != 1 {
+		t.Fatalf("handler calls = %d, want 1", got)
+	}
+}
+
 func TestBus_CommandAckedEventFailureDoesNotRedeliverCompletedCommand(t *testing.T) {
 	busRaw, err := NewCommandBus(Params{
 		LC:     fxtest.NewLifecycle(t),

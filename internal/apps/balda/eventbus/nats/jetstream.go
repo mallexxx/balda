@@ -93,9 +93,7 @@ func (b *Bus) handleMessage(ctx context.Context, msg jetstream.Msg, handler swar
 	numDelivered := messageDeliveryAttempt(msg)
 	env.Attempt = numDelivered - 1
 	cmd := commandMessage{subject: msg.Subject(), env: env, msg: msg, numDelivered: numDelivered, maxDeliveries: b.cfg.Swarm.Commands.MaxDeliver}
-	if err := b.PublishEvent(ctx, swarm.SubjectEventCommandRunning, commandEventEnvelope(env, nil, "running", "")); err != nil {
-		return fmt.Errorf("publish command running event: %w", err)
-	}
+	b.publishCommandEventBestEffort(ctx, swarm.SubjectEventCommandRunning, env, "running", "")
 	err = handler(ctx, cmd)
 	if err == nil {
 		if err := msg.DoubleAck(ctx); err != nil {
