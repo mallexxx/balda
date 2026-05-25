@@ -48,14 +48,25 @@ func (s *TaskService) Create(ctx context.Context, record baldastate.SwarmTaskRec
 	if s == nil {
 		return false, nil
 	}
+	payloadJSON, err := marshalPayload(payload)
+	if err != nil {
+		return false, err
+	}
+	if strings.TrimSpace(payloadJSON) == "" {
+		payloadJSON = "{}"
+	}
 	created, err := s.store.CreateTask(ctx, record)
 	if err != nil {
 		return false, err
 	}
-	if created {
-		if err := s.AppendEvent(ctx, record.ID, TaskEventTaskCreated, actor, "", payload); err != nil {
-			return false, err
-		}
+	if err := s.publishEventRecord(ctx, baldastate.SwarmTaskEventRecord{
+		ID:          taskCreatedEventID(record.ID),
+		TaskID:      strings.TrimSpace(record.ID),
+		EventType:   TaskEventTaskCreated,
+		Actor:       strings.TrimSpace(actor),
+		PayloadJSON: payloadJSON,
+	}); err != nil {
+		return false, err
 	}
 	return created, nil
 }
@@ -154,14 +165,9 @@ func (s *TaskService) AppendEvent(ctx context.Context, taskID string, eventType 
 		PayloadJSON: data,
 	}
 	if s.bus != nil {
-		if err := s.publishTaskEvent(ctx, event); err != nil {
-			return err
-		}
+		return s.publishEventRecord(ctx, event)
 	}
-	if err := s.store.AppendTaskEvent(ctx, event); err != nil {
-		return err
-	}
-	return nil
+	return fmt.Errorf("jetstream event bus is required")
 }
 
 func (s *TaskService) CancelBySession(ctx context.Context, sessionID string, actor string, reason string) ([]string, error) {
@@ -242,7 +248,7 @@ func taskEventForStatus(status string) string {
 
 func (s *TaskService) publishTaskEvent(ctx context.Context, event baldastate.SwarmTaskEventRecord) error {
 	if s == nil || s.bus == nil {
-		return nil
+		return fmt.Errorf("jetstream event bus is required")
 	}
 	payload := strings.TrimSpace(event.PayloadJSON)
 	if payload == "" {
@@ -263,6 +269,17 @@ func (s *TaskService) publishTaskEvent(ctx context.Context, event baldastate.Swa
 		},
 	}
 	return s.bus.PublishEvent(ctx, subjectForTaskEvent(event.EventType), env)
+}
+
+func (s *TaskService) publishEventRecord(ctx context.Context, event baldastate.SwarmTaskEventRecord) error {
+	if s == nil {
+		return nil
+	}
+	return s.publishTaskEvent(ctx, event)
+}
+
+func taskCreatedEventID(taskID string) string {
+	return "task:" + strings.TrimSpace(taskID) + ":event:created"
 }
 
 func subjectForTaskEvent(eventType string) string {

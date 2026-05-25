@@ -262,13 +262,13 @@ Common settings:
 - `balda.memory.enabled`: `true` by default; controls `${balda.state_dir}/MEMORY.md`, `/memory`, and `balda.memory.*` MCP tools.
 - `balda.goal.max_iterations`: maximum Goalkeeper worker/validator iterations for `/goal`; defaults to `25`.
 - `balda.nats.*`: embedded JetStream is required by default, binds to `127.0.0.1` on a random local port, keeps monitoring disabled, and stores JetStream files under `.balda/nats`.
-- `balda.swarm.enabled`: `true` by default; enables the actor runtime. Ingress accepts work only by publishing commands to JetStream.
+- `balda.swarm.enabled`: `true` by default; enables the actor runtime and event projector. When false, Balda still starts but ingress that requires swarm returns runtime unavailable; there is no direct execution fallback.
 - `balda.swarm.commands.*`: JetStream command stream and durable pull consumer settings. `BALDA_COMMANDS` is the only command queue.
 - `balda.swarm.events.*`: JetStream event stream settings for command/task/delivery events.
 - `balda.swarm.dlq.*`: JetStream dead-letter stream settings for terminal command failures.
 - `balda.swarm.queue.*`: reserved for future actor-lane policy; JetStream is the only command queue.
 - `balda.swarm.agents.*`: logical single-process agent roles used by the swarm allocator. Defaults are `planner`, `executor`, `reviewer`, and `memory`; `tools` are advisory routing hints (`workspace`, `shell`, `mcp`, `memory`), not separate runtimes. Optional `cost_penalty` lowers allocator preference for expensive roles.
-- Task visibility: `/tasks`, `/task <id>`, and `/task <id> events` read product projections from SQLite. `/task <id> cancel` writes a durable JetStream control command. `/swarm status` and `/mailbox status` read JetStream transport state plus projection lag.
+- Task visibility: task events are published to `BALDA_EVENTS` and projected into SQLite for `/tasks`, `/task <id>`, and `/task <id> events`. Actor success does not depend on synchronous SQLite event projection. `/task <id> cancel` writes a durable JetStream control command. `/swarm status` and `/mailbox status` read JetStream transport state plus projection lag.
 - `balda.scheduler.jobs`: startup-reconciled recurring jobs (`id`, `cron`, `prompt`) that target the owner DM session.
 - `${balda.state_dir}/SOUL.md`: optional operator instructions read at session start/restore when the file exists.
 - `balda.workspace.mode`: `auto` by default; uses git worktrees when Balda runs in a git repository.

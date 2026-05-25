@@ -59,11 +59,8 @@ func (b *Bus) handleMessage(ctx context.Context, msg jetstream.Msg, handler swar
 		_ = msg.TermWithReason("decode failed: " + err.Error())
 		return err
 	}
-	numDelivered := 1
-	if md, metaErr := msg.Metadata(); metaErr == nil && md.NumDelivered > 0 {
-		numDelivered = int(md.NumDelivered)
-		env.Attempt = numDelivered - 1
-	}
+	numDelivered := messageDeliveryAttempt(msg)
+	env.Attempt = numDelivered - 1
 	cmd := commandMessage{subject: msg.Subject(), env: env, msg: msg, numDelivered: numDelivered, maxDeliveries: b.cfg.Swarm.Commands.MaxDeliver}
 	_ = b.PublishEvent(ctx, swarm.SubjectEventCommandRunning, commandEventEnvelope(env, nil, "running", ""))
 	err = handler(ctx, cmd)
@@ -121,9 +118,22 @@ func (b *Bus) handleEventMessage(ctx context.Context, msg jetstream.Msg, handler
 		return err
 	}
 	if err := handler(ctx, msg.Subject(), env); err != nil {
-		return msg.NakWithDelay(swarm.RetryDelay(0))
+		numDelivered := messageDeliveryAttempt(msg)
+		if isRetryable(err) && !retryExhausted(numDelivered, b.cfg.Swarm.Commands.MaxDeliver) {
+			return msg.NakWithDelay(computeBackoff(numDelivered - 1))
+		}
+		reason := "event projection failed: " + err.Error()
+		_ = b.publishDLQ(ctx, env, reason, false)
+		return msg.TermWithReason(reason)
 	}
 	return msg.DoubleAck(ctx)
+}
+
+func messageDeliveryAttempt(msg jetstream.Msg) int {
+	if md, err := msg.Metadata(); err == nil && md.NumDelivered > 0 {
+		return int(md.NumDelivered)
+	}
+	return 1
 }
 
 func ensureStreams(ctx context.Context, js jetstream.JetStream, cfg resolvedConfig) error {

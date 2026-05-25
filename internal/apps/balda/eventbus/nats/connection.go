@@ -111,6 +111,10 @@ func (b *Bus) PublishEvent(ctx context.Context, subject string, env swarm.Envelo
 }
 
 func (b *Bus) PublishDLQ(ctx context.Context, env swarm.Envelope, reason string) error {
+	return b.publishDLQ(ctx, env, reason, true)
+}
+
+func (b *Bus) publishDLQ(ctx context.Context, env swarm.Envelope, reason string, emitEvent bool) error {
 	msg, err := newDLQMessage(env, reason)
 	if err != nil {
 		return err
@@ -119,7 +123,9 @@ func (b *Bus) PublishDLQ(ctx context.Context, env swarm.Envelope, reason string)
 	if err != nil {
 		return fmt.Errorf("publish jetstream dlq: %w", err)
 	}
-	_ = b.PublishEvent(ctx, swarm.SubjectEventCommandDeadLettered, commandEventEnvelope(env, nil, "deadlettered", reason))
+	if emitEvent {
+		_ = b.PublishEvent(ctx, swarm.SubjectEventCommandDeadLettered, commandEventEnvelope(env, nil, "deadlettered", reason))
+	}
 	return nil
 }
 
@@ -169,6 +175,7 @@ func (b *Bus) ensureRuntime(ctx context.Context) error {
 		AckPolicy:     jetstream.AckExplicitPolicy,
 		DeliverPolicy: jetstream.DeliverAllPolicy,
 		AckWait:       b.cfg.AckWait,
+		MaxDeliver:    b.cfg.Swarm.Commands.MaxDeliver,
 		MaxAckPending: b.cfg.Swarm.Commands.MaxAckPending,
 		FilterSubject: swarm.SubjectEventAll,
 	})

@@ -38,9 +38,9 @@ go tool golangci-lint run
 - `/start invite=<invite_token>`: direct message only; collaborator invite onboarding entrypoint.
 - `/topic <name>`: owner/collaborator, direct message only; creates a topic session labeled `<name>` using the configured balda provider.
 - `/goal <objective>`: owner/collaborator; starts a Goalkeeper worker -> validator loop in the current session context/workspace with started/validation/final updates and terminal Result/Artifacts/Confidence/Next action outcome.
-- `/tasks`: owner/collaborator; lists active task records for the current session.
-- `/task <id>`: owner/collaborator; inspects task status, latest events, and terminal reviewable outcome.
-- `/task <id> events`: owner/collaborator; prints the task event stream.
+- `/tasks`: owner/collaborator; lists active task records for the current session from SQLite projections.
+- `/task <id>`: owner/collaborator; inspects task status, latest projected events, and terminal reviewable outcome.
+- `/task <id> events`: owner/collaborator; prints the task event stream projected from `BALDA_EVENTS`.
 - `/task <id> cancel`: owner/collaborator; publishes durable task-control work; ControlActor cancels active task run when present and marks the task canceled when processed.
 - `/swarm status`: owner/collaborator; shows JetStream command/event/DLQ streams, worker/projector consumer state, logical agents, and task counts.
 - `/mailbox status`: owner/collaborator; compatibility alias for JetStream swarm status.

@@ -139,6 +139,57 @@ func TestBus_RetryExhaustionPublishesDLQ(t *testing.T) {
 	}
 }
 
+func TestBus_EventProjectionPermanentFailurePublishesDLQ(t *testing.T) {
+	busRaw, err := NewCommandBus(Params{
+		LC:         fxtest.NewLifecycle(t),
+		Config:     baldaeventbus.Config{Embedded: true, JetStream: true},
+		Swarm:      swarm.Config{Enabled: true, Commands: swarm.CommandConfig{MaxDeliver: 1, FetchWait: "50ms"}},
+		WorkingDir: t.TempDir(),
+		Logger:     zerolog.Nop(),
+	})
+	if err != nil {
+		t.Fatalf("NewCommandBus() error = %v", err)
+	}
+	bus := busRaw.(*Bus)
+	defer func() { _ = bus.Drain(context.Background()) }()
+
+	env := commandTestEnvelope("event-projection-failed")
+	env.Namespace = swarm.NamespaceTelemetry
+	env.Kind = "task_event"
+	env.Meta = map[string]string{"event_type": swarm.TaskEventAgentProgress}
+	if err := bus.PublishEvent(context.Background(), swarm.SubjectEventTaskUpdated, env); err != nil {
+		t.Fatalf("PublishEvent() error = %v", err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	handled := make(chan struct{}, 1)
+	go func() {
+		_ = bus.RunEventConsumer(ctx, func(context.Context, string, swarm.Envelope) error {
+			handled <- struct{}{}
+			return swarm.PermanentError(context.Canceled)
+		})
+	}()
+	select {
+	case <-handled:
+	case <-ctx.Done():
+		t.Fatal("timed out waiting for event handler")
+	}
+	for {
+		status, err := bus.streamStatus(context.Background(), swarm.DefaultDLQStream)
+		if err != nil {
+			t.Fatalf("DLQ stream status: %v", err)
+		}
+		if status.Messages == 1 {
+			return
+		}
+		select {
+		case <-ctx.Done():
+			t.Fatalf("DLQ messages = %d, want 1", status.Messages)
+		case <-time.After(25 * time.Millisecond):
+		}
+	}
+}
+
 func TestBus_StatusReportsJetStreamOnly(t *testing.T) {
 	busRaw, err := NewCommandBus(Params{
 		LC:         fxtest.NewLifecycle(t),

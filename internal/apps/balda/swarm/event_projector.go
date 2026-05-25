@@ -15,6 +15,7 @@ type EventProjector struct {
 	consumer EventConsumer
 	store    baldastate.SwarmStore
 	logger   zerolog.Logger
+	enabled  bool
 
 	cancel context.CancelFunc
 	wg     sync.WaitGroup
@@ -25,6 +26,7 @@ type eventProjectorParams struct {
 
 	LC            fx.Lifecycle
 	Bus           CommandBus
+	Config        Config
 	StateProvider baldastate.Provider
 	Logger        zerolog.Logger
 }
@@ -38,13 +40,14 @@ func NewEventProjector(params eventProjectorParams) (*EventProjector, error) {
 		consumer: consumer,
 		store:    params.StateProvider.Swarm(),
 		logger:   params.Logger.With().Str("component", "balda.swarm.event_projector").Logger(),
+		enabled:  params.Config.Enabled,
 	}
 	params.LC.Append(fx.Hook{OnStart: p.Start, OnStop: p.Stop})
 	return p, nil
 }
 
 func (p *EventProjector) Start(context.Context) error {
-	if p == nil || p.consumer == nil {
+	if p == nil || !p.enabled || p.consumer == nil {
 		return nil
 	}
 	runCtx, cancel := context.WithCancel(context.Background())

@@ -38,7 +38,10 @@ func (m testCommandMessage) DeliveryAttempt() int {
 }
 func (m testCommandMessage) MaxDeliveries() int { return m.maxDeliveries }
 
-type recordingCommandBus struct{ events []string }
+type recordingCommandBus struct {
+	events   []string
+	runCalls int
+}
 
 func (b *recordingCommandBus) PublishCommand(context.Context, Envelope) (*CommandPublishResult, error) {
 	return nil, nil
@@ -49,10 +52,22 @@ func (b *recordingCommandBus) PublishEvent(_ context.Context, subject string, _ 
 }
 func (b *recordingCommandBus) PublishDLQ(context.Context, Envelope, string) error { return nil }
 func (b *recordingCommandBus) RunCommandConsumer(ctx context.Context, _ CommandHandler) error {
+	b.runCalls++
 	<-ctx.Done()
 	return ctx.Err()
 }
 func (b *recordingCommandBus) Drain(context.Context) error { return nil }
+
+func TestRuntimeStartDisabledDoesNotRunConsumer(t *testing.T) {
+	bus := &recordingCommandBus{}
+	runtime := &Runtime{bus: bus, enabled: false}
+	if err := runtime.Start(context.Background()); err != nil {
+		t.Fatalf("Start() error = %v", err)
+	}
+	if bus.runCalls != 0 {
+		t.Fatalf("RunCommandConsumer calls = %d, want 0", bus.runCalls)
+	}
+}
 
 func TestRuntime_HandleCommandDispatchesActor(t *testing.T) {
 	bus := &recordingCommandBus{}

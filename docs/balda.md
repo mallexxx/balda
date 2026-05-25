@@ -395,7 +395,7 @@ session-start snapshot. New or restored sessions read the latest file.
 - `balda.nats.jetstream`: JetStream is required and forced on startup.
 - `balda.nats.store_dir`: JetStream store directory, relative to `balda.working_dir` when not absolute (default `.balda/nats`)
 - `balda.nats.max_memory` / `max_store`: embedded JetStream resource caps (defaults `256mb` and `2gb`)
-- `balda.swarm.enabled`: enables the actor runtime (default `true`). Ingress accepts work only by publishing commands to JetStream.
+- `balda.swarm.enabled`: enables the actor runtime and event projector (default `true`). When false, Balda still starts but ingress that requires swarm returns runtime unavailable; there is no direct execution fallback.
 - `balda.swarm.commands.stream`: command stream name (default `BALDA_COMMANDS`)
 - `balda.swarm.commands.consumer`: durable worker consumer name (default `BALDA_WORKER_COMMANDS`)
 - `balda.swarm.commands.ack_wait`, `max_deliver`, `max_ack_pending`, `fetch_batch`, `fetch_wait`: pull-consumer and redelivery settings.
@@ -506,9 +506,10 @@ Balda runs with a single provider per process (`balda.provider`).
 
 ### Task actor runtime semantics (internal)
 
-Assignable work is persisted in `swarm_tasks` with append-only
-`swarm_task_events`. Ingress publishes a JetStream command first; task records
-are product state created by TaskActor after command delivery.
+Assignable work is persisted in `swarm_tasks`; task history is published to
+`BALDA_EVENTS` and projected into `swarm_task_events`. Ingress publishes a
+JetStream command first; task records are product state created by TaskActor
+after command delivery.
 
 - `/goal` publishes a durable task envelope. TaskActor asks the planner
   AgentActor for the plan, persists planner output as the task plan, dispatches
@@ -517,10 +518,11 @@ are product state created by TaskActor after command delivery.
 - Task statuses are `created`, `queued`, `running`, `waiting_for_agent`,
   `waiting_for_user`, `validating`, `completed`, `failed`, `canceled`, and
   `deadlettered`.
-- Task events are append-only and use semantic event types: `task.created`,
-  `task.assigned`, `task.started`, `agent.started`, `agent.progress`,
-  `agent.result`, `task.validating`, `task.completed`, `task.failed`,
-  `task.canceled`, and `delivery.sent`.
+- Task events are append-only JetStream events projected into SQLite read
+  models. Event projection failure never decides command success. Semantic
+  event types include `task.created`, `task.assigned`, `task.started`,
+  `agent.started`, `agent.progress`, `agent.result`, `task.validating`,
+  `task.completed`, `task.failed`, `task.canceled`, and `delivery.sent`.
 - Runtime deadletters mark the owning task `deadlettered`. `/cancel` and
   `/task <id> cancel` publish durable control commands; ControlActor applies
   the cancellation, marks matching task records `canceled`, and cancels any
@@ -547,6 +549,9 @@ runs, retries, or wakes up.
 - Required consumer:
   - `BALDA_WORKER_COMMANDS`: durable pull consumer with explicit ack,
     redelivery, `NakWithDelay`, and `InProgress` heartbeat support.
+  - `BALDA_EVENT_PROJECTOR`: durable pull consumer that projects
+    `BALDA_EVENTS` into SQLite read models. Permanent projection failures are
+    terminated to `BALDA_DLQ`; transient failures retry with bounded delivery.
 - Stable subjects:
   - Commands: `balda.v1.cmd.session`, `balda.v1.cmd.task`,
     `balda.v1.cmd.agent`, `balda.v1.cmd.memory`,
@@ -565,6 +570,9 @@ runs, retries, or wakes up.
 - Embedded NATS binds to `127.0.0.1` by default and is not exposed externally.
   JetStream files live under `.balda/nats`, which is runtime state and should
   not be committed.
+- Agent commands are locally serialized per task and agent
+  (`task:<task_id>:agent:<name>`), so different tasks can run logical agents in
+  parallel while a single task lifecycle remains ordered.
 
 ### Scheduled job runtime semantics (internal)
 

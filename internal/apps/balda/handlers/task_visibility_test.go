@@ -34,6 +34,14 @@ func TestCommandHandlerTaskVisibilityCommands(t *testing.T) {
 	if err := tasks.SetResult(ctx, "task-done", map[string]any{"goal_reached": true, "executor_output": "Implemented task visibility commands.", "reviewer_output": "verdict: pass\nCommand tests passed."}, baldastate.SwarmTaskStatusCompleted, "test", ""); err != nil {
 		t.Fatalf("SetResult(done) error = %v", err)
 	}
+	if err := provider.Swarm().AppendTaskEvent(ctx, baldastate.SwarmTaskEventRecord{
+		ID:        "task-done-completed",
+		TaskID:    "task-done",
+		EventType: swarm.TaskEventTaskCompleted,
+		Actor:     "test",
+	}); err != nil {
+		t.Fatalf("Append projected task event: %v", err)
+	}
 
 	if err := handler.onCommand(ctx, newCommandEvent("tasks", "", 101, 9001, nil)); err != nil {
 		t.Fatalf("/tasks error = %v", err)

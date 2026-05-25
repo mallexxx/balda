@@ -14,7 +14,8 @@ func TestActorKeyMapsSessionTaskAndAgent(t *testing.T) {
 	}{
 		{name: "session", env: Envelope{Namespace: NamespaceWebhookInbound, SessionID: "s-1", To: ActorAddress{Target: ActorTypeTask, Key: "task-1"}}, want: "session:s-1"},
 		{name: "task control", env: Envelope{Namespace: NamespaceTaskControl, TaskID: "task-1", To: ActorAddress{Target: ActorTypeTask, Key: "task-1"}}, want: "task:task-1"},
-		{name: "agent", env: Envelope{Namespace: NamespaceAgentCommand, To: ActorAddress{Target: ActorTypeAgent, Key: "executor"}}, want: "agent:executor"},
+		{name: "agent task lane", env: Envelope{Namespace: NamespaceAgentCommand, TaskID: "task-1", To: ActorAddress{Target: ActorTypeAgent, Key: "executor"}}, want: "task:task-1:agent:executor"},
+		{name: "agent fallback", env: Envelope{Namespace: NamespaceAgentCommand, To: ActorAddress{Target: ActorTypeAgent, Key: "executor"}}, want: "agent:executor"},
 		{name: "fallback", env: Envelope{Namespace: NamespaceTelemetry, To: ActorAddress{Target: ActorTypeDelivery, Key: "tg"}}, want: "delivery:tg"},
 	}
 	for _, tt := range tests {
@@ -23,6 +24,84 @@ func TestActorKeyMapsSessionTaskAndAgent(t *testing.T) {
 				t.Fatalf("actorKey() = %q, want %q", got, tt.want)
 			}
 		})
+	}
+}
+
+func TestKeyedActorSchedulerRunsDifferentTaskAgentsConcurrently(t *testing.T) {
+	scheduler := NewKeyedActorScheduler()
+	started := make(chan string, 2)
+	release := make(chan struct{})
+	done := make(chan error, 2)
+
+	run := func(taskID string) {
+		env := Envelope{ID: taskID, Namespace: NamespaceAgentCommand, Kind: KindGoal, From: ActorAddress{Target: ActorTypeTask, Key: taskID}, To: ActorAddress{Target: ActorTypeAgent, Key: AgentNameExecutor}, TaskID: taskID, PayloadJSON: `{}`}
+		done <- scheduler.Dispatch(context.Background(), env, func(context.Context, Envelope) error {
+			started <- taskID
+			<-release
+			return nil
+		})
+	}
+
+	go run("task-a")
+	if got := waitStarted(t, started); got != "task-a" {
+		t.Fatalf("first started = %q, want task-a", got)
+	}
+	go run("task-b")
+	if got := waitStarted(t, started); got != "task-b" {
+		t.Fatalf("second started = %q, want task-b", got)
+	}
+	close(release)
+	for range 2 {
+		if err := <-done; err != nil {
+			t.Fatalf("Dispatch() error = %v", err)
+		}
+	}
+}
+
+func TestKeyedActorSchedulerSerializesSameTaskAgents(t *testing.T) {
+	scheduler := NewKeyedActorScheduler()
+	started := make(chan string, 2)
+	release := make(chan struct{})
+	done := make(chan error, 2)
+	run := func(id string) {
+		env := Envelope{ID: id, Namespace: NamespaceAgentCommand, Kind: KindGoal, From: ActorAddress{Target: ActorTypeTask, Key: "task-a"}, To: ActorAddress{Target: ActorTypeAgent, Key: AgentNameExecutor}, TaskID: "task-a", PayloadJSON: `{}`}
+		done <- scheduler.Dispatch(context.Background(), env, func(context.Context, Envelope) error {
+			started <- id
+			if id == "first" {
+				<-release
+			}
+			return nil
+		})
+	}
+	go run("first")
+	if got := waitStarted(t, started); got != "first" {
+		t.Fatalf("first started = %q, want first", got)
+	}
+	go run("second")
+	select {
+	case got := <-started:
+		t.Fatalf("same-task lane started %q before first released", got)
+	case <-time.After(50 * time.Millisecond):
+	}
+	close(release)
+	if got := waitStarted(t, started); got != "second" {
+		t.Fatalf("second started = %q, want second", got)
+	}
+	for range 2 {
+		if err := <-done; err != nil {
+			t.Fatalf("Dispatch() error = %v", err)
+		}
+	}
+}
+
+func waitStarted(t *testing.T, ch <-chan string) string {
+	t.Helper()
+	select {
+	case got := <-ch:
+		return got
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for scheduler handler")
+		return ""
 	}
 }
 

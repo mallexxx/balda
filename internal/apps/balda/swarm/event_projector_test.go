@@ -9,6 +9,27 @@ import (
 	"github.com/rs/zerolog"
 )
 
+type recordingEventConsumer struct {
+	runCalls int
+}
+
+func (c *recordingEventConsumer) RunEventConsumer(ctx context.Context, _ EventHandler) error {
+	c.runCalls++
+	<-ctx.Done()
+	return ctx.Err()
+}
+
+func TestEventProjectorStartDisabledDoesNotRunConsumer(t *testing.T) {
+	consumer := &recordingEventConsumer{}
+	projector := &EventProjector{consumer: consumer, enabled: false, logger: zerolog.Nop()}
+	if err := projector.Start(context.Background()); err != nil {
+		t.Fatalf("Start() error = %v", err)
+	}
+	if consumer.runCalls != 0 {
+		t.Fatalf("RunEventConsumer calls = %d, want 0", consumer.runCalls)
+	}
+}
+
 func TestEventProjectorProjectsTaskEventIdempotently(t *testing.T) {
 	ctx := context.Background()
 	provider, err := baldastate.NewSQLiteProvider(ctx, filepath.Join(t.TempDir(), "state.db"))

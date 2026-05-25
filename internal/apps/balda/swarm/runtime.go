@@ -72,6 +72,7 @@ type Runtime struct {
 	registry  ActorRegistry
 	scheduler *KeyedActorScheduler
 	logger    zerolog.Logger
+	enabled   bool
 
 	cancel context.CancelFunc
 	wg     sync.WaitGroup
@@ -82,6 +83,7 @@ type runtimeParams struct {
 
 	LC     fx.Lifecycle
 	Bus    CommandBus
+	Config Config
 	Tasks  *TaskService
 	Logger zerolog.Logger
 	Actors []Actor `group:"balda_swarm_actors"`
@@ -103,6 +105,7 @@ func NewRuntime(params runtimeParams) (*Runtime, error) {
 		registry:  registry,
 		scheduler: NewKeyedActorScheduler(),
 		logger:    params.Logger.With().Str("component", "balda.swarm.runtime").Logger(),
+		enabled:   params.Config.Enabled,
 	}
 	params.LC.Append(fx.Hook{
 		OnStart: r.Start,
@@ -112,6 +115,9 @@ func NewRuntime(params runtimeParams) (*Runtime, error) {
 }
 
 func (r *Runtime) Start(context.Context) error {
+	if r == nil || !r.enabled {
+		return nil
+	}
 	if r.cancel != nil {
 		return nil
 	}

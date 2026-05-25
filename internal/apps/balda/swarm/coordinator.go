@@ -26,12 +26,18 @@ func (c *Coordinator) Submit(ctx context.Context, env Envelope) (*CommandPublish
 	if c == nil || c.bus == nil {
 		return nil, fmt.Errorf("jetstream command bus is required")
 	}
+	if !c.Enabled() {
+		return nil, fmt.Errorf("jetstream swarm runtime is disabled")
+	}
 	return c.bus.PublishCommand(ctx, env)
 }
 
 func (c *Coordinator) PublishEvent(ctx context.Context, subject string, env Envelope) error {
 	if c == nil || c.bus == nil {
 		return fmt.Errorf("jetstream event bus is required")
+	}
+	if !c.Enabled() {
+		return fmt.Errorf("jetstream swarm runtime is disabled")
 	}
 	return c.bus.PublishEvent(ctx, subject, env)
 }
