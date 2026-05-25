@@ -104,7 +104,7 @@ func TestTaskServiceAppendEventUsesDeterministicIDsExceptProgress(t *testing.T) 
 	}
 }
 
-func TestTaskServiceCreateReemitsCreatedEventForExistingTask(t *testing.T) {
+func TestTaskServiceCreateIgnoresEventPublishFailureAfterStateMutation(t *testing.T) {
 	ctx := context.Background()
 	provider, err := baldastate.NewSQLiteProvider(ctx, filepath.Join(t.TempDir(), "state.db"))
 	if err != nil {
@@ -117,13 +117,17 @@ func TestTaskServiceCreateReemitsCreatedEventForExistingTask(t *testing.T) {
 		t.Fatalf("NewTaskService() error = %v", err)
 	}
 	record := baldastate.SwarmTaskRecord{ID: "task-created", SessionID: "s-1", Objective: "create task"}
-	if _, err := service.Create(ctx, record, "task.actor", map[string]any{"objective": record.Objective}); err == nil {
-		t.Fatal("Create(first) error = nil, want event publish error")
+	created, err := service.Create(ctx, record, "task.actor", map[string]any{"objective": record.Objective})
+	if err != nil {
+		t.Fatalf("Create(first) error = %v, want nil because task event publication is visibility-only", err)
+	}
+	if !created {
+		t.Fatal("Create(first) created = false, want new task")
 	}
 	if task, ok, err := service.Get(ctx, record.ID); err != nil || !ok || task.ID != record.ID {
 		t.Fatalf("task after failed event publish = %+v found=%v err=%v, want persisted task", task, ok, err)
 	}
-	created, err := service.Create(ctx, record, "task.actor", map[string]any{"objective": record.Objective})
+	created, err = service.Create(ctx, record, "task.actor", map[string]any{"objective": record.Objective})
 	if err != nil {
 		t.Fatalf("Create(retry) error = %v", err)
 	}
@@ -135,5 +139,81 @@ func TestTaskServiceCreateReemitsCreatedEventForExistingTask(t *testing.T) {
 	}
 	if bus.envs[0].ID != bus.envs[1].ID || bus.envs[1].ID != taskCreatedEventID(record.ID) {
 		t.Fatalf("event ids = %q/%q, want deterministic created event id", bus.envs[0].ID, bus.envs[1].ID)
+	}
+}
+
+func TestTaskServiceMarkStatusIgnoresEventPublishFailureAfterStateMutation(t *testing.T) {
+	ctx := context.Background()
+	provider, err := baldastate.NewSQLiteProvider(ctx, filepath.Join(t.TempDir(), "state.db"))
+	if err != nil {
+		t.Fatalf("NewSQLiteProvider() error = %v", err)
+	}
+	t.Cleanup(func() { _ = provider.Close() })
+	if _, err := provider.Swarm().CreateTask(ctx, baldastate.SwarmTaskRecord{
+		ID:        "task-running",
+		SessionID: "s-1",
+		Objective: "run task",
+		Status:    baldastate.SwarmTaskStatusCreated,
+	}); err != nil {
+		t.Fatalf("CreateTask() error = %v", err)
+	}
+	bus := &recordingTaskCommandBus{errs: []error{errors.New("event stream unavailable")}}
+	service, err := NewTaskService(taskServiceParams{StateProvider: provider, Bus: bus})
+	if err != nil {
+		t.Fatalf("NewTaskService() error = %v", err)
+	}
+
+	if err := service.MarkStatus(ctx, "task-running", baldastate.SwarmTaskStatusRunning, "task.actor", "msg-1", "", map[string]any{"step": "start"}); err != nil {
+		t.Fatalf("MarkStatus() error = %v, want nil because task event publication is visibility-only", err)
+	}
+	task, ok, err := service.Get(ctx, "task-running")
+	if err != nil || !ok {
+		t.Fatalf("Get() task = %+v found=%v err=%v", task, ok, err)
+	}
+	if task.Status != baldastate.SwarmTaskStatusRunning {
+		t.Fatalf("task status = %q, want %q", task.Status, baldastate.SwarmTaskStatusRunning)
+	}
+	if len(bus.envs) != 1 || bus.envs[0].Meta["event_type"] != TaskEventTaskStarted {
+		t.Fatalf("published events = %+v, want one task.started visibility attempt", bus.envs)
+	}
+}
+
+func TestTaskServiceSetResultIgnoresEventPublishFailureAfterStateMutation(t *testing.T) {
+	ctx := context.Background()
+	provider, err := baldastate.NewSQLiteProvider(ctx, filepath.Join(t.TempDir(), "state.db"))
+	if err != nil {
+		t.Fatalf("NewSQLiteProvider() error = %v", err)
+	}
+	t.Cleanup(func() { _ = provider.Close() })
+	if _, err := provider.Swarm().CreateTask(ctx, baldastate.SwarmTaskRecord{
+		ID:        "task-completed",
+		SessionID: "s-1",
+		Objective: "complete task",
+		Status:    baldastate.SwarmTaskStatusRunning,
+	}); err != nil {
+		t.Fatalf("CreateTask() error = %v", err)
+	}
+	bus := &recordingTaskCommandBus{errs: []error{errors.New("event stream unavailable")}}
+	service, err := NewTaskService(taskServiceParams{StateProvider: provider, Bus: bus})
+	if err != nil {
+		t.Fatalf("NewTaskService() error = %v", err)
+	}
+
+	result := map[string]any{"summary": "done"}
+	if err := service.SetResult(ctx, "task-completed", result, baldastate.SwarmTaskStatusCompleted, "task.actor", ""); err != nil {
+		t.Fatalf("SetResult() error = %v, want nil because task event publication is visibility-only", err)
+	}
+	task, ok, err := service.Get(ctx, "task-completed")
+	if err != nil || !ok {
+		t.Fatalf("Get() task = %+v found=%v err=%v", task, ok, err)
+	}
+	if task.Status != baldastate.SwarmTaskStatusCompleted {
+		t.Fatalf("task status = %q, want %q", task.Status, baldastate.SwarmTaskStatusCompleted)
+	}
+	if task.ResultJSON == "" {
+		t.Fatal("task result json is empty, want persisted result despite event publish failure")
+	}
+	if len(bus.envs) != 1 || bus.envs[0].Meta["event_type"] != TaskEventTaskCompleted {
+		t.Fatalf("published events = %+v, want one task.completed visibility attempt", bus.envs)
 	}
 }

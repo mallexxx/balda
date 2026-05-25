@@ -169,7 +169,7 @@ func TestTaskActorExecutorResultDispatchesReviewerBeforeProgress(t *testing.T) {
 	}
 }
 
-func TestTaskActorEnsureGoalTaskReemitsCreatedEventForExistingTask(t *testing.T) {
+func TestTaskActorEnsureGoalTaskIgnoresCreatedEventPublishFailure(t *testing.T) {
 	ctx := context.Background()
 	_, bus, coordinator, tasks, allocator := newTaskActorSwarmServices(t, ctx)
 	exec := &taskActorExecutor{tasks: tasks, coordinator: coordinator, agents: allocator, maxIters: 3}
@@ -177,20 +177,15 @@ func TestTaskActorEnsureGoalTaskReemitsCreatedEventForExistingTask(t *testing.T)
 	_, goal := taskActorGoalEnvelope(t, locator, "repair task event", 3)
 	bus.eventErrs = []error{errors.New("event stream unavailable")}
 
-	if err := exec.ensureGoalTask(ctx, goal.TaskID, goal, goal.Objective); err == nil {
-		t.Fatal("ensureGoalTask(first) error = nil, want task.created event publish failure")
-	}
-	if task, ok, err := tasks.Get(ctx, goal.TaskID); err != nil || !ok || task.Status != baldastate.SwarmTaskStatusCreated {
-		t.Fatalf("task after failed create event = %+v found=%v err=%v, want persisted created task", task, ok, err)
-	}
 	if err := exec.ensureGoalTask(ctx, goal.TaskID, goal, goal.Objective); err != nil {
-		t.Fatalf("ensureGoalTask(retry) error = %v", err)
+		t.Fatalf("ensureGoalTask(first) error = %v, want nil because task events are visibility-only", err)
 	}
-	if len(bus.eventEnvs) != 3 {
-		t.Fatalf("event publish attempts = %d, want failed created + repaired created + queued", len(bus.eventEnvs))
+	if len(bus.eventEnvs) != 2 {
+		t.Fatalf("event publish attempts = %d, want created + queued visibility attempts", len(bus.eventEnvs))
 	}
-	if bus.eventEnvs[0].ID != bus.eventEnvs[1].ID {
-		t.Fatalf("created event ids = %q/%q, want deterministic re-emission", bus.eventEnvs[0].ID, bus.eventEnvs[1].ID)
+	wantCreatedEventID := "task:" + goal.TaskID + ":event:created"
+	if bus.eventEnvs[0].ID != wantCreatedEventID {
+		t.Fatalf("created event id = %q, want deterministic task.created event id", bus.eventEnvs[0].ID)
 	}
 	task, ok, err := tasks.Get(ctx, goal.TaskID)
 	if err != nil {
@@ -378,7 +373,7 @@ func TestSessionActorCompletesTaskAfterTurnSuccess(t *testing.T) {
 	}
 }
 
-func TestSessionActorReturnsTaskPersistenceError(t *testing.T) {
+func TestSessionActorIgnoresTaskResultEventPublishFailure(t *testing.T) {
 	ctx := context.Background()
 	provider, bus, coordinator, tasks, allocator := newTaskActorSwarmServices(t, ctx)
 	_ = provider
@@ -404,8 +399,15 @@ func TestSessionActorReturnsTaskPersistenceError(t *testing.T) {
 		Kind:      swarm.KindWebhookEvent,
 		TaskID:    taskID,
 	}, sessionTurnPayload{}, nil)
-	if err == nil {
-		t.Fatal("recordSessionTaskResult() error = nil, want event publish error")
+	if err != nil {
+		t.Fatalf("recordSessionTaskResult() error = %v, want nil because task events are visibility-only", err)
+	}
+	task, ok, err := tasks.Get(ctx, taskID)
+	if err != nil || !ok {
+		t.Fatalf("Get(task) = %+v found=%v err=%v", task, ok, err)
+	}
+	if task.Status != baldastate.SwarmTaskStatusCompleted {
+		t.Fatalf("task status = %q, want %q", task.Status, baldastate.SwarmTaskStatusCompleted)
 	}
 }
 

@@ -10,6 +10,7 @@ import (
 
 	"github.com/google/uuid"
 	baldastate "github.com/normahq/balda/internal/apps/balda/state"
+	"github.com/rs/zerolog/log"
 	"go.uber.org/fx"
 )
 
@@ -61,15 +62,13 @@ func (s *TaskService) Create(ctx context.Context, record baldastate.SwarmTaskRec
 	if err != nil {
 		return false, err
 	}
-	if err := s.publishEventRecord(ctx, baldastate.SwarmTaskEventRecord{
+	s.publishEventRecordBestEffort(ctx, baldastate.SwarmTaskEventRecord{
 		ID:          taskCreatedEventID(record.ID),
 		TaskID:      strings.TrimSpace(record.ID),
 		EventType:   TaskEventTaskCreated,
 		Actor:       strings.TrimSpace(actor),
 		PayloadJSON: payloadJSON,
-	}); err != nil {
-		return false, err
-	}
+	})
 	return created, nil
 }
 
@@ -112,7 +111,7 @@ func (s *TaskService) MarkStatus(ctx context.Context, taskID string, status stri
 	if eventType == "" {
 		return nil
 	}
-	return s.AppendEvent(ctx, taskID, eventType, actor, messageID, mergePayload(payload, map[string]any{
+	return s.appendEventBestEffort(ctx, taskID, eventType, actor, messageID, mergePayload(payload, map[string]any{
 		"status": status,
 		"reason": reason,
 	}))
@@ -143,7 +142,7 @@ func (s *TaskService) SetResult(ctx context.Context, taskID string, result any, 
 	if err := s.store.SetTaskResult(ctx, taskID, data, status, reason); err != nil {
 		return err
 	}
-	return s.AppendEvent(ctx, taskID, taskEventForStatus(status), actor, "", mergePayload(result, map[string]any{
+	return s.appendEventBestEffort(ctx, taskID, taskEventForStatus(status), actor, "", mergePayload(result, map[string]any{
 		"status": status,
 		"reason": reason,
 	}))
@@ -153,23 +152,39 @@ func (s *TaskService) AppendEvent(ctx context.Context, taskID string, eventType 
 	if s == nil {
 		return nil
 	}
-	data, err := marshalPayload(payload)
+	event, err := taskEventRecord(taskID, eventType, actor, messageID, payload)
 	if err != nil {
 		return err
 	}
+	return s.publishEventRecord(ctx, event)
+}
+
+func (s *TaskService) appendEventBestEffort(ctx context.Context, taskID string, eventType string, actor string, messageID string, payload any) error {
+	if s == nil {
+		return nil
+	}
+	event, err := taskEventRecord(taskID, eventType, actor, messageID, payload)
+	if err != nil {
+		return err
+	}
+	s.publishEventRecordBestEffort(ctx, event)
+	return nil
+}
+
+func taskEventRecord(taskID string, eventType string, actor string, messageID string, payload any) (baldastate.SwarmTaskEventRecord, error) {
+	data, err := marshalPayload(payload)
+	if err != nil {
+		return baldastate.SwarmTaskEventRecord{}, err
+	}
 	eventID := taskEventID(taskID, eventType, actor, messageID, data)
-	event := baldastate.SwarmTaskEventRecord{
+	return baldastate.SwarmTaskEventRecord{
 		ID:          eventID,
 		TaskID:      strings.TrimSpace(taskID),
 		EventType:   strings.TrimSpace(eventType),
 		Actor:       strings.TrimSpace(actor),
 		MessageID:   strings.TrimSpace(messageID),
 		PayloadJSON: data,
-	}
-	if s.bus != nil {
-		return s.publishEventRecord(ctx, event)
-	}
-	return fmt.Errorf("jetstream event bus is required")
+	}, nil
 }
 
 func (s *TaskService) CancelBySession(ctx context.Context, sessionID string, actor string, reason string) ([]string, error) {
@@ -299,6 +314,17 @@ func (s *TaskService) publishEventRecord(ctx context.Context, event baldastate.S
 		return nil
 	}
 	return s.publishTaskEvent(ctx, event)
+}
+
+func (s *TaskService) publishEventRecordBestEffort(ctx context.Context, event baldastate.SwarmTaskEventRecord) {
+	if err := s.publishEventRecord(ctx, event); err != nil {
+		log.Ctx(ctx).Warn().
+			Err(err).
+			Str("task_id", event.TaskID).
+			Str("event_type", event.EventType).
+			Str("event_id", event.ID).
+			Msg("failed to publish task visibility event")
+	}
 }
 
 func taskCreatedEventID(taskID string) string {
