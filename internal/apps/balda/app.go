@@ -109,13 +109,18 @@ func Module(
 	jobSchedulerConfig := buildJobSchedulerConfig(cfg.Balda)
 	inboundWebhookConfig := buildInboundWebhookConfig(cfg.Balda)
 	swarmConfig := swarm.Config{
-		Enabled:       cfg.Balda.Swarm.Enabled,
-		Mode:          strings.TrimSpace(cfg.Balda.Swarm.Mode),
-		WebhookMode:   strings.TrimSpace(cfg.Balda.Swarm.WebhookMode),
-		SchedulerMode: strings.TrimSpace(cfg.Balda.Swarm.SchedulerMode),
-		Shadow: swarm.ShadowConfig{
-			Enabled: cfg.Balda.Swarm.Shadow.Enabled,
+		Enabled: cfg.Balda.Swarm.Enabled,
+		Commands: swarm.CommandConfig{
+			Stream:        strings.TrimSpace(cfg.Balda.Swarm.Commands.Stream),
+			Consumer:      strings.TrimSpace(cfg.Balda.Swarm.Commands.Consumer),
+			AckWait:       strings.TrimSpace(cfg.Balda.Swarm.Commands.AckWait),
+			MaxDeliver:    cfg.Balda.Swarm.Commands.MaxDeliver,
+			MaxAckPending: cfg.Balda.Swarm.Commands.MaxAckPending,
+			FetchBatch:    cfg.Balda.Swarm.Commands.FetchBatch,
+			FetchWait:     strings.TrimSpace(cfg.Balda.Swarm.Commands.FetchWait),
 		},
+		Events: swarm.EventStreamConfig{Stream: strings.TrimSpace(cfg.Balda.Swarm.Events.Stream)},
+		DLQ:    swarm.DLQConfig{Stream: strings.TrimSpace(cfg.Balda.Swarm.DLQ.Stream)},
 		Queue: swarm.QueueConfig{
 			DefaultMode: strings.TrimSpace(cfg.Balda.Swarm.Queue.DefaultMode),
 			DebounceMS:  cfg.Balda.Swarm.Queue.DebounceMS,
@@ -129,7 +134,7 @@ func Module(
 	if err != nil {
 		return fx.Module("balda", fx.Error(err))
 	}
-	eventBusConfig, err := cfg.Balda.EventBus.Normalized()
+	eventBusConfig, err := cfg.Balda.NATS.Normalized()
 	if err != nil {
 		return fx.Module("balda", fx.Error(err))
 	}

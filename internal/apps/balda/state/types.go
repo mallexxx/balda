@@ -26,26 +26,6 @@ const (
 	// ScheduledJobStatusPaused means the job is persisted but not dispatched.
 	ScheduledJobStatusPaused = "paused"
 
-	// SwarmMessageStatusQueued means the message can be claimed immediately.
-	SwarmMessageStatusQueued = "queued"
-	// SwarmMessageStatusLeased means a worker owns the message until lease_until.
-	SwarmMessageStatusLeased = "leased"
-	// SwarmMessageStatusAcked means the actor handled the message successfully.
-	SwarmMessageStatusAcked = "acked"
-	// SwarmMessageStatusRetry means the message can be claimed after not_before.
-	SwarmMessageStatusRetry = "retry"
-	// SwarmMessageStatusDead means the message failed permanently.
-	SwarmMessageStatusDead = "dead"
-	// SwarmMessageStatusCanceled means the message was canceled before completion.
-	SwarmMessageStatusCanceled = "canceled"
-	// SwarmMessageStatusExpired means expires_at elapsed before successful handling.
-	SwarmMessageStatusExpired = "expired"
-	// SwarmMessageStatusShadow means the message is stored for rollout comparison only.
-	SwarmMessageStatusShadow = "shadow"
-
-	// SwarmMessageDefaultMaxAttempts is the default retry budget for messages.
-	SwarmMessageDefaultMaxAttempts = 3
-
 	// SwarmTaskStatusCreated means a task record exists but has not been queued.
 	SwarmTaskStatusCreated = "created"
 	// SwarmTaskStatusQueued means task work is queued for actor execution.
@@ -156,59 +136,10 @@ type ScheduledJobStore interface {
 	Delete(ctx context.Context, jobID string) error
 }
 
-// SwarmMessageRecord persists one durable actor mailbox message.
-type SwarmMessageRecord struct {
-	ID            string
-	Mailbox       string
-	Namespace     string
-	Kind          string
-	FromAddr      string
-	ToAddr        string
-	SessionID     string
-	TaskID        string
-	CorrelationID string
-	CausationID   string
-	Priority      int
-	DedupeKey     string
-	Status        string
-	Attempt       int
-	MaxAttempts   int
-	NotBefore     time.Time
-	ExpiresAt     time.Time
-	LeaseOwner    string
-	LeaseUntil    time.Time
-	PayloadJSON   string
-	MetaJSON      string
-	CreatedAt     time.Time
-	UpdatedAt     time.Time
-	CompletedAt   time.Time
-	Error         string
-}
-
-// SwarmPublishResult describes whether a publish inserted a new row or deduped.
-type SwarmPublishResult struct {
-	ID        string
-	Mailbox   string
-	Published bool
-}
-
-// SwarmRecoveryResult describes rows repaired by a recovery sweep.
-type SwarmRecoveryResult struct {
-	RetriedLeases int
-	Expired       int
-}
-
 // SwarmStatusCount describes an aggregate count by status.
 type SwarmStatusCount struct {
 	Status string
 	Count  int
-}
-
-// SwarmMailboxStatusCount describes one mailbox/status aggregate.
-type SwarmMailboxStatusCount struct {
-	Mailbox string
-	Status  string
-	Count   int
 }
 
 // SwarmTaskRecord persists one assignable work item.
@@ -245,22 +176,8 @@ type SwarmTaskEventRecord struct {
 	CreatedAt   time.Time
 }
 
-// SwarmStore persists actor mailbox messages and task state.
+// SwarmStore persists swarm product/read-model state.
 type SwarmStore interface {
-	Publish(ctx context.Context, record SwarmMessageRecord) (SwarmPublishResult, error)
-	PublishBatch(ctx context.Context, records []SwarmMessageRecord) ([]SwarmPublishResult, error)
-	Claim(ctx context.Context, mailbox string, owner string, limit int, lease time.Duration) ([]SwarmMessageRecord, error)
-	Ack(ctx context.Context, mailbox string, messageID string) error
-	Retry(ctx context.Context, mailbox string, messageID string, next time.Time, reason string) error
-	DeadLetter(ctx context.Context, mailbox string, messageID string, reason string) error
-	CancelByTask(ctx context.Context, taskID string, reason string) (int, error)
-	CancelBySession(ctx context.Context, sessionID string, reason string) (int, error)
-	PendingCount(ctx context.Context, mailbox string) (int, error)
-	CancelDroppable(ctx context.Context, mailbox string, limit int, reason string) ([]SwarmMessageRecord, error)
-	Recover(ctx context.Context, now time.Time) (SwarmRecoveryResult, error)
-	ListReadyMailboxes(ctx context.Context, limit int) ([]string, error)
-	ListMailboxStatusCounts(ctx context.Context, limit int) ([]SwarmMailboxStatusCount, error)
-	GetMessage(ctx context.Context, messageID string) (SwarmMessageRecord, bool, error)
 	CreateTask(ctx context.Context, record SwarmTaskRecord) (bool, error)
 	GetTask(ctx context.Context, taskID string) (SwarmTaskRecord, bool, error)
 	ListActiveTasksBySession(ctx context.Context, sessionID string) ([]SwarmTaskRecord, error)

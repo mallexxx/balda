@@ -25,7 +25,7 @@ func StartEmbeddedNATS(_ context.Context, cfg resolvedConfig) (*EmbeddedNATS, er
 		Port:               cfg.NATS.Port,
 		NoLog:              true,
 		NoSigs:             true,
-		JetStream:          cfg.NATS.JetStream,
+		JetStream:          true,
 		StoreDir:           cfg.StoreDir,
 		JetStreamMaxMemory: cfg.MaxMemory,
 		JetStreamMaxStore:  cfg.MaxStore,
@@ -55,13 +55,11 @@ func StartEmbeddedNATS(_ context.Context, cfg resolvedConfig) (*EmbeddedNATS, er
 		return nil, fmt.Errorf("connect embedded nats client: %w", err)
 	}
 	var js jetstream.JetStream
-	if cfg.NATS.JetStream {
-		js, err = jetstream.New(conn)
-		if err != nil {
-			conn.Close()
-			srv.Shutdown()
-			return nil, fmt.Errorf("create jetstream client: %w", err)
-		}
+	js, err = jetstream.New(conn)
+	if err != nil {
+		conn.Close()
+		srv.Shutdown()
+		return nil, fmt.Errorf("create jetstream client: %w", err)
 	}
 	return &EmbeddedNATS{Server: srv, Conn: conn, JS: js, URL: srv.ClientURL()}, nil
 }

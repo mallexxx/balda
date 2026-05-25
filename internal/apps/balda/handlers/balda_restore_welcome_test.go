@@ -14,6 +14,7 @@ import (
 	"github.com/normahq/balda/internal/apps/balda/messenger"
 	baldasession "github.com/normahq/balda/internal/apps/balda/session"
 	baldastate "github.com/normahq/balda/internal/apps/balda/state"
+	"github.com/normahq/balda/internal/apps/balda/swarm"
 	"github.com/rs/zerolog"
 	"github.com/tgbotkit/client"
 	"github.com/tgbotkit/runtime/events"
@@ -49,8 +50,8 @@ func TestBaldaHandlerOnMessage_PublicTopicRestoreWelcomeUsesBaldaName(t *testing
 		t.Fatalf("onMessage() error = %v", err)
 	}
 
-	if len(turns.enqueueCalls) != 1 {
-		t.Fatalf("Enqueue calls = %d, want 1", len(turns.enqueueCalls))
+	if len(turns.commands) != 1 {
+		t.Fatalf("published commands = %d, want 1", len(turns.commands))
 	}
 	assertLastSentContains(t, tgClient, "***Name:*** `balda`")
 	if strings.Contains(lastSentText(t, tgClient), "***Name:*** `codex`") {
@@ -74,8 +75,8 @@ func TestBaldaHandlerOnMessage_PublicTopicAutoCreateWelcomeUsesBaldaName(t *test
 		t.Fatalf("onMessage() error = %v", err)
 	}
 
-	if len(turns.enqueueCalls) != 1 {
-		t.Fatalf("Enqueue calls = %d, want 1", len(turns.enqueueCalls))
+	if len(turns.commands) != 1 {
+		t.Fatalf("published commands = %d, want 1", len(turns.commands))
 	}
 	assertLastSentContains(t, tgClient, "***Name:*** `balda`")
 	if strings.Contains(lastSentText(t, tgClient), "***Name:*** `auto`") {
@@ -100,11 +101,11 @@ func TestBaldaHandlerOnMessage_PublicMainChatAutoCreateEnqueuesTurn(t *testing.T
 		t.Fatalf("onMessage() error = %v", err)
 	}
 
-	if len(turns.enqueueCalls) != 1 {
-		t.Fatalf("Enqueue calls = %d, want 1", len(turns.enqueueCalls))
+	if len(turns.commands) != 1 {
+		t.Fatalf("published commands = %d, want 1", len(turns.commands))
 	}
-	if got := turns.enqueueCalls[0].SessionID; got != locator.SessionID {
-		t.Fatalf("Enqueue session = %q, want %q", got, locator.SessionID)
+	if got := turns.commands[0].SessionID; got != locator.SessionID {
+		t.Fatalf("command session = %q, want %q", got, locator.SessionID)
 	}
 	assertLastSentContains(t, tgClient, "***Name:*** `balda`")
 	if got := store.lastUpsert.AgentName; got != "auto" {
@@ -133,11 +134,11 @@ func TestBaldaHandlerOnMessage_PublicMainChatAutoCreateWithUnrelatedActiveSessio
 		t.Fatalf("onMessage() error = %v", err)
 	}
 
-	if len(turns.enqueueCalls) != 1 {
-		t.Fatalf("Enqueue calls = %d, want 1", len(turns.enqueueCalls))
+	if len(turns.commands) != 1 {
+		t.Fatalf("published commands = %d, want 1", len(turns.commands))
 	}
-	if got := turns.enqueueCalls[0].SessionID; got != locator.SessionID {
-		t.Fatalf("Enqueue session = %q, want %q", got, locator.SessionID)
+	if got := turns.commands[0].SessionID; got != locator.SessionID {
+		t.Fatalf("command session = %q, want %q", got, locator.SessionID)
 	}
 	if got := store.lastUpsert.SessionID; got != locator.SessionID {
 		t.Fatalf("persisted session = %q, want %q", got, locator.SessionID)
@@ -157,11 +158,11 @@ func TestBaldaHandlerOnMessage_OwnerDMCreatesOwnerSession(t *testing.T) {
 		t.Fatalf("onMessage() error = %v", err)
 	}
 
-	if len(turns.enqueueCalls) != 1 {
-		t.Fatalf("Enqueue calls = %d, want 1", len(turns.enqueueCalls))
+	if len(turns.commands) != 1 {
+		t.Fatalf("published commands = %d, want 1", len(turns.commands))
 	}
-	if got := turns.enqueueCalls[0].SessionID; got != locator.SessionID {
-		t.Fatalf("Enqueue session = %q, want %q", got, locator.SessionID)
+	if got := turns.commands[0].SessionID; got != locator.SessionID {
+		t.Fatalf("command session = %q, want %q", got, locator.SessionID)
 	}
 	assertLastSentContains(t, tgClient, "***Name:*** `balda`")
 	if got := store.lastUpsert.AgentName; got != "balda" {
@@ -252,10 +253,11 @@ func TestBaldaHandlerOnMessage_PublicTopicRestoreWarnsWhenWorkspaceSyncSkipped(t
 			TGClient:  tgClient,
 			Logger:    zerolog.Nop(),
 		}),
-		sessionManager: sessionManager,
-		turnDispatcher: turnDispatcher,
-		logger:         zerolog.Nop(),
-		authorizer:     &fakeBaldaAuthorizer{ownerID: 101},
+		sessionManager:   sessionManager,
+		turnDispatcher:   turnDispatcher,
+		swarmCoordinator: swarm.NewCoordinator(turnDispatcher, swarm.Config{Enabled: true}),
+		logger:           zerolog.Nop(),
+		authorizer:       &fakeBaldaAuthorizer{ownerID: 101},
 	}
 	handler.SetOwner(101, 9001)
 	setUnexportedField(t, handler, "baldaProviderName", "balda-provider")
@@ -267,8 +269,8 @@ func TestBaldaHandlerOnMessage_PublicTopicRestoreWarnsWhenWorkspaceSyncSkipped(t
 		t.Fatalf("onMessage() error = %v", err)
 	}
 
-	if len(turnDispatcher.enqueueCalls) != 1 {
-		t.Fatalf("Enqueue calls = %d, want 1", len(turnDispatcher.enqueueCalls))
+	if len(turnDispatcher.commands) != 1 {
+		t.Fatalf("published commands = %d, want 1", len(turnDispatcher.commands))
 	}
 
 	var sawWarning bool
@@ -320,10 +322,11 @@ func newBaldaRestoreHandlerHarness(t *testing.T, store *fakeBaldaRestoreSessionS
 			TGClient:  tgClient,
 			Logger:    zerolog.Nop(),
 		}),
-		sessionManager: sessionManager,
-		turnDispatcher: turnDispatcher,
-		logger:         zerolog.Nop(),
-		authorizer:     &fakeBaldaAuthorizer{ownerID: 101},
+		sessionManager:   sessionManager,
+		turnDispatcher:   turnDispatcher,
+		swarmCoordinator: swarm.NewCoordinator(turnDispatcher, swarm.Config{Enabled: true}),
+		logger:           zerolog.Nop(),
+		authorizer:       &fakeBaldaAuthorizer{ownerID: 101},
 	}
 	handler.SetOwner(101, 9001)
 	setUnexportedField(t, handler, "baldaProviderName", "balda-provider")

@@ -97,15 +97,6 @@ func (h *CommandHandler) cancelTaskCommand(ctx context.Context, commandCtx balda
 	if isTerminalTaskStatus(task.Status) {
 		return h.channel.SendPlain(ctx, commandCtx.Locator, fmt.Sprintf("Task %s is already %s.", task.ID, task.Status))
 	}
-	mailboxCanceled := 0
-	if h.swarmCoordinator != nil && h.swarmCoordinator.RuntimeEnabled() {
-		count, err := h.swarmCoordinator.CancelTask(ctx, task.ID, "task canceled by user")
-		if err != nil {
-			log.Warn().Err(err).Str("task_id", task.ID).Msg("failed to cancel task mailbox messages")
-		} else {
-			mailboxCanceled = count
-		}
-	}
 	runCanceled := false
 	if h.taskRuns != nil {
 		runCanceled = h.taskRuns.cancel(task.ID)
@@ -117,7 +108,7 @@ func (h *CommandHandler) cancelTaskCommand(ctx context.Context, commandCtx balda
 		log.Warn().Err(err).Str("task_id", task.ID).Msg("failed to mark task canceled")
 		return h.channel.SendPlain(ctx, commandCtx.Locator, fmt.Sprintf("Failed to cancel task: %v", err))
 	}
-	return h.channel.SendPlain(ctx, commandCtx.Locator, fmt.Sprintf("Canceled task %s. Canceled mailbox messages: %d. Active run canceled: %t.", task.ID, mailboxCanceled, runCanceled))
+	return h.channel.SendPlain(ctx, commandCtx.Locator, fmt.Sprintf("Canceled task %s. Active run canceled: %t.", task.ID, runCanceled))
 }
 
 func (h *CommandHandler) showTaskEventsCommand(ctx context.Context, commandCtx baldatelegram.CommandContext, task baldastate.SwarmTaskRecord) error {
@@ -151,15 +142,11 @@ func (h *CommandHandler) onMailboxCommand(ctx context.Context, commandCtx baldat
 	if strings.TrimSpace(commandCtx.Args) != "status" {
 		return h.channel.SendPlain(ctx, commandCtx.Locator, "Usage: /mailbox status")
 	}
-	if h.mailboxes == nil {
-		return h.channel.SendPlain(ctx, commandCtx.Locator, "Mailbox runtime is unavailable right now.")
-	}
-	counts, err := h.mailboxes.StatusCounts(ctx, 100)
+	status, err := h.formatSwarmStatus(ctx)
 	if err != nil {
-		log.Warn().Err(err).Msg("failed to read mailbox status")
-		return h.channel.SendPlain(ctx, commandCtx.Locator, fmt.Sprintf("Failed to read mailbox status: %v", err))
+		return h.channel.SendPlain(ctx, commandCtx.Locator, fmt.Sprintf("Failed to read JetStream status: %v", err))
 	}
-	return h.channel.SendAgentReply(ctx, commandCtx.Locator, formatMailboxStatus(counts))
+	return h.channel.SendAgentReply(ctx, commandCtx.Locator, status)
 }
 
 func (h *CommandHandler) formatSwarmStatus(ctx context.Context) (string, error) {
@@ -167,19 +154,22 @@ func (h *CommandHandler) formatSwarmStatus(ctx context.Context) (string, error) 
 	out.WriteString("Swarm status\n")
 	out.WriteString("- enabled: ")
 	fmt.Fprintf(&out, "%t", h.swarmConfig.Enabled)
-	out.WriteString("\n- mode: ")
-	out.WriteString(firstNonEmpty(h.swarmConfig.Mode, "shadow"))
-	out.WriteString("\n- webhook mode: ")
-	out.WriteString(firstNonEmpty(h.swarmConfig.WebhookMode, "shadow"))
-	out.WriteString("\n- scheduler mode: ")
-	out.WriteString(firstNonEmpty(h.swarmConfig.SchedulerMode, "shadow"))
 	out.WriteString("\n- runtime enabled: ")
 	fmt.Fprintf(&out, "%t", h.swarmCoordinator != nil && h.swarmCoordinator.RuntimeEnabled())
-	out.WriteString("\n\nEvent bus")
-	if statusProvider, ok := h.eventBus.(swarm.EventBusStatusProvider); ok {
-		status := statusProvider.Status()
-		out.WriteString("\n- mode: ")
-		out.WriteString(firstNonEmpty(status.Mode, "unknown"))
+	out.WriteString("\n\nCommand bus")
+	if statusProvider, ok := h.commandBus.(swarm.CommandBusStatusProvider); ok {
+		status, err := statusProvider.Status(ctx)
+		if err != nil {
+			return "", err
+		}
+		out.WriteString("\n- command_bus: ")
+		out.WriteString(firstNonEmpty(status.CommandBus, "unknown"))
+		out.WriteString("\n- sqlite_command_bus: ")
+		fmt.Fprintf(&out, "%t", status.SQLiteCommandBus)
+		out.WriteString("\n- shadow_mode: ")
+		fmt.Fprintf(&out, "%t", status.ShadowMode)
+		out.WriteString("\n- legacy_direct_path: ")
+		fmt.Fprintf(&out, "%t", status.LegacyDirectPath)
 		out.WriteString("\n- embedded_nats: ")
 		fmt.Fprintf(&out, "%t", status.Embedded)
 		out.WriteString("\n- running: ")
@@ -190,19 +180,12 @@ func (h *CommandHandler) formatSwarmStatus(ctx context.Context) (string, error) 
 			out.WriteString("\n- client_url: ")
 			out.WriteString(status.ClientURL)
 		}
+		writeStreamStatus(&out, "\n\nBALDA_COMMANDS", status.Commands)
+		writeConsumerStatus(&out, "\n\nBALDA_WORKER_COMMANDS", status.Worker)
+		writeStreamStatus(&out, "\n\nBALDA_EVENTS", status.Events)
+		writeStreamStatus(&out, "\n\nBALDA_DLQ", status.DLQ)
 	} else {
 		out.WriteString("\n- unavailable")
-	}
-
-	if h.swarmCoordinator != nil {
-		metrics := h.swarmCoordinator.ShadowMetricsSnapshot()
-		out.WriteString("\n\nShadow metrics")
-		for _, key := range sortedMetricKeys(metrics) {
-			out.WriteString("\n- ")
-			out.WriteString(key)
-			out.WriteString(": ")
-			fmt.Fprintf(&out, "%d", metrics[key])
-		}
 	}
 
 	out.WriteString("\n\nAgents")
@@ -242,19 +225,29 @@ func (h *CommandHandler) formatSwarmStatus(ctx context.Context) (string, error) 
 		}
 	}
 
-	if h.mailboxes != nil {
-		ready, err := h.mailboxes.ListReadyMailboxes(ctx, 20)
-		if err != nil {
-			return "", err
-		}
-		out.WriteString("\n\nReady mailboxes: ")
-		fmt.Fprintf(&out, "%d", len(ready))
-		if len(ready) > 0 {
-			out.WriteString("\n- ")
-			out.WriteString(strings.Join(ready, "\n- "))
-		}
-	}
 	return out.String(), nil
+}
+
+func writeStreamStatus(out *strings.Builder, title string, status swarm.StreamStatus) {
+	out.WriteString(title)
+	out.WriteString("\n- messages: ")
+	fmt.Fprintf(out, "%d", status.Messages)
+	out.WriteString("\n- bytes: ")
+	fmt.Fprintf(out, "%d", status.Bytes)
+	out.WriteString("\n- first_seq: ")
+	fmt.Fprintf(out, "%d", status.FirstSeq)
+	out.WriteString("\n- last_seq: ")
+	fmt.Fprintf(out, "%d", status.LastSeq)
+}
+
+func writeConsumerStatus(out *strings.Builder, title string, status swarm.ConsumerStatus) {
+	out.WriteString(title)
+	out.WriteString("\n- num_pending: ")
+	fmt.Fprintf(out, "%d", status.NumPending)
+	out.WriteString("\n- num_ack_pending: ")
+	fmt.Fprintf(out, "%d", status.NumAckPending)
+	out.WriteString("\n- num_redelivered: ")
+	fmt.Fprintf(out, "%d", status.NumRedelivered)
 }
 
 func (h *CommandHandler) taskArtifacts(ctx context.Context, task baldastate.SwarmTaskRecord) taskArtifactSnapshot {
@@ -500,32 +493,6 @@ func summarizeTaskPayload(raw string) string {
 		return limitRunes(oneLine(trimmed), maxTaskPayloadSummary)
 	}
 	return strings.Join(parts, ", ")
-}
-
-func formatMailboxStatus(counts []baldastate.SwarmMailboxStatusCount) string {
-	if len(counts) == 0 {
-		return "Mailbox status\n- no non-terminal mailbox messages"
-	}
-	var out strings.Builder
-	out.WriteString("Mailbox status")
-	for _, count := range counts {
-		out.WriteString("\n- ")
-		out.WriteString(count.Mailbox)
-		out.WriteString(" [")
-		out.WriteString(count.Status)
-		out.WriteString("]: ")
-		fmt.Fprintf(&out, "%d", count.Count)
-	}
-	return out.String()
-}
-
-func sortedMetricKeys(metrics map[string]uint64) []string {
-	keys := make([]string, 0, len(metrics))
-	for key := range metrics {
-		keys = append(keys, key)
-	}
-	sort.Strings(keys)
-	return keys
 }
 
 func parseTaskResult(raw string) map[string]any {

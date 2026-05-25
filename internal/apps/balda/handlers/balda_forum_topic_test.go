@@ -10,6 +10,7 @@ import (
 	baldatelegram "github.com/normahq/balda/internal/apps/balda/channel/telegram"
 	"github.com/normahq/balda/internal/apps/balda/messenger"
 	baldasession "github.com/normahq/balda/internal/apps/balda/session"
+	"github.com/normahq/balda/internal/apps/balda/swarm"
 	"github.com/normahq/balda/internal/apps/balda/tgbotkit"
 	"github.com/rs/zerolog"
 	"github.com/tgbotkit/client"
@@ -244,8 +245,8 @@ func TestBaldaHandlerOnMessage_ChannelIgnoresNonMention(t *testing.T) {
 		t.Fatalf("onMessage() error = %v", err)
 	}
 
-	if len(turns.enqueueCalls) != 0 {
-		t.Fatalf("Enqueue calls = %d, want 0", len(turns.enqueueCalls))
+	if len(turns.commands) != 0 {
+		t.Fatalf("published commands = %d, want 0", len(turns.commands))
 	}
 }
 
@@ -271,11 +272,11 @@ func TestBaldaHandlerOnMessage_ChannelMentionBypassesGate(t *testing.T) {
 		t.Fatalf("onMessage() error = %v", err)
 	}
 
-	if len(turns.enqueueCalls) != 1 {
-		t.Fatalf("Enqueue calls = %d, want 1", len(turns.enqueueCalls))
+	if len(turns.commands) != 1 {
+		t.Fatalf("published commands = %d, want 1", len(turns.commands))
 	}
-	if turns.enqueueCalls[0].SessionID != locator.SessionID {
-		t.Fatalf("Enqueue session = %q, want %q", turns.enqueueCalls[0].SessionID, locator.SessionID)
+	if turns.commands[0].SessionID != locator.SessionID {
+		t.Fatalf("command session = %q, want %q", turns.commands[0].SessionID, locator.SessionID)
 	}
 }
 
@@ -299,11 +300,11 @@ func TestBaldaHandlerOnMessage_DMNonMentionAllowed(t *testing.T) {
 		t.Fatalf("onMessage() error = %v", err)
 	}
 
-	if len(turns.enqueueCalls) != 1 {
-		t.Fatalf("Enqueue calls = %d, want 1", len(turns.enqueueCalls))
+	if len(turns.commands) != 1 {
+		t.Fatalf("published commands = %d, want 1", len(turns.commands))
 	}
-	if turns.enqueueCalls[0].SessionID != locator.SessionID {
-		t.Fatalf("Enqueue session = %q, want %q", turns.enqueueCalls[0].SessionID, locator.SessionID)
+	if turns.commands[0].SessionID != locator.SessionID {
+		t.Fatalf("command session = %q, want %q", turns.commands[0].SessionID, locator.SessionID)
 	}
 }
 
@@ -329,8 +330,8 @@ func TestBaldaHandlerOnMessage_TopicUnknownThreadIgnoresNonMentionNonReply(t *te
 		t.Fatalf("onMessage() error = %v", err)
 	}
 
-	if len(turns.enqueueCalls) != 0 {
-		t.Fatalf("Enqueue calls = %d, want 0", len(turns.enqueueCalls))
+	if len(turns.commands) != 0 {
+		t.Fatalf("published commands = %d, want 0", len(turns.commands))
 	}
 }
 
@@ -356,8 +357,8 @@ func TestBaldaHandlerOnMessage_TopicKnownThreadStillRequiresMentionOrReply(t *te
 		t.Fatalf("onMessage() error = %v", err)
 	}
 
-	if len(turns.enqueueCalls) != 0 {
-		t.Fatalf("Enqueue calls = %d, want 0", len(turns.enqueueCalls))
+	if len(turns.commands) != 0 {
+		t.Fatalf("published commands = %d, want 0", len(turns.commands))
 	}
 }
 
@@ -381,8 +382,8 @@ func TestBaldaHandlerOnMessage_RejectsFalsePositiveBotMentionPrefix(t *testing.T
 		t.Fatalf("onMessage() error = %v", err)
 	}
 
-	if len(turns.enqueueCalls) != 0 {
-		t.Fatalf("Enqueue calls = %d, want 0", len(turns.enqueueCalls))
+	if len(turns.commands) != 0 {
+		t.Fatalf("published commands = %d, want 0", len(turns.commands))
 	}
 }
 
@@ -407,11 +408,11 @@ func TestBaldaHandlerOnMessage_ChannelReplyToBotBypassesMentionGate(t *testing.T
 		t.Fatalf("onMessage() error = %v", err)
 	}
 
-	if len(turns.enqueueCalls) != 1 {
-		t.Fatalf("Enqueue calls = %d, want 1", len(turns.enqueueCalls))
+	if len(turns.commands) != 1 {
+		t.Fatalf("published commands = %d, want 1", len(turns.commands))
 	}
-	if turns.enqueueCalls[0].SessionID != locator.SessionID {
-		t.Fatalf("Enqueue session = %q, want %q", turns.enqueueCalls[0].SessionID, locator.SessionID)
+	if turns.commands[0].SessionID != locator.SessionID {
+		t.Fatalf("command session = %q, want %q", turns.commands[0].SessionID, locator.SessionID)
 	}
 }
 
@@ -438,11 +439,11 @@ func TestBaldaHandlerOnMessage_TopicReplyToBotBypassesMentionGate(t *testing.T) 
 		t.Fatalf("onMessage() error = %v", err)
 	}
 
-	if len(turns.enqueueCalls) != 1 {
-		t.Fatalf("Enqueue calls = %d, want 1", len(turns.enqueueCalls))
+	if len(turns.commands) != 1 {
+		t.Fatalf("published commands = %d, want 1", len(turns.commands))
 	}
-	if turns.enqueueCalls[0].SessionID != locator.SessionID {
-		t.Fatalf("Enqueue session = %q, want %q", turns.enqueueCalls[0].SessionID, locator.SessionID)
+	if turns.commands[0].SessionID != locator.SessionID {
+		t.Fatalf("command session = %q, want %q", turns.commands[0].SessionID, locator.SessionID)
 	}
 }
 
@@ -467,8 +468,8 @@ func TestBaldaHandlerOnMessage_ChannelReplyToDifferentBotIgnored(t *testing.T) {
 		t.Fatalf("onMessage() error = %v", err)
 	}
 
-	if len(turns.enqueueCalls) != 0 {
-		t.Fatalf("Enqueue calls = %d, want 0", len(turns.enqueueCalls))
+	if len(turns.commands) != 0 {
+		t.Fatalf("published commands = %d, want 0", len(turns.commands))
 	}
 }
 
@@ -498,12 +499,13 @@ func newBaldaMessageHandlerHarness(t *testing.T, topicID int) (*BaldaHandler, *f
 	sessionManager := newBaldaSessionManagerWithSession(t, locator, newBaldaTopicSession(t, locator.SessionID))
 	turnDispatcher := &fakeTurnDispatcher{}
 	handler := &BaldaHandler{
-		ownerStore:     ownerStore,
-		channel:        newBaldaTestTelegramAdapter(),
-		sessionManager: sessionManager,
-		turnDispatcher: turnDispatcher,
-		logger:         zerolog.Nop(),
-		authorizer:     &fakeBaldaAuthorizer{ownerID: 101},
+		ownerStore:       ownerStore,
+		channel:          newBaldaTestTelegramAdapter(),
+		sessionManager:   sessionManager,
+		turnDispatcher:   turnDispatcher,
+		swarmCoordinator: swarm.NewCoordinator(turnDispatcher, swarm.Config{Enabled: true}),
+		logger:           zerolog.Nop(),
+		authorizer:       &fakeBaldaAuthorizer{ownerID: 101},
 	}
 	handler.SetOwner(101, 9001)
 	setUnexportedField(t, handler, "baldaProviderName", "alpha")

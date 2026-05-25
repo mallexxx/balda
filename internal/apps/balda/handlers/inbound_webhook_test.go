@@ -14,6 +14,7 @@ import (
 	baldachannel "github.com/normahq/balda/internal/apps/balda/channel"
 	baldatelegram "github.com/normahq/balda/internal/apps/balda/channel/telegram"
 	baldasession "github.com/normahq/balda/internal/apps/balda/session"
+	"github.com/normahq/balda/internal/apps/balda/swarm"
 	"github.com/rs/zerolog"
 	"google.golang.org/adk/runner"
 )
@@ -164,7 +165,7 @@ func TestInboundWebhookReceiver_QueueFull(t *testing.T) {
 	assertInboundWebhookError(t, rec, http.StatusTooManyRequests, inboundWebhookCodeQueueFull)
 }
 
-func TestInboundWebhookReceiver_AcceptsAndDispatches(t *testing.T) {
+func TestInboundWebhookReceiver_AcceptsAndPublishesCommand(t *testing.T) {
 	t.Parallel()
 
 	locator := baldatelegram.NewLocator(9001, 0)
@@ -176,11 +177,9 @@ func TestInboundWebhookReceiver_AcceptsAndDispatches(t *testing.T) {
 		info:          baldasession.TopicSessionInfo{SessionID: locator.SessionID, Locator: locator, UserID: "tg-101"},
 		restoreResult: ts,
 	}
-	queue := &fakeInboundTurnQueue{runImmediately: true}
 	executor := &fakeInboundTurnExecutor{}
 	receiver := newInboundWebhookReceiverForTest(t)
 	receiver.sessions = sessionMgr
-	receiver.dispatch = queue
 	receiver.balda = executor
 	receiver.routes = map[string]inboundWebhookRoute{
 		"/webhook1": {
@@ -213,8 +212,17 @@ func TestInboundWebhookReceiver_AcceptsAndDispatches(t *testing.T) {
 	if got, want := response.SessionID, locator.SessionID; got != want {
 		t.Fatalf("session_id = %q, want %q", got, want)
 	}
-	if got := len(queue.tasks); got != 0 {
-		t.Fatalf("queued tasks = %d, want 0 with swarm submit path", got)
+	if got, want := response.Stream, swarm.DefaultCommandStream; got != want {
+		t.Fatalf("stream = %q, want %q", got, want)
+	}
+	if response.Sequence == 0 {
+		t.Fatal("sequence = 0, want JetStream sequence")
+	}
+	if response.MessageID == "" {
+		t.Fatal("message_id is empty")
+	}
+	if response.TaskID == "" {
+		t.Fatal("task_id is empty")
 	}
 	if got := executor.calls; got != 1 {
 		t.Fatalf("executor calls = %d, want 1", got)
@@ -295,28 +303,6 @@ func (f *fakeInboundSessionManager) EnsureSession(
 	return nil, errors.New("no ensure result")
 }
 
-type fakeInboundTurnQueue struct {
-	tasks          []TurnTask
-	enqueueErr     error
-	runImmediately bool
-}
-
-func (f *fakeInboundTurnQueue) Enqueue(task TurnTask) (int, error) {
-	if f.enqueueErr != nil {
-		return 0, f.enqueueErr
-	}
-	f.tasks = append(f.tasks, task)
-	position := len(f.tasks) - 1
-	if f.runImmediately {
-		_ = task.Run(context.Background())
-	}
-	return position, nil
-}
-
-func (*fakeInboundTurnQueue) CancelSession(baldasession.SessionLocator, bool) (bool, int, error) {
-	return false, 0, nil
-}
-
 type fakeInboundTurnExecutor struct {
 	calls     int
 	prompt    string
@@ -324,14 +310,25 @@ type fakeInboundTurnExecutor struct {
 	submitErr error
 }
 
-func (f *fakeInboundTurnExecutor) submitSessionTurn(_ context.Context, payload sessionTurnPayload) (int, error) {
+func (f *fakeInboundTurnExecutor) submitWebhookTask(
+	_ context.Context,
+	payload sessionTurnPayload,
+	routeName string,
+	requestID string,
+) (*swarm.CommandPublishResult, string, error) {
 	if f.submitErr != nil {
-		return 0, f.submitErr
+		return nil, "", f.submitErr
 	}
 	f.calls++
 	f.prompt = payload.Text
 	f.deliver = payload.Deliver
-	return 0, nil
+	taskID := "webhook-" + routeName + "-test"
+	return &swarm.CommandPublishResult{
+		Stream:   swarm.DefaultCommandStream,
+		Sequence: 1,
+		Subject:  swarm.SubjectCommandTask,
+		MsgID:    "webhook:" + routeName + ":" + requestID,
+	}, taskID, nil
 }
 
 func (f *fakeInboundTurnExecutor) runTurnTaskWithDelivery(
@@ -366,7 +363,6 @@ func newInboundWebhookReceiverForTest(t *testing.T) *InboundWebhookReceiver {
 			},
 		},
 		sessions: &fakeInboundSessionManager{},
-		dispatch: &fakeInboundTurnQueue{},
 		balda:    &fakeInboundTurnExecutor{},
 		owner:    newOwnerStoreForTest(t, 101, 9001),
 		logger:   zerolog.Nop(),

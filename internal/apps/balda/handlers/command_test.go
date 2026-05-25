@@ -3,23 +3,18 @@ package handlers
 import (
 	"context"
 	"errors"
-	"path/filepath"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/normahq/balda/internal/apps/balda/auth"
 	baldatelegram "github.com/normahq/balda/internal/apps/balda/channel/telegram"
 	"github.com/normahq/balda/internal/apps/balda/memory"
 	"github.com/normahq/balda/internal/apps/balda/messenger"
 	"github.com/normahq/balda/internal/apps/balda/session"
-	baldastate "github.com/normahq/balda/internal/apps/balda/state"
 	"github.com/normahq/balda/internal/apps/balda/swarm"
 	"github.com/rs/zerolog"
 	"github.com/tgbotkit/client"
 	"github.com/tgbotkit/runtime/events"
-	"go.uber.org/fx"
-	"go.uber.org/fx/fxtest"
 )
 
 const (
@@ -320,7 +315,8 @@ func TestCommandHandlerOnCommand_NewIsIgnored(t *testing.T) {
 
 func TestCommandHandlerOnCommand_GoalStartsRun(t *testing.T) {
 	handler, _, _, tgClient := newCommandHandlerTestHarness(t)
-	goal := handler.goalRunner.(*fakeGoalRunner)
+	bus := &recordingHandlerCommandBus{}
+	handler.swarmCoordinator = swarm.NewCoordinator(bus, swarm.Config{Enabled: true})
 
 	topicID := 99
 	err := handler.onCommand(context.Background(), newCommandEvent("goal", "deploy release", 101, 9001, &topicID))
@@ -328,19 +324,19 @@ func TestCommandHandlerOnCommand_GoalStartsRun(t *testing.T) {
 		t.Fatalf("onCommand() error = %v", err)
 	}
 
-	if len(goal.startCalls) != 1 {
-		t.Fatalf("GoalRunner Start calls = %d, want 1", len(goal.startCalls))
+	if len(bus.commands) != 1 {
+		t.Fatalf("published commands = %d, want 1", len(bus.commands))
 	}
-	call := goal.startCalls[0]
-	if call.SessionID != "tg-9001-99" || call.Objective != "deploy release" || call.TransportUserID != testTelegramUserID101 {
-		t.Fatalf("GoalRunner Start call = %+v, want session=tg-9001-99 objective='deploy release' user=tg-101", call)
+	cmd := bus.commands[0]
+	if cmd.To.Target != swarm.ActorTypeTask || cmd.Namespace != swarm.NamespaceAgentCommand || cmd.Kind != swarm.KindGoal {
+		t.Fatalf("published command = %+v, want goal task command", cmd)
 	}
 	if len(tgClient.messages) != 0 {
 		t.Fatalf("sent messages = %d, want 0", len(tgClient.messages))
 	}
 }
 
-func TestCommandHandlerSubmitGoalTask_CreatesTaskRecordInEveryMode(t *testing.T) {
+func TestCommandHandlerSubmitGoalTask_PublishesJetStreamCommandOnly(t *testing.T) {
 	ctx := context.Background()
 	locator := session.SessionLocator{
 		SessionID:   "tg-9001-99",
@@ -348,108 +344,23 @@ func TestCommandHandlerSubmitGoalTask_CreatesTaskRecordInEveryMode(t *testing.T)
 		AddressKey:  "tg-9001-99",
 	}
 
-	tests := []struct {
-		name             string
-		cfg              swarm.Config
-		expectGoalRunner bool
-		expectMailbox    bool
-	}{
-		{
-			name:             "legacy",
-			cfg:              swarm.Config{Enabled: true, Mode: swarm.ModeLegacy},
-			expectGoalRunner: true,
-		},
-		{
-			name:             "shadow",
-			cfg:              swarm.Config{Enabled: true, Mode: swarm.ModeShadow, Shadow: swarm.ShadowConfig{Enabled: true}},
-			expectGoalRunner: true,
-		},
-		{
-			name:          "mailbox",
-			cfg:           swarm.Config{Enabled: true, Mode: swarm.ModeMailbox},
-			expectMailbox: true,
-		},
-	}
+	bus := &recordingHandlerCommandBus{}
+	goal := &fakeGoalRunner{startResult: true, maxIters: 7}
+	handler := &CommandHandler{swarmCoordinator: swarm.NewCoordinator(bus, swarm.Config{Enabled: true}), goalRunner: goal}
 
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			provider, coordinator, tasks := newCommandHandlerSwarmServices(t, ctx, tc.cfg)
-			goal := &fakeGoalRunner{startResult: true, maxIters: 7}
-			handler := &CommandHandler{
-				swarmCoordinator: coordinator,
-				tasks:            tasks,
-				goalRunner:       goal,
-			}
-
-			started, err := handler.submitGoalTask(ctx, locator, "deploy release", testTelegramUserID101)
-			if err != nil {
-				t.Fatalf("submitGoalTask() error = %v", err)
-			}
-			if !started {
-				t.Fatal("submitGoalTask() started = false, want true")
-			}
-			if got := len(goal.startCalls); got != boolToInt(tc.expectGoalRunner) {
-				t.Fatalf("GoalRunner StartTask calls = %d, want %d", got, boolToInt(tc.expectGoalRunner))
-			}
-
-			active, err := provider.Swarm().ListActiveTasksBySession(ctx, locator.SessionID)
-			if err != nil {
-				t.Fatalf("ListActiveTasksBySession() error = %v", err)
-			}
-			if len(active) != 1 {
-				t.Fatalf("active tasks = %+v, want one", active)
-			}
-			task := active[0]
-			if task.Objective != "deploy release" || task.Status != baldastate.SwarmTaskStatusQueued || task.CreatedFrom != "goal" {
-				t.Fatalf("task = %+v, want queued goal task", task)
-			}
-
-			claimed, err := provider.Swarm().Claim(ctx, "task:"+task.ID, "test-worker", 1, time.Minute)
-			if err != nil {
-				t.Fatalf("Claim(task mailbox) error = %v", err)
-			}
-			if tc.expectMailbox && len(claimed) != 1 {
-				t.Fatalf("claimed mailbox messages = %+v, want one", claimed)
-			}
-			if !tc.expectMailbox && len(claimed) != 0 {
-				t.Fatalf("claimed mailbox messages = %+v, want none", claimed)
-			}
-		})
-	}
-}
-
-func TestCommandHandlerOnCommand_GoalRejectsConcurrentRun(t *testing.T) {
-	handler, _, _, tgClient := newCommandHandlerTestHarness(t)
-	goal := handler.goalRunner.(*fakeGoalRunner)
-	goal.startResult = false
-
-	err := handler.onCommand(context.Background(), newCommandEvent("goal", "deploy release", 101, 9001, nil))
+	started, err := handler.submitGoalTask(ctx, locator, "deploy release", testTelegramUserID101)
 	if err != nil {
-		t.Fatalf("onCommand() error = %v", err)
+		t.Fatalf("submitGoalTask() error = %v", err)
 	}
-
-	assertLastSentContains(t, tgClient, "A goal run is already active for this session.")
-}
-
-func TestCommandHandlerOnCommand_GoalRejectsConcurrentRun_UsesAgentReplyFormatting(t *testing.T) {
-	handler, _, _, tgClient := newCommandHandlerTestHarness(t)
-	handler.messenger.SetAgentReplyFormattingMode("markdownv2")
-	goal := handler.goalRunner.(*fakeGoalRunner)
-	goal.startResult = false
-
-	err := handler.onCommand(context.Background(), newCommandEvent("goal", "deploy release", 101, 9001, nil))
-	if err != nil {
-		t.Fatalf("onCommand() error = %v", err)
+	if !started {
+		t.Fatal("submitGoalTask() started = false, want true")
 	}
-
-	if len(tgClient.messages) == 0 {
-		t.Fatal("sent messages = 0, want concurrent-run message")
+	if len(goal.startCalls) != 0 {
+		t.Fatalf("GoalRunner StartTask calls = %d, want 0", len(goal.startCalls))
 	}
-	last := tgClient.messages[len(tgClient.messages)-1]
-	if last.ParseMode == nil || *last.ParseMode != testParseModeMarkdown {
-		t.Fatalf("parse_mode = %v, want MarkdownV2", last.ParseMode)
+	if len(bus.commands) != 1 {
+		t.Fatalf("published commands = %d, want 1", len(bus.commands))
 	}
-	assertLastSentContains(t, tgClient, "A goal run is already active for this session")
 }
 
 func TestCommandHandlerOnCommand_GoalWithoutArgsShowsUsage(t *testing.T) {
@@ -724,6 +635,7 @@ func (f *fakeCommandSessionManager) GetSessionInfo(_ context.Context, sessionID 
 }
 
 type fakeTurnDispatcher struct {
+	commands          []swarm.Envelope
 	cancelCalls       []cancelSessionCall
 	enqueueCalls      []TurnTask
 	cancelHadInFlight bool
@@ -744,6 +656,24 @@ func (f *fakeTurnDispatcher) Enqueue(task TurnTask) (int, error) {
 	f.enqueueCalls = append(f.enqueueCalls, task)
 	return 0, nil
 }
+
+func (f *fakeTurnDispatcher) PublishCommand(_ context.Context, env swarm.Envelope) (*swarm.CommandPublishResult, error) {
+	f.commands = append(f.commands, env)
+	return &swarm.CommandPublishResult{
+		Stream:   swarm.DefaultCommandStream,
+		Sequence: uint64(len(f.commands)),
+		Subject:  swarm.SubjectForEnvelope(env),
+		MsgID:    swarm.DedupeKeyOrID(env),
+	}, nil
+}
+
+func (*fakeTurnDispatcher) PublishEvent(context.Context, string, swarm.Envelope) error { return nil }
+func (*fakeTurnDispatcher) PublishDLQ(context.Context, swarm.Envelope, string) error   { return nil }
+func (*fakeTurnDispatcher) RunCommandConsumer(ctx context.Context, _ swarm.CommandHandler) error {
+	<-ctx.Done()
+	return ctx.Err()
+}
+func (*fakeTurnDispatcher) Drain(context.Context) error { return nil }
 
 func (f *fakeTurnDispatcher) CancelSession(locator session.SessionLocator, clearQueued bool) (bool, int, error) {
 	f.cancelCalls = append(f.cancelCalls, cancelSessionCall{
@@ -819,6 +749,7 @@ func newCommandHandlerTestHarness(t *testing.T) (*CommandHandler, *fakeCommandSe
 	sessionManager := &fakeCommandSessionManager{}
 	turnDispatcher := &fakeTurnDispatcher{}
 	goalRunner := &fakeGoalRunner{startResult: true}
+	commandBus := &recordingHandlerCommandBus{}
 	sessionManager.baldaProvider = testProviderAlpha
 	sessionManager.metadata = session.AgentMetadata{
 		Type:       "opencode_acp",
@@ -833,63 +764,36 @@ func newCommandHandlerTestHarness(t *testing.T) (*CommandHandler, *fakeCommandSe
 			TGClient:  tgClient,
 			Logger:    zerolog.Nop(),
 		}),
-		sessionManager: sessionManager,
-		turnDispatcher: turnDispatcher,
-		goalRunner:     goalRunner,
-		messenger:      msg,
-		memoryStore:    memory.NewStore(t.TempDir(), true),
+		sessionManager:   sessionManager,
+		turnDispatcher:   turnDispatcher,
+		swarmCoordinator: swarm.NewCoordinator(commandBus, swarm.Config{Enabled: true}),
+		goalRunner:       goalRunner,
+		messenger:        msg,
+		memoryStore:      memory.NewStore(t.TempDir(), true),
 	}
 	return handler, sessionManager, turnDispatcher, tgClient
 }
 
-func newCommandHandlerSwarmServices(
-	t *testing.T,
-	ctx context.Context,
-	cfg swarm.Config,
-) (baldastate.Provider, *swarm.Coordinator, *swarm.TaskService) {
-	t.Helper()
-
-	normalized, err := cfg.Normalized()
-	if err != nil {
-		t.Fatalf("Normalize swarm config: %v", err)
-	}
-	provider, err := baldastate.NewSQLiteProvider(ctx, filepath.Join(t.TempDir(), "state.db"))
-	if err != nil {
-		t.Fatalf("NewSQLiteProvider() error = %v", err)
-	}
-	t.Cleanup(func() {
-		if err := provider.Close(); err != nil {
-			t.Fatalf("provider.Close() error = %v", err)
-		}
-	})
-
-	var coordinator *swarm.Coordinator
-	var tasks *swarm.TaskService
-	app := fxtest.New(t,
-		fx.Supply(
-			fx.Annotate(provider, fx.As(new(baldastate.Provider))),
-			fx.Annotate(handlerShadowWakeBus{}, fx.As(new(swarm.EventBus))),
-			normalized,
-		),
-		fx.Provide(
-			swarm.NewShadowMetrics,
-			swarm.NewMailboxService,
-			swarm.NewTaskService,
-			swarm.NewCoordinator,
-		),
-		fx.Populate(&coordinator, &tasks),
-	)
-	app.RequireStart()
-	t.Cleanup(func() { app.RequireStop() })
-	return provider, coordinator, tasks
+type recordingHandlerCommandBus struct {
+	commands []swarm.Envelope
 }
 
-func boolToInt(v bool) int {
-	if v {
-		return 1
-	}
-	return 0
+func (b *recordingHandlerCommandBus) PublishCommand(_ context.Context, env swarm.Envelope) (*swarm.CommandPublishResult, error) {
+	b.commands = append(b.commands, env)
+	return &swarm.CommandPublishResult{Stream: swarm.DefaultCommandStream, Sequence: uint64(len(b.commands)), Subject: swarm.SubjectForEnvelope(env), MsgID: swarm.DedupeKeyOrID(env)}, nil
 }
+
+func (*recordingHandlerCommandBus) PublishEvent(context.Context, string, swarm.Envelope) error {
+	return nil
+}
+func (*recordingHandlerCommandBus) PublishDLQ(context.Context, swarm.Envelope, string) error {
+	return nil
+}
+func (*recordingHandlerCommandBus) RunCommandConsumer(ctx context.Context, _ swarm.CommandHandler) error {
+	<-ctx.Done()
+	return ctx.Err()
+}
+func (*recordingHandlerCommandBus) Drain(context.Context) error { return nil }
 
 type fakeCollaboratorBackend struct {
 	entries map[string]auth.Collaborator

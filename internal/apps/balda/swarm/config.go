@@ -7,10 +7,6 @@ import (
 )
 
 const (
-	ModeLegacy  = "legacy"
-	ModeShadow  = "shadow"
-	ModeMailbox = "mailbox"
-
 	QueueModeFollowup  = "followup"
 	QueueModeCollect   = "collect"
 	QueueModeInterrupt = "interrupt"
@@ -23,18 +19,38 @@ const (
 	defaultQueueCap        = 20
 )
 
+const (
+	DefaultCommandStream  = "BALDA_COMMANDS"
+	DefaultCommandConsumer = "BALDA_WORKER_COMMANDS"
+	DefaultEventStream    = "BALDA_EVENTS"
+	DefaultDLQStream      = "BALDA_DLQ"
+)
+
 type Config struct {
-	Enabled       bool
-	Mode          string
-	WebhookMode   string
-	SchedulerMode string
-	Shadow        ShadowConfig
-	Queue         QueueConfig
-	Agents        map[string]AgentSpec
+	Enabled  bool
+	Commands CommandConfig
+	Events   EventStreamConfig
+	DLQ      DLQConfig
+	Queue    QueueConfig
+	Agents   map[string]AgentSpec
 }
 
-type ShadowConfig struct {
-	Enabled bool
+type CommandConfig struct {
+	Stream        string
+	Consumer      string
+	AckWait       string
+	MaxDeliver    int
+	MaxAckPending int
+	FetchBatch    int
+	FetchWait     string
+}
+
+type EventStreamConfig struct {
+	Stream string
+}
+
+type DLQConfig struct {
+	Stream string
 }
 
 type QueueConfig struct {
@@ -53,49 +69,15 @@ type QueuePolicy struct {
 	Priority int
 }
 
-func (c Config) MailboxEnabled() bool {
-	return c.Enabled && (modeIs(c.Mode, ModeMailbox) || modeIs(c.WebhookMode, ModeMailbox) || modeIs(c.SchedulerMode, ModeMailbox))
-}
-
-func (c Config) GlobalMailboxEnabled() bool {
-	return c.Enabled && modeIs(c.Mode, ModeMailbox)
-}
-
-func (c Config) WebhookMailboxEnabled() bool {
-	return c.Enabled && modeIs(c.WebhookMode, ModeMailbox)
-}
-
-func (c Config) SchedulerMailboxEnabled() bool {
-	return c.Enabled && modeIs(c.SchedulerMode, ModeMailbox)
-}
-
-func (c Config) ShadowEnabled() bool {
-	return c.Enabled && c.Shadow.Enabled && modeIs(c.Mode, ModeShadow)
-}
-
-func (c Config) ShadowRuntimeEnabled() bool {
-	return c.Enabled && c.Shadow.Enabled && (modeIs(c.Mode, ModeShadow) || modeIs(c.WebhookMode, ModeShadow) || modeIs(c.SchedulerMode, ModeShadow))
-}
-
-func (c Config) WebhookShadowEnabled() bool {
-	return c.Enabled && c.Shadow.Enabled && modeIs(c.WebhookMode, ModeShadow)
-}
-
-func (c Config) SchedulerShadowEnabled() bool {
-	return c.Enabled && c.Shadow.Enabled && modeIs(c.SchedulerMode, ModeShadow)
+func (c Config) RuntimeEnabled() bool {
+	return c.Enabled
 }
 
 func (c Config) Normalized() (Config, error) {
 	var err error
-	if c.Mode, err = normalizeMode(c.Mode); err != nil {
-		return Config{}, err
-	}
-	if c.WebhookMode, err = normalizeMode(c.WebhookMode); err != nil {
-		return Config{}, err
-	}
-	if c.SchedulerMode, err = normalizeMode(c.SchedulerMode); err != nil {
-		return Config{}, err
-	}
+	c.Commands = c.Commands.Normalized()
+	c.Events = c.Events.Normalized()
+	c.DLQ = c.DLQ.Normalized()
 	if c.Queue, err = c.Queue.Normalized(); err != nil {
 		return Config{}, err
 	}
@@ -108,6 +90,46 @@ func (c Config) Normalized() (Config, error) {
 		c.Agents[spec.Name] = spec
 	}
 	return c, nil
+}
+
+func (c CommandConfig) Normalized() CommandConfig {
+	out := c
+	if strings.TrimSpace(out.Stream) == "" {
+		out.Stream = DefaultCommandStream
+	}
+	if strings.TrimSpace(out.Consumer) == "" {
+		out.Consumer = DefaultCommandConsumer
+	}
+	if strings.TrimSpace(out.AckWait) == "" {
+		out.AckWait = "5m"
+	}
+	if out.MaxDeliver <= 0 {
+		out.MaxDeliver = 5
+	}
+	if out.MaxAckPending <= 0 {
+		out.MaxAckPending = 64
+	}
+	if out.FetchBatch <= 0 {
+		out.FetchBatch = 16
+	}
+	if strings.TrimSpace(out.FetchWait) == "" {
+		out.FetchWait = "1s"
+	}
+	return out
+}
+
+func (c EventStreamConfig) Normalized() EventStreamConfig {
+	if strings.TrimSpace(c.Stream) == "" {
+		c.Stream = DefaultEventStream
+	}
+	return c
+}
+
+func (c DLQConfig) Normalized() DLQConfig {
+	if strings.TrimSpace(c.Stream) == "" {
+		c.Stream = DefaultDLQStream
+	}
+	return c
 }
 
 func (c QueueConfig) PolicyFor(namespace string) QueuePolicy {
@@ -179,20 +201,6 @@ func (c QueueConfig) Normalized() (QueueConfig, error) {
 	return out, nil
 }
 
-func modeIs(raw string, want string) bool {
-	return modeOrDefault(raw) == want
-}
-
-func normalizeMode(raw string) (string, error) {
-	mode := modeOrDefault(raw)
-	switch mode {
-	case ModeLegacy, ModeShadow, ModeMailbox:
-		return mode, nil
-	default:
-		return "", fmt.Errorf("invalid swarm mode %q: supported values are %q, %q, and %q", mode, ModeLegacy, ModeShadow, ModeMailbox)
-	}
-}
-
 func normalizeQueueMode(raw string) (string, error) {
 	mode := strings.ToLower(strings.TrimSpace(raw))
 	switch mode {
@@ -211,14 +219,6 @@ func normalizeQueueDrop(raw string) (string, error) {
 	default:
 		return "", fmt.Errorf("invalid queue drop policy %q: supported values are %q, %q, and %q", raw, QueueDropSummarize, QueueDropOld, QueueDropNew)
 	}
-}
-
-func modeOrDefault(raw string) string {
-	mode := strings.ToLower(strings.TrimSpace(raw))
-	if mode == "" {
-		return ModeShadow
-	}
-	return mode
 }
 
 func defaultQueueConfig() QueueConfig {

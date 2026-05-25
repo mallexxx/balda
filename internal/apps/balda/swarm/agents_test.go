@@ -5,12 +5,6 @@ import (
 	"testing"
 )
 
-type fakeQueueDepths map[string]int
-
-func (f fakeQueueDepths) PendingCount(_ context.Context, mailbox string) (int, error) {
-	return f[mailbox], nil
-}
-
 func TestNormalizeAgentSpecs_DefaultsAndOverrides(t *testing.T) {
 	t.Parallel()
 
@@ -66,29 +60,6 @@ func TestAgentAllocator_SelectsRoleAndTieBreaksByName(t *testing.T) {
 	}
 	if got.Name != AgentNameExecutor {
 		t.Fatalf("allocated agent = %q, want deterministic tie-break to %q", got.Name, AgentNameExecutor)
-	}
-}
-
-func TestAgentAllocator_AppliesQueueDepthPenalty(t *testing.T) {
-	t.Parallel()
-
-	registry, err := NewAgentRegistry(Config{})
-	if err != nil {
-		t.Fatalf("NewAgentRegistry() error = %v", err)
-	}
-	allocator := &AgentAllocator{
-		registry: registry,
-		depths: fakeQueueDepths{
-			"agent:" + AgentNameExecutor: 5,
-			"agent:" + AgentNameReviewer: 0,
-		},
-	}
-	got, err := allocator.Allocate(context.Background(), AgentAllocationRequest{Tools: []string{AgentToolWorkspace, AgentToolShell}})
-	if err != nil {
-		t.Fatalf("Allocate() error = %v", err)
-	}
-	if got.Name != AgentNameReviewer {
-		t.Fatalf("allocated agent = %q, want %q", got.Name, AgentNameReviewer)
 	}
 }
 

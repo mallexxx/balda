@@ -11,89 +11,78 @@ import (
 	"go.uber.org/fx/fxtest"
 )
 
-func TestEventBus_PublishSubscribeEmbedded(t *testing.T) {
-	lc := fxtest.NewLifecycle(t)
-	busRaw, err := NewEventBus(Params{
-		LC:         lc,
-		Config:     baldaeventbus.Config{Mode: baldaeventbus.ModeNATSCore},
+func TestBus_PublishCommandAndConsumeEmbeddedJetStream(t *testing.T) {
+	busRaw, err := NewCommandBus(Params{
+		LC:         fxtest.NewLifecycle(t),
+		Config:     baldaeventbus.Config{Embedded: true, JetStream: true},
+		Swarm:      swarm.Config{Enabled: true},
 		WorkingDir: t.TempDir(),
 		Logger:     zerolog.Nop(),
 	})
 	if err != nil {
-		t.Fatalf("NewEventBus() error = %v", err)
+		t.Fatalf("NewCommandBus() error = %v", err)
 	}
-	bus := busRaw.(*EventBus)
+	bus := busRaw.(*Bus)
 	defer func() { _ = bus.Drain(context.Background()) }()
 
-	got := make(chan swarm.Envelope, 1)
-	if _, err := bus.Subscribe(context.Background(), swarm.SubjectWakeupMailbox, func(_ context.Context, _ string, env swarm.Envelope) error {
-		got <- env
-		return nil
-	}); err != nil {
-		t.Fatalf("Subscribe() error = %v", err)
+	env := commandTestEnvelope("env-1")
+	ack, err := bus.PublishCommand(context.Background(), env)
+	if err != nil {
+		t.Fatalf("PublishCommand() error = %v", err)
 	}
-	env := natsTestEnvelope("env-1")
-	if err := bus.Publish(context.Background(), swarm.SubjectWakeupMailbox, env); err != nil {
-		t.Fatalf("Publish() error = %v", err)
+	if ack.Stream != swarm.DefaultCommandStream || ack.Subject != swarm.SubjectCommandTask || ack.Sequence == 0 {
+		t.Fatalf("PublishCommand() ack = %+v", ack)
 	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	seen := make(chan swarm.Envelope, 1)
+	go func() {
+		_ = bus.RunCommandConsumer(ctx, func(_ context.Context, msg swarm.CommandMessage) error {
+			seen <- msg.Envelope()
+			return nil
+		})
+	}()
 	select {
-	case received := <-got:
-		if received.ID != env.ID {
-			t.Fatalf("received ID = %q, want %q", received.ID, env.ID)
+	case got := <-seen:
+		if got.ID != env.ID {
+			t.Fatalf("consumed envelope id = %q, want %q", got.ID, env.ID)
 		}
-	case <-time.After(2 * time.Second):
-		t.Fatal("timeout waiting for event")
-	}
-	status := bus.Status()
-	if !status.Running || !status.Embedded || status.ClientURL == "" {
-		t.Fatalf("Status() = %+v, want running embedded bus", status)
+	case <-ctx.Done():
+		t.Fatal("timed out waiting for command consumer")
 	}
 }
 
-func TestEventBus_SQLiteModeReturnsNoop(t *testing.T) {
-	bus, err := NewEventBus(Params{Config: baldaeventbus.Config{Mode: baldaeventbus.ModeSQLite}, WorkingDir: t.TempDir(), Logger: zerolog.Nop()})
-	if err != nil {
-		t.Fatalf("NewEventBus() error = %v", err)
-	}
-	status := bus.(swarm.EventBusStatusProvider).Status()
-	if status.Mode != baldaeventbus.ModeSQLite || status.Running {
-		t.Fatalf("Status() = %+v, want sqlite stopped", status)
-	}
-}
-
-func TestEventBus_JetStreamCreatesStreamsAndPublishesCommand(t *testing.T) {
-	busRaw, err := NewEventBus(Params{
-		LC: fxtest.NewLifecycle(t),
-		Config: baldaeventbus.Config{
-			Mode: baldaeventbus.ModeNATSJetStream,
-			NATS: baldaeventbus.NATSConfig{StoreDir: t.TempDir()},
-		},
+func TestBus_StatusReportsJetStreamOnly(t *testing.T) {
+	busRaw, err := NewCommandBus(Params{
+		LC:         fxtest.NewLifecycle(t),
+		Config:     baldaeventbus.Config{Embedded: true, JetStream: true},
+		Swarm:      swarm.Config{Enabled: true},
 		WorkingDir: t.TempDir(),
 		Logger:     zerolog.Nop(),
 	})
 	if err != nil {
-		t.Fatalf("NewEventBus() error = %v", err)
+		t.Fatalf("NewCommandBus() error = %v", err)
 	}
-	bus := busRaw.(*EventBus)
+	bus := busRaw.(*Bus)
 	defer func() { _ = bus.Drain(context.Background()) }()
-	env := natsTestEnvelope("env-js")
-	if err := bus.PublishCommandShadow(context.Background(), env); err != nil {
-		t.Fatalf("PublishCommandShadow() error = %v", err)
+	status, err := bus.Status(context.Background())
+	if err != nil {
+		t.Fatalf("Status() error = %v", err)
 	}
-	if err := bus.PublishCommandShadow(context.Background(), env); err != nil {
-		t.Fatalf("PublishCommandShadow(duplicate) error = %v", err)
+	if status.CommandBus != "jetstream" || status.SQLiteCommandBus || status.ShadowMode || status.LegacyDirectPath {
+		t.Fatalf("Status() = %+v, want hard JetStream", status)
 	}
 }
 
-func natsTestEnvelope(id string) swarm.Envelope {
+func commandTestEnvelope(id string) swarm.Envelope {
 	return swarm.Envelope{
 		ID:          id,
-		Namespace:   swarm.NamespaceHumanInbound,
-		Kind:        swarm.KindMessage,
-		From:        swarm.ActorAddress{Target: "test", Key: "source"},
-		To:          swarm.ActorAddress{Target: swarm.ActorTypeSession, Key: "tg-1.2"},
-		SessionID:   "tg-1.2",
-		DedupeKey:   id,
+		Namespace:   swarm.NamespaceAgentCommand,
+		Kind:        swarm.KindGoal,
+		From:        swarm.SystemAddress("test"),
+		To:          swarm.ActorAddress{Target: swarm.ActorTypeTask, Key: "task-1"},
+		TaskID:      "task-1",
 		PayloadJSON: `{"ok":true}`,
 	}
 }

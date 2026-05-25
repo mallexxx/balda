@@ -9,45 +9,43 @@ const (
 	SubjectCommandSession  = "balda.v1.cmd.session"
 	SubjectCommandTask     = "balda.v1.cmd.task"
 	SubjectCommandAgent    = "balda.v1.cmd.agent"
-	SubjectCommandMemory   = "balda.v1.cmd.memory"
 	SubjectCommandDelivery = "balda.v1.cmd.delivery"
+	SubjectCommandMemory   = "balda.v1.cmd.memory"
+	SubjectCommandControl  = "balda.v1.cmd.control"
 	SubjectCommandAll      = "balda.v1.cmd.>"
 
-	SubjectEventIngressTelegram = "balda.v1.evt.ingress.telegram"
-	SubjectEventIngressWebhook  = "balda.v1.evt.ingress.webhook"
-	SubjectEventIngressSchedule = "balda.v1.evt.ingress.schedule"
-	SubjectEventTask            = "balda.v1.evt.task"
-	SubjectEventAgent           = "balda.v1.evt.agent"
-	SubjectEventMemory          = "balda.v1.evt.memory"
-	SubjectEventDelivery        = "balda.v1.evt.delivery"
-	SubjectEventAll             = "balda.v1.evt.>"
+	SubjectEventCommandAccepted     = "balda.v1.evt.command.accepted"
+	SubjectEventCommandRunning      = "balda.v1.evt.command.running"
+	SubjectEventCommandInProgress   = "balda.v1.evt.command.in_progress"
+	SubjectEventCommandAcked        = "balda.v1.evt.command.acked"
+	SubjectEventCommandRetrying     = "balda.v1.evt.command.retrying"
+	SubjectEventCommandDeadLettered = "balda.v1.evt.command.deadlettered"
+	SubjectEventCommandNoop         = "balda.v1.evt.command.noop"
+	SubjectEventTaskCreated         = "balda.v1.evt.task.created"
+	SubjectEventTaskUpdated         = "balda.v1.evt.task.updated"
+	SubjectEventTaskCompleted       = "balda.v1.evt.task.completed"
+	SubjectEventDeliverySent        = "balda.v1.evt.delivery.sent"
+	SubjectEventAll                 = "balda.v1.evt.>"
 
-	SubjectControlCancel = "balda.v1.ctrl.cancel"
-	SubjectControlPause  = "balda.v1.ctrl.pause"
-	SubjectControlResume = "balda.v1.ctrl.resume"
-	SubjectControlRetry  = "balda.v1.ctrl.retry"
-	SubjectControlAll    = "balda.v1.ctrl.>"
-
-	SubjectWakeupMailbox = "balda.v1.wakeup.mailbox"
-	SubjectDLQ           = "balda.v1.dlq"
+	SubjectDLQCommand = "balda.v1.dlq.command"
+	SubjectDLQAll     = "balda.v1.dlq.>"
 )
 
 const (
 	HeaderEnvelopeID    = "Balda-Envelope-ID"
 	HeaderSessionID     = "Balda-Session-ID"
 	HeaderTaskID        = "Balda-Task-ID"
-	HeaderActor         = "Balda-Actor"
-	HeaderMailbox       = "Balda-Mailbox"
 	HeaderCorrelationID = "Balda-Correlation-ID"
 	HeaderCausationID   = "Balda-Causation-ID"
 	HeaderDedupeKey     = "Balda-Dedupe-Key"
-	HeaderPriority      = "Balda-Priority"
 	HeaderNamespace     = "Balda-Namespace"
+	HeaderActorKey      = "Balda-Actor-Key"
+	HeaderPriority      = "Balda-Priority"
 )
 
 func SubjectForEnvelope(env Envelope) string {
 	if strings.TrimSpace(env.Namespace) == NamespaceTaskControl {
-		return controlSubjectForKind(env.Kind)
+		return SubjectCommandControl
 	}
 	switch strings.ToLower(strings.TrimSpace(env.To.Target)) {
 	case ActorTypeSession:
@@ -56,48 +54,26 @@ func SubjectForEnvelope(env Envelope) string {
 		return SubjectCommandTask
 	case ActorTypeAgent:
 		return SubjectCommandAgent
-	case ActorTypeMemory:
-		return SubjectCommandMemory
 	case ActorTypeDelivery:
 		return SubjectCommandDelivery
+	case ActorTypeMemory:
+		return SubjectCommandMemory
 	default:
 		return subjectForNamespace(env.Namespace)
 	}
 }
 
-func EventSubjectForEnvelope(env Envelope) string {
-	switch strings.TrimSpace(env.Namespace) {
-	case NamespaceHumanInbound:
-		return SubjectEventIngressTelegram
-	case NamespaceWebhookInbound:
-		return SubjectEventIngressWebhook
-	case NamespaceScheduleInbound:
-		return SubjectEventIngressSchedule
-	case NamespaceAgentCommand, NamespaceAgentResult:
-		return SubjectEventAgent
-	case NamespaceMemorySync:
-		return SubjectEventMemory
-	case NamespaceTaskControl:
-		return SubjectEventTask
-	default:
-		return SubjectEventTask
-	}
-}
-
 func EnvelopeHeaders(env Envelope) map[string]string {
-	out := make(map[string]string, 10)
+	out := make(map[string]string, 8)
 	addHeader(out, HeaderEnvelopeID, env.ID)
 	addHeader(out, HeaderSessionID, env.SessionID)
 	addHeader(out, HeaderTaskID, env.TaskID)
-	if actor, err := env.To.String(); err == nil {
-		addHeader(out, HeaderActor, actor)
-		addHeader(out, HeaderMailbox, actor)
-	}
 	addHeader(out, HeaderCorrelationID, env.CorrelationID)
 	addHeader(out, HeaderCausationID, env.CausationID)
 	addHeader(out, HeaderDedupeKey, env.DedupeKey)
-	addHeader(out, HeaderPriority, strconv.Itoa(env.Priority))
 	addHeader(out, HeaderNamespace, env.Namespace)
+	addHeader(out, HeaderActorKey, env.To.Key)
+	addHeader(out, HeaderPriority, strconv.Itoa(env.Priority))
 	return out
 }
 
@@ -115,26 +91,13 @@ func subjectForNamespace(namespace string) string {
 	case NamespaceMemorySync:
 		return SubjectCommandMemory
 	case NamespaceTaskControl:
-		return SubjectControlCancel
+		return SubjectCommandControl
 	case NamespaceWebhookInbound, NamespaceScheduleInbound:
 		return SubjectCommandTask
 	case NamespaceHumanInbound:
 		return SubjectCommandSession
 	default:
 		return SubjectCommandTask
-	}
-}
-
-func controlSubjectForKind(kind string) string {
-	switch strings.TrimSpace(kind) {
-	case "pause":
-		return SubjectControlPause
-	case "resume":
-		return SubjectControlResume
-	case "retry":
-		return SubjectControlRetry
-	default:
-		return SubjectControlCancel
 	}
 }
 

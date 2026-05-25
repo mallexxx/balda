@@ -18,7 +18,7 @@ type BaldaConfig struct {
 	Sessions          SessionsConfig       `mapstructure:"sessions"`
 	Memory            MemoryConfig         `mapstructure:"memory"`
 	Goal              GoalConfig           `mapstructure:"goal"`
-	EventBus          baldaeventbus.Config `mapstructure:"event_bus"`
+	NATS              baldaeventbus.Config `mapstructure:"nats"`
 	Swarm             SwarmConfig          `mapstructure:"swarm"`
 	Scheduler         SchedulerConfig      `mapstructure:"scheduler"`
 	Workspace         WorkspaceConfig      `mapstructure:"workspace"`
@@ -81,20 +81,32 @@ type GoalConfig struct {
 	MaxIterations int `mapstructure:"max_iterations"`
 }
 
-// SwarmConfig controls the actor mailbox runtime.
+// SwarmConfig controls the JetStream-backed actor runtime.
 type SwarmConfig struct {
-	Enabled       bool                        `mapstructure:"enabled"`
-	Mode          string                      `mapstructure:"mode"`
-	WebhookMode   string                      `mapstructure:"webhook_mode"`
-	SchedulerMode string                      `mapstructure:"scheduler_mode"`
-	Shadow        SwarmShadowConfig           `mapstructure:"shadow"`
-	Queue         SwarmQueueConfig            `mapstructure:"queue"`
-	Agents        map[string]SwarmAgentConfig `mapstructure:"agents"`
+	Enabled  bool                        `mapstructure:"enabled"`
+	Commands SwarmCommandConfig          `mapstructure:"commands"`
+	Events   SwarmEventConfig            `mapstructure:"events"`
+	DLQ      SwarmDLQConfig              `mapstructure:"dlq"`
+	Queue    SwarmQueueConfig            `mapstructure:"queue"`
+	Agents   map[string]SwarmAgentConfig `mapstructure:"agents"`
 }
 
-// SwarmShadowConfig controls safe dual-write rollout behavior.
-type SwarmShadowConfig struct {
-	Enabled bool `mapstructure:"enabled"`
+type SwarmCommandConfig struct {
+	Stream        string `mapstructure:"stream"`
+	Consumer      string `mapstructure:"consumer"`
+	AckWait       string `mapstructure:"ack_wait"`
+	MaxDeliver    int    `mapstructure:"max_deliver"`
+	MaxAckPending int    `mapstructure:"max_ack_pending"`
+	FetchBatch    int    `mapstructure:"fetch_batch"`
+	FetchWait     string `mapstructure:"fetch_wait"`
+}
+
+type SwarmEventConfig struct {
+	Stream string `mapstructure:"stream"`
+}
+
+type SwarmDLQConfig struct {
+	Stream string `mapstructure:"stream"`
 }
 
 // SwarmQueueConfig controls mailbox queue policy.

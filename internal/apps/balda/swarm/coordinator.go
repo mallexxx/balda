@@ -1,68 +1,37 @@
 package swarm
 
-import "context"
+import (
+	"context"
+	"fmt"
+)
 
 type Coordinator struct {
-	mailboxes *MailboxService
+	bus CommandBus
+	cfg Config
 }
 
-func NewCoordinator(mailboxes *MailboxService) *Coordinator {
-	return &Coordinator{mailboxes: mailboxes}
+func NewCoordinator(bus CommandBus, cfg Config) *Coordinator {
+	return &Coordinator{bus: bus, cfg: cfg}
 }
 
 func (c *Coordinator) Enabled() bool {
-	return c != nil && c.mailboxes != nil && c.mailboxes.GlobalMailboxEnabled()
+	return c != nil && c.cfg.Enabled && c.bus != nil
 }
 
 func (c *Coordinator) RuntimeEnabled() bool {
-	return c != nil && c.mailboxes != nil && c.mailboxes.Enabled()
+	return c.Enabled()
 }
 
-func (c *Coordinator) ShadowEnabled() bool {
-	return c != nil && c.mailboxes != nil && c.mailboxes.ShadowEnabled()
-}
-
-func (c *Coordinator) WebhookMailboxEnabled() bool {
-	return c != nil && c.mailboxes != nil && c.mailboxes.WebhookMailboxEnabled()
-}
-
-func (c *Coordinator) WebhookShadowEnabled() bool {
-	return c != nil && c.mailboxes != nil && c.mailboxes.WebhookShadowEnabled()
-}
-
-func (c *Coordinator) SchedulerMailboxEnabled() bool {
-	return c != nil && c.mailboxes != nil && c.mailboxes.SchedulerMailboxEnabled()
-}
-
-func (c *Coordinator) SchedulerShadowEnabled() bool {
-	return c != nil && c.mailboxes != nil && c.mailboxes.SchedulerShadowEnabled()
-}
-
-func (c *Coordinator) Submit(ctx context.Context, env Envelope) (SubmittedMessage, error) {
-	return c.mailboxes.Publish(ctx, env)
-}
-
-func (c *Coordinator) SubmitShadow(ctx context.Context, env Envelope) (SubmittedMessage, error) {
-	return c.mailboxes.PublishShadow(ctx, env)
-}
-
-func (c *Coordinator) RecordShadowDispatch() {
-	if c != nil && c.mailboxes != nil {
-		c.mailboxes.RecordShadowDispatch()
+func (c *Coordinator) Submit(ctx context.Context, env Envelope) (*CommandPublishResult, error) {
+	if c == nil || c.bus == nil {
+		return nil, fmt.Errorf("jetstream command bus is required")
 	}
+	return c.bus.PublishCommand(ctx, env)
 }
 
-func (c *Coordinator) ShadowMetricsSnapshot() map[string]uint64 {
-	if c == nil || c.mailboxes == nil {
-		return NewShadowMetrics().Snapshot()
+func (c *Coordinator) PublishEvent(ctx context.Context, subject string, env Envelope) error {
+	if c == nil || c.bus == nil {
+		return fmt.Errorf("jetstream event bus is required")
 	}
-	return c.mailboxes.ShadowMetricsSnapshot()
-}
-
-func (c *Coordinator) CancelSession(ctx context.Context, sessionID string, reason string) (int, error) {
-	return c.mailboxes.CancelBySession(ctx, sessionID, reason)
-}
-
-func (c *Coordinator) CancelTask(ctx context.Context, taskID string, reason string) (int, error) {
-	return c.mailboxes.CancelByTask(ctx, taskID, reason)
+	return c.bus.PublishEvent(ctx, subject, env)
 }

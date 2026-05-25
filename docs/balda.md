@@ -233,8 +233,8 @@ project:
 
 - `.env` is loaded from `/workspace/.env`.
 - `.config/balda/config.yaml` remains the selected app config.
-- `.config/balda/state.db` persists owner auth, session metadata, swarm
-  mailboxes/tasks, MCP KV, and Telegram polling offsets on the host.
+- `.config/balda/state.db` persists owner auth, session metadata, task
+  read-model state, MCP KV, and Telegram polling offsets on the host.
 - `.config/balda/MEMORY.md` and optional `.config/balda/SOUL.md` stay on the
   host. `MEMORY.md` is used when `balda.memory.enabled=true`; `SOUL.md` is
   always read when present.
@@ -379,7 +379,7 @@ session-start snapshot. New or restored sessions read the latest file.
 
 - `balda.working_dir`: optional balda working directory (defaults to process CWD)
 - `balda.state_dir`: balda state directory for persistent balda SQLite state (`state.db`).
-  - Stores owner/app KV, `balda.state` MCP KV, session metadata, swarm mailboxes/tasks, optional ADK session history, and Telegram polling offset.
+  - Stores owner/app KV, `balda.state` MCP KV, session metadata, task/read-model state, optional ADK session history, and Telegram polling offset.
   - Schema is migration-versioned and auto-applied on startup.
   - Relative paths are resolved from `balda.working_dir`.
   - Default: `.config/balda`
@@ -390,25 +390,20 @@ session-start snapshot. New or restored sessions read the latest file.
   - when disabled, Balda does not snapshot `MEMORY.md`, register `balda.memory.*` MCP tools, or expose `/memory` contents.
 - `balda.goal.max_iterations`: maximum Goalkeeper worker/validator iterations for `/goal` (default `25`)
   - invalid values are clamped to `25`.
-- `balda.event_bus.mode`: internal event transport (`sqlite|nats_core|nats_jetstream`, default `nats_core`)
-  - `sqlite`: no NATS; actor runtime relies on SQLite mailbox polling/recovery.
-  - `nats_core`: SQLite remains the durable mailbox; embedded NATS Core carries wakeups and live events. Lost NATS messages do not lose durable commands.
-  - `nats_jetstream`: embedded JetStream creates command/event/control/DLQ streams and shadow-publishes commands with message IDs; SQLite remains source of truth for tasks, memory, sessions, ACL, and reviewable outcomes.
-- `balda.event_bus.nats.embedded`: run Balda-owned NATS inside the process (default `true`)
-- `balda.event_bus.nats.host` / `port`: embedded listener address (default `127.0.0.1:-1`, random local port)
-- `balda.event_bus.nats.jetstream`: enable JetStream on the embedded server (default `true`)
-- `balda.event_bus.nats.store_dir`: JetStream store directory, relative to `balda.working_dir` when not absolute (default `.balda/nats`)
-- `balda.event_bus.nats.max_memory` / `max_store`: embedded JetStream resource caps (defaults `256mb` and `2gb`)
-- `balda.swarm.enabled`: enables swarm rollout plumbing (default `true`)
-- `balda.swarm.mode`: actor runtime mode (default `shadow`)
-  - `shadow`: persist Telegram, webhook, schedule, and `/goal` envelopes in SQLite with `status=shadow`, then keep the existing direct dispatch path.
-  - `mailbox`: persist work in SQLite swarm mailboxes and use EventBus wakeups. Goal tasks run through TaskActor, AgentActor planner/executor/reviewer roles, and DeliveryActor.
-- `balda.swarm.webhook_mode`: generic inbound webhook runtime mode (`legacy|shadow|mailbox`, default `shadow`)
-- `balda.swarm.scheduler_mode`: config-managed recurring job runtime mode (`legacy|shadow|mailbox`, default `shadow`)
-- `balda.swarm.shadow.enabled`: enables shadow dual-write when any resolved swarm mode is `shadow` (default `true`).
-- `balda.swarm.queue.default_mode`: mailbox queue mode (`followup|collect|interrupt`, default `followup`).
+- `balda.nats.embedded`: run Balda-owned NATS inside the process (default `true`)
+- `balda.nats.host` / `port`: embedded listener address (default `127.0.0.1:-1`, random local port)
+- `balda.nats.jetstream`: JetStream is required and forced on startup.
+- `balda.nats.store_dir`: JetStream store directory, relative to `balda.working_dir` when not absolute (default `.balda/nats`)
+- `balda.nats.max_memory` / `max_store`: embedded JetStream resource caps (defaults `256mb` and `2gb`)
+- `balda.swarm.enabled`: enables the actor runtime (default `true`). Ingress accepts work only by publishing commands to JetStream.
+- `balda.swarm.commands.stream`: command stream name (default `BALDA_COMMANDS`)
+- `balda.swarm.commands.consumer`: durable worker consumer name (default `BALDA_WORKER_COMMANDS`)
+- `balda.swarm.commands.ack_wait`, `max_deliver`, `max_ack_pending`, `fetch_batch`, `fetch_wait`: pull-consumer and redelivery settings.
+- `balda.swarm.events.stream`: event stream name (default `BALDA_EVENTS`)
+- `balda.swarm.dlq.stream`: dead-letter stream name (default `BALDA_DLQ`)
+- `balda.swarm.queue.default_mode`: local keyed scheduler queue mode (`followup|collect|interrupt`, default `followup`).
 - `balda.swarm.queue.debounce_ms`: collect debounce window in milliseconds (default `500`).
-- `balda.swarm.queue.cap`: queued/retry message cap per mailbox (default `20`).
+- `balda.swarm.queue.cap`: local queued/retry message cap per actor lane (default `20`).
 - `balda.swarm.queue.drop`: overflow behavior (`summarize|old|new`, default `summarize`).
 - `balda.swarm.queue.by_namespace`: namespace queue mode overrides. Defaults: `task.control=interrupt`, `webhook.inbound=followup`, `schedule.inbound=collect`, `memory.sync=collect`.
 - `balda.swarm.agents`: logical single-process swarm agents used by the allocator. Defaults are:
@@ -417,7 +412,7 @@ session-start snapshot. New or restored sessions read the latest file.
   - `reviewer`: validates results and inspects risks; advisory tools `workspace`, `shell`.
   - `memory`: extracts durable facts and summaries; advisory tool `memory`.
   Tools are routing/prompt hints only; optional `cost_penalty` lowers allocator preference for expensive roles. All logical agents still use the configured Balda provider runtime in the first release.
-- Queue collect/summarize rewrites only session-actor envelopes. Typed task envelopes keep their original payload contracts; if they cannot be safely summarized, overflow handling falls back to canceling old queued messages.
+- Queue collect/summarize rewrites only local actor-lane work. Typed task envelopes keep their original payload contracts; if they cannot be safely summarized, overflow handling falls back to canceling old queued messages.
 - internal durable memory uses `${balda.state_dir}/MEMORY.md` when `balda.memory.enabled=true`
   - `/memory` reads the current file in owner/collaborator direct messages.
   - `balda.memory.read` reads the file from MCP.
@@ -501,14 +496,14 @@ Balda runs with a single provider per process (`balda.provider`).
 - `/topic <name>` (DM only, owner/collaborator): creates a new Telegram topic and a topic-bound session.
   - `<name>` is required.
   - `<name>` is a session label, not a provider selector.
-- `/goal <objective>` (owner/collaborator): creates a durable `swarm_tasks` record and starts work in the current session context/workspace. Legacy/shadow modes run the Goalkeeper worker -> validator loop directly; mailbox mode routes through TaskActor -> AgentActor planner/executor/reviewer -> DeliveryActor. Started/validation/final updates use `balda.telegram.formatting_mode`; terminal updates include Result, Artifacts, Confidence, and Next action sections. See [`docs/goalkeeper.md`](goalkeeper.md).
+- `/goal <objective>` (owner/collaborator): publishes a durable JetStream task command and starts work in the current session context/workspace through TaskActor -> AgentActor planner/executor/reviewer -> DeliveryActor. Started/validation/final updates use `balda.telegram.formatting_mode`; terminal updates include Result, Artifacts, Confidence, and Next action sections. See [`docs/goalkeeper.md`](goalkeeper.md).
   - concurrent `/goal` runs in the same session are rejected.
 - `/tasks` (owner/collaborator): lists active task records for the current session.
 - `/task <id>` (owner/collaborator): shows task status, objective, source, timestamps, latest events, and the reviewable outcome when the task is terminal.
 - `/task <id> events` (owner/collaborator): prints the append-only task event stream.
-- `/task <id> cancel` (owner/collaborator): cancels queued mailbox work, cancels the active task run when present, and marks the task `canceled`.
-- `/swarm status` (owner/collaborator): shows swarm rollout mode, event bus state, runtime state, shadow counters, configured logical agents, task status counts, and ready mailboxes.
-- `/mailbox status` (owner/collaborator): shows non-terminal mailbox message counts grouped by mailbox and status.
+- `/task <id> cancel` (owner/collaborator): publishes a task-control command, cancels active local task work when present, and marks the task `canceled`.
+- `/swarm status` (owner/collaborator): shows JetStream command/event/DLQ streams, worker consumer state, configured logical agents, and task status counts.
+- `/mailbox status` (owner/collaborator): compatibility alias for JetStream swarm status.
 - `/close` (DM only, owner/collaborator): resets current session history, then in the owner DM `topic_id=0` stops the owner session; in topic contexts, closes that topic.
 - `/reset` (owner/collaborator): cancels queued work and clears the current session's persisted ADK conversation history without deleting Balda metadata or the workspace branch.
 - `/cancel` (owner/collaborator): cancels active turn, drops queued turns, marks active session tasks canceled, and aborts active `/goal` work for current session.
@@ -517,18 +512,13 @@ Balda runs with a single provider per process (`balda.provider`).
 ### Task actor runtime semantics (internal)
 
 Assignable work is persisted in `swarm_tasks` with append-only
-`swarm_task_events`. `/goal` is the first command that always creates a task
-record, regardless of the active swarm rollout mode.
+`swarm_task_events`. Ingress publishes a JetStream command first; task records
+are product state created by TaskActor after command delivery.
 
-- Legacy mode: `/goal` creates a task record, marks it queued, then runs the
-  existing in-process Goalkeeper loop. GoalRunner mirrors lifecycle transitions
-  and progress into task status/events.
-- Shadow mode: `/goal` creates the same task record, persists a shadow envelope
-  for rollout comparison, then runs the existing Goalkeeper loop.
-- Mailbox mode: `/goal` publishes a durable task envelope. TaskActor asks the
-  planner AgentActor for the plan, persists planner output as the task plan,
-  dispatches executor/reviewer commands, records results, and sends
-  progress/final messages through DeliveryActor.
+- `/goal` publishes a durable task envelope. TaskActor asks the planner
+  AgentActor for the plan, persists planner output as the task plan, dispatches
+  executor/reviewer commands, records results, and sends progress/final
+  messages through DeliveryActor.
 - Task statuses are `created`, `queued`, `running`, `waiting_for_agent`,
   `waiting_for_user`, `validating`, `completed`, `failed`, `canceled`, and
   `deadlettered`.
@@ -536,9 +526,9 @@ record, regardless of the active swarm rollout mode.
   `task.assigned`, `task.started`, `agent.started`, `agent.progress`,
   `agent.result`, `task.validating`, `task.completed`, `task.failed`,
   `task.canceled`, and `delivery.sent`.
-- Runtime deadletters mark the owning task `deadlettered`. `/cancel` cancels
-  queued mailbox messages, marks active session tasks `canceled`, and cancels
-  any currently running task agent turn.
+- Runtime deadletters mark the owning task `deadlettered`. `/cancel` publishes
+  control work, marks active session tasks `canceled`, and cancels any currently
+  running task agent turn.
 - Terminal task delivery and `/task <id>` render reviewable outcomes with:
   Result, Artifacts, Confidence, and Next action. Artifacts are best-effort
   workspace data from the bound session: changed files, branch, current commit,
@@ -547,31 +537,34 @@ record, regardless of the active swarm rollout mode.
   scoped to the current session; `/task <id>` can inspect any visible task ID
   known to the instance.
 
-### Event bus runtime semantics (internal)
+### JetStream runtime semantics (internal)
 
-Balda has an internal `EventBus` abstraction above the actor mailbox runtime.
-The default `nats_core` mode starts an embedded localhost NATS server, but
-SQLite remains the durable mailbox and product database.
+Balda uses JetStream as the command bus, event bus, retry transport, replay log,
+and DLQ. SQLite remains product/read-model state only; it does not decide what
+runs, retries, or wakes up.
 
-- Event bus modes:
-  - `sqlite`: no NATS; wakeups come only from periodic SQLite scans.
-  - `nats_core`: SQLite stores commands; NATS publishes `balda.v1.wakeup.mailbox`
-    after the SQLite publish commits and carries live event fanout.
-  - `nats_jetstream`: JetStream streams are created for commands, events,
-    control, and DLQ. Commands are shadow-published with message IDs; execution
-    still uses SQLite until JetStream mailbox execution is explicitly enabled.
+- Required streams:
+  - `BALDA_COMMANDS`: work-queue stream for `balda.v1.cmd.>` commands.
+  - `BALDA_EVENTS`: limits-retention stream for `balda.v1.evt.>` events.
+  - `BALDA_DLQ`: limits-retention stream for terminal failures on
+    `balda.v1.dlq.>`.
+- Required consumer:
+  - `BALDA_WORKER_COMMANDS`: durable pull consumer with explicit ack,
+    redelivery, `NakWithDelay`, and `InProgress` heartbeat support.
 - Stable subjects:
   - Commands: `balda.v1.cmd.session`, `balda.v1.cmd.task`,
-    `balda.v1.cmd.agent`, `balda.v1.cmd.memory`, `balda.v1.cmd.delivery`.
-  - Events: `balda.v1.evt.ingress.telegram`,
-    `balda.v1.evt.ingress.webhook`, `balda.v1.evt.ingress.schedule`,
-    `balda.v1.evt.task`, `balda.v1.evt.agent`, `balda.v1.evt.memory`,
-    `balda.v1.evt.delivery`.
-  - Control/DLQ: `balda.v1.ctrl.cancel`, `balda.v1.ctrl.pause`,
-    `balda.v1.ctrl.resume`, `balda.v1.ctrl.retry`, `balda.v1.dlq`.
+    `balda.v1.cmd.agent`, `balda.v1.cmd.memory`,
+    `balda.v1.cmd.delivery`, `balda.v1.cmd.control`.
+  - Events: `balda.v1.evt.command.accepted`,
+    `balda.v1.evt.command.running`, `balda.v1.evt.command.in_progress`,
+    `balda.v1.evt.command.acked`, `balda.v1.evt.command.retrying`,
+    `balda.v1.evt.command.deadlettered`, `balda.v1.evt.task.created`,
+    `balda.v1.evt.task.updated`, `balda.v1.evt.task.completed`,
+    `balda.v1.evt.delivery.sent`.
+  - DLQ: `balda.v1.dlq.command`.
 - NATS identity is carried in headers: `Balda-Envelope-ID`,
-  `Balda-Session-ID`, `Balda-Task-ID`, `Balda-Actor`, `Balda-Mailbox`,
-  `Balda-Correlation-ID`, `Balda-Causation-ID`, `Balda-Dedupe-Key`,
+  `Balda-Session-ID`, `Balda-Task-ID`, `Balda-Correlation-ID`,
+  `Balda-Causation-ID`, `Balda-Dedupe-Key`, `Balda-Actor-Key`,
   `Balda-Priority`, and `Balda-Namespace`.
 - Embedded NATS binds to `127.0.0.1` by default and is not exposed externally.
   JetStream files live under `.balda/nats`, which is runtime state and should
@@ -583,10 +576,10 @@ Balda includes an internal owner-targeted scheduler backed by `balda_scheduled_j
 Jobs are managed from config on startup using `balda.scheduler.jobs`.
 
 - Eligibility: only `status=active` jobs with `next_run_at <= now` are polled.
-- Dispatch path: due jobs resolve a session by canonical locator (`channel_type`, `address_key`, `address_json`, `session_id`); in default shadow mode they store a comparison envelope and enqueue the existing per-session `TurnDispatcher` work, while mailbox mode publishes durable swarm task messages for task/session actors.
+- Dispatch path: due jobs resolve a session by canonical locator (`channel_type`, `address_key`, `address_json`, `session_id`) and publish a durable JetStream task command. TaskActor/SessionActor perform session restore and execution after command delivery.
 - Idempotency key: each due slot uses deterministic `last_dispatch_key = <job_id>@<due_next_run_at_rfc3339nano>`.
 - Startup reconciliation: configured job IDs are upserted, and persisted jobs not present in config are removed.
-- Claim-before-run: scheduler writes `last_dispatch_key` and advances `next_run_at` to the next cron occurrence before enqueueing work, so stale duplicate due reads do not enqueue the same due slot twice.
+- Publish-before-mark: scheduler publishes the JetStream command first, then writes `last_dispatch_key` and advances `next_run_at`, so a failed publish does not mark work dispatched.
 - Success: `last_run_at` is updated, `last_error` is cleared, `retry_count` is reset to `0`, and job remains `active`.
 - Failure: `retry_count` increments and `last_error` is recorded.
   - if `retry_count <= max_retries`: job stays `active`, `next_run_at = now + retryDelay(retry_count)`.
@@ -611,18 +604,18 @@ Balda can optionally expose local webhook routes that map path -> prompt templat
   - resolves owner DM locator from owner store
   - looks up active session by owner locator
   - lazily restores persisted session when inactive in memory; creates owner session when no persisted session exists
-  - default shadow mode stores a comparison envelope and enqueues the same per-session `TurnDispatcher` path as Telegram messages; mailbox mode publishes a durable swarm session message first
-  - runs via `runTurnTaskWithDelivery(..., deliver=false)` (fire-and-forget; no chat reply emission)
+  - publishes a durable JetStream task command; TaskActor then emits a session command for execution
+  - uses `deliver=false` by default, so the resulting session turn is fire-and-forget unless route delivery is enabled later
 - Response model (JSON):
-  - accepted: `202` with `{status:"accepted", request_id, session_id, queue_position}`
+  - accepted: `202` with `{status:"accepted", accepted:true, request_id, message_id, task_id, session_id, stream, sequence}`
   - route not found: `404` + `error.code="route_not_found"`
   - invalid method: `405` + `error.code="invalid_method"`
   - invalid body/template render: `400` + `error.code="invalid_payload"`
   - unresolved/restore-failed session: `404` + `error.code="session_not_found"`
   - queue pressure: `429` + `error.code="queue_full"`
-  - dispatch/internal failures: `500` + `error.code="dispatch_failed"`
+  - JetStream publish/internal failures: `503` + `error.code="dispatch_failed"`
 - Observability:
-  - logs include stable fields: `request_id`, `session_id`, `channel_type`, `address_key`, `queue_position`, `status_code`, `error_code`
+  - logs include stable fields: `request_id`, `session_id`, `channel_type`, `address_key`, `stream`, `sequence`, `task_id`, `status_code`, `error_code`
   - internal outcome counters track accepted, invalid, not-found, queue-full, and dispatch-failure events
 
 ### Session restore/create behavior

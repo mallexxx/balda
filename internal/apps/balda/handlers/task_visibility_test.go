@@ -15,46 +15,23 @@ import (
 func TestCommandHandlerTaskVisibilityCommands(t *testing.T) {
 	ctx := context.Background()
 	handler, sm, _, tgClient := newCommandHandlerTestHarness(t)
-	provider, mailboxes, coordinator, tasks, registry := newTaskVisibilitySwarmServices(t, ctx)
-	handler.swarmConfig = swarm.Config{Enabled: true, Mode: swarm.ModeMailbox}
+	provider, bus, coordinator, tasks, registry := newTaskVisibilitySwarmServices(t, ctx)
+	handler.swarmConfig = swarm.Config{Enabled: true}
 	handler.swarmCoordinator = coordinator
-	handler.eventBus = swarm.NewNoopEventBus("sqlite")
-	handler.mailboxes = mailboxes
+	handler.commandBus = bus
 	handler.tasks = tasks
 	handler.agentRegistry = registry
 	handler.taskRuns = newTaskRunRegistry()
 	sm.sessionInfos = map[string]baldasession.TopicSessionInfo{
-		"tg-9001-0": {
-			SessionID:  "tg-9001-0",
-			Locator:    baldasession.SessionLocator{SessionID: "tg-9001-0", ChannelType: "telegram", AddressKey: "9001:0"},
-			BranchName: "norma/balda/tg-9001-0",
-		},
+		"tg-9001-0": {SessionID: "tg-9001-0", Locator: baldasession.SessionLocator{SessionID: "tg-9001-0", ChannelType: "telegram", AddressKey: "9001:0"}, BranchName: "norma/balda/tg-9001-0"},
 	}
 
-	createTaskRecord(t, ctx, tasks, baldastate.SwarmTaskRecord{
-		ID:          "task-active",
-		SessionID:   "tg-9001-0",
-		Title:       "Goal: active",
-		Objective:   "active work",
-		Status:      baldastate.SwarmTaskStatusCreated,
-		CreatedFrom: "goal",
-	})
+	createTaskRecord(t, ctx, tasks, baldastate.SwarmTaskRecord{ID: "task-active", SessionID: "tg-9001-0", Title: "Goal: active", Objective: "active work", Status: baldastate.SwarmTaskStatusCreated, CreatedFrom: "goal"})
 	if err := tasks.MarkStatus(ctx, "task-active", baldastate.SwarmTaskStatusQueued, "test", "", "", nil); err != nil {
 		t.Fatalf("MarkStatus(active) error = %v", err)
 	}
-	createTaskRecord(t, ctx, tasks, baldastate.SwarmTaskRecord{
-		ID:          "task-done",
-		SessionID:   "tg-9001-0",
-		Title:       "Goal: done",
-		Objective:   "ship reviewable outcome",
-		Status:      baldastate.SwarmTaskStatusCreated,
-		CreatedFrom: "goal",
-	})
-	if err := tasks.SetResult(ctx, "task-done", map[string]any{
-		"goal_reached":    true,
-		"executor_output": "Implemented task visibility commands.",
-		"reviewer_output": "verdict: pass\nCommand tests passed.",
-	}, baldastate.SwarmTaskStatusCompleted, "test", ""); err != nil {
+	createTaskRecord(t, ctx, tasks, baldastate.SwarmTaskRecord{ID: "task-done", SessionID: "tg-9001-0", Title: "Goal: done", Objective: "ship reviewable outcome", Status: baldastate.SwarmTaskStatusCreated, CreatedFrom: "goal"})
+	if err := tasks.SetResult(ctx, "task-done", map[string]any{"goal_reached": true, "executor_output": "Implemented task visibility commands.", "reviewer_output": "verdict: pass\nCommand tests passed."}, baldastate.SwarmTaskStatusCompleted, "test", ""); err != nil {
 		t.Fatalf("SetResult(done) error = %v", err)
 	}
 
@@ -93,91 +70,72 @@ func TestCommandHandlerTaskVisibilityCommands(t *testing.T) {
 func TestCommandHandlerSwarmAndMailboxStatusCommands(t *testing.T) {
 	ctx := context.Background()
 	handler, _, _, tgClient := newCommandHandlerTestHarness(t)
-	_, mailboxes, coordinator, tasks, registry := newTaskVisibilitySwarmServices(t, ctx)
-	handler.swarmConfig = swarm.Config{Enabled: true, Mode: swarm.ModeMailbox, WebhookMode: swarm.ModeShadow, SchedulerMode: swarm.ModeShadow}
+	_, bus, coordinator, tasks, registry := newTaskVisibilitySwarmServices(t, ctx)
+	handler.swarmConfig = swarm.Config{Enabled: true}
 	handler.swarmCoordinator = coordinator
-	handler.eventBus = swarm.NewNoopEventBus("sqlite")
-	handler.mailboxes = mailboxes
+	handler.commandBus = bus
 	handler.tasks = tasks
 	handler.agentRegistry = registry
 
-	createTaskRecord(t, ctx, tasks, baldastate.SwarmTaskRecord{
-		ID:        "task-status",
-		SessionID: "tg-9001-0",
-		Title:     "Goal: status",
-		Objective: "status",
-		Status:    baldastate.SwarmTaskStatusCreated,
-	})
-	if _, err := mailboxes.Publish(ctx, swarm.Envelope{
-		ID:          "status-message",
-		Namespace:   swarm.NamespaceHumanInbound,
-		Kind:        swarm.KindMessage,
-		From:        swarm.ActorAddress{Target: swarm.ActorTypeSystem, Key: "test"},
-		To:          swarm.ActorAddress{Target: swarm.ActorTypeSession, Key: "tg-9001-0"},
-		SessionID:   "tg-9001-0",
-		PayloadJSON: `{}`,
-	}); err != nil {
-		t.Fatalf("Publish(status message) error = %v", err)
-	}
+	createTaskRecord(t, ctx, tasks, baldastate.SwarmTaskRecord{ID: "task-status", SessionID: "tg-9001-0", Title: "Goal: status", Objective: "status", Status: baldastate.SwarmTaskStatusCreated})
 
 	if err := handler.onCommand(ctx, newCommandEvent("swarm", "status", 101, 9001, nil)); err != nil {
 		t.Fatalf("/swarm status error = %v", err)
 	}
 	assertLastSentContains(t, tgClient, "Swarm status")
-	assertLastSentContains(t, tgClient, "Event bus")
-	assertLastSentContains(t, tgClient, "mode: sqlite")
+	assertLastSentContains(t, tgClient, "command_bus: jetstream")
+	assertLastSentContains(t, tgClient, "sqlite_command_bus: false")
+	assertLastSentContains(t, tgClient, "legacy_direct_path: false")
 	assertLastSentContains(t, tgClient, "planner")
 	assertLastSentContains(t, tgClient, "created: 1")
 
 	if err := handler.onCommand(ctx, newCommandEvent("mailbox", "status", 101, 9001, nil)); err != nil {
 		t.Fatalf("/mailbox status error = %v", err)
 	}
-	assertLastSentContains(t, tgClient, "Mailbox status")
-	assertLastSentContains(t, tgClient, "session:tg-9001-0 [queued]: 1")
+	assertLastSentContains(t, tgClient, "BALDA_WORKER_COMMANDS")
 }
 
-func newTaskVisibilitySwarmServices(
-	t *testing.T,
-	ctx context.Context,
-) (baldastate.Provider, *swarm.MailboxService, *swarm.Coordinator, *swarm.TaskService, *swarm.AgentRegistry) {
+func newTaskVisibilitySwarmServices(t *testing.T, ctx context.Context) (baldastate.Provider, *statusCommandBus, *swarm.Coordinator, *swarm.TaskService, *swarm.AgentRegistry) {
 	t.Helper()
-
-	cfg, err := (swarm.Config{Enabled: true, Mode: swarm.ModeMailbox}).Normalized()
-	if err != nil {
-		t.Fatalf("Normalize swarm config: %v", err)
-	}
 	provider, err := baldastate.NewSQLiteProvider(ctx, filepath.Join(t.TempDir(), "state.db"))
 	if err != nil {
 		t.Fatalf("NewSQLiteProvider() error = %v", err)
 	}
-	t.Cleanup(func() {
-		if err := provider.Close(); err != nil {
-			t.Fatalf("provider.Close() error = %v", err)
-		}
-	})
-
-	var mailboxes *swarm.MailboxService
+	t.Cleanup(func() { _ = provider.Close() })
+	bus := &statusCommandBus{}
+	cfg, err := (swarm.Config{Enabled: true}).Normalized()
+	if err != nil {
+		t.Fatalf("Normalize swarm config: %v", err)
+	}
 	var coordinator *swarm.Coordinator
 	var tasks *swarm.TaskService
 	var registry *swarm.AgentRegistry
 	app := fxtest.New(t,
-		fx.Supply(
-			fx.Annotate(provider, fx.As(new(baldastate.Provider))),
-			fx.Annotate(handlerShadowWakeBus{}, fx.As(new(swarm.EventBus))),
-			cfg,
-		),
-		fx.Provide(
-			swarm.NewShadowMetrics,
-			swarm.NewMailboxService,
-			swarm.NewTaskService,
-			swarm.NewAgentRegistry,
-			swarm.NewCoordinator,
-		),
-		fx.Populate(&mailboxes, &coordinator, &tasks, &registry),
+		fx.Supply(fx.Annotate(provider, fx.As(new(baldastate.Provider))), fx.Annotate(bus, fx.As(new(swarm.CommandBus))), cfg),
+		fx.Provide(swarm.NewTaskService, swarm.NewAgentRegistry, swarm.NewCoordinator),
+		fx.Populate(&coordinator, &tasks, &registry),
 	)
 	app.RequireStart()
 	t.Cleanup(func() { app.RequireStop() })
-	return provider, mailboxes, coordinator, tasks, registry
+	return provider, bus, coordinator, tasks, registry
+}
+
+type statusCommandBus struct{ recordingHandlerCommandBus }
+
+func (*statusCommandBus) Status(context.Context) (swarm.CommandBusStatus, error) {
+	return swarm.CommandBusStatus{
+		CommandBus:       "jetstream",
+		SQLiteCommandBus: false,
+		ShadowMode:       false,
+		LegacyDirectPath: false,
+		Embedded:         true,
+		Running:          true,
+		JetStream:        true,
+		Commands:         swarm.StreamStatus{Name: swarm.DefaultCommandStream, Messages: 1, FirstSeq: 1, LastSeq: 1},
+		Events:           swarm.StreamStatus{Name: swarm.DefaultEventStream, Messages: 2, FirstSeq: 1, LastSeq: 2},
+		DLQ:              swarm.StreamStatus{Name: swarm.DefaultDLQStream},
+		Worker:           swarm.ConsumerStatus{Name: swarm.DefaultCommandConsumer},
+	}, nil
 }
 
 func createTaskRecord(t *testing.T, ctx context.Context, tasks *swarm.TaskService, record baldastate.SwarmTaskRecord) {

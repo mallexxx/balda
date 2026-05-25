@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/google/uuid"
 	baldachannel "github.com/normahq/balda/internal/apps/balda/channel"
 	baldasession "github.com/normahq/balda/internal/apps/balda/session"
 	"github.com/normahq/balda/internal/apps/balda/swarm"
@@ -26,67 +27,19 @@ type sessionTurnPayload struct {
 	DedupeKey      string                      `json:"dedupe_key,omitempty"`
 }
 
-func (h *BaldaHandler) submitSessionTurn(ctx context.Context, payload sessionTurnPayload) (int, error) {
-	if strings.EqualFold(strings.TrimSpace(payload.Source), "webhook") {
-		return h.submitWebhookSessionTurn(ctx, payload)
-	}
-	return h.submitGlobalSessionTurn(ctx, payload)
+func (h *BaldaHandler) submitSessionTurn(ctx context.Context, payload sessionTurnPayload) (*swarm.CommandPublishResult, error) {
+	return h.submitSessionTurnToSwarm(ctx, payload)
 }
 
-func (h *BaldaHandler) submitWebhookSessionTurn(ctx context.Context, payload sessionTurnPayload) (int, error) {
-	if h.swarmCoordinator != nil && h.swarmCoordinator.WebhookShadowEnabled() {
-		h.shadowSessionTurn(ctx, payload)
-		position, err := h.enqueueSessionTurnDirect(payload)
-		if err == nil {
-			h.swarmCoordinator.RecordShadowDispatch()
-		}
-		return position, err
+func (h *BaldaHandler) submitSessionTurnToSwarm(ctx context.Context, payload sessionTurnPayload) (*swarm.CommandPublishResult, error) {
+	if h.swarmCoordinator == nil || !h.swarmCoordinator.RuntimeEnabled() {
+		return nil, fmt.Errorf("jetstream swarm runtime is unavailable")
 	}
-	if h.swarmCoordinator != nil && h.swarmCoordinator.WebhookMailboxEnabled() {
-		return h.submitSessionTurnToSwarm(ctx, payload)
-	}
-	return h.enqueueSessionTurnDirect(payload)
-}
-
-func (h *BaldaHandler) submitGlobalSessionTurn(ctx context.Context, payload sessionTurnPayload) (int, error) {
-	if h.swarmCoordinator != nil && h.swarmCoordinator.ShadowEnabled() {
-		h.shadowSessionTurn(ctx, payload)
-		position, err := h.enqueueSessionTurnDirect(payload)
-		if err == nil {
-			h.swarmCoordinator.RecordShadowDispatch()
-		}
-		return position, err
-	}
-	if h.swarmCoordinator != nil && h.swarmCoordinator.Enabled() {
-		return h.submitSessionTurnToSwarm(ctx, payload)
-	}
-	return h.enqueueSessionTurnDirect(payload)
-}
-
-func (h *BaldaHandler) submitSessionTurnToSwarm(ctx context.Context, payload sessionTurnPayload) (int, error) {
 	env, err := sessionTurnEnvelope(payload)
 	if err != nil {
-		return 0, err
+		return nil, err
 	}
-	submitted, err := h.swarmCoordinator.Submit(ctx, env)
-	if err != nil {
-		if errors.Is(err, swarm.ErrQueueFull) {
-			return 0, ErrTurnQueueFull
-		}
-		return 0, err
-	}
-	return submitted.QueuePosition, nil
-}
-
-func (h *BaldaHandler) shadowSessionTurn(ctx context.Context, payload sessionTurnPayload) {
-	env, err := sessionTurnEnvelope(payload)
-	if err != nil {
-		h.logger.Warn().Err(err).Msg("failed to build swarm shadow session envelope")
-		return
-	}
-	if _, err := h.swarmCoordinator.SubmitShadow(ctx, env); err != nil {
-		h.logger.Warn().Err(err).Str("session_id", payload.Locator.SessionID).Msg("failed to persist swarm shadow session envelope")
-	}
+	return h.swarmCoordinator.Submit(ctx, env)
 }
 
 func sessionTurnEnvelope(payload sessionTurnPayload) (swarm.Envelope, error) {
@@ -101,27 +54,23 @@ func sessionTurnEnvelope(payload sessionTurnPayload) (swarm.Envelope, error) {
 	if source == "" {
 		source = "telegram"
 	}
+	priority := 90
+	if strings.EqualFold(source, "webhook") {
+		priority = 80
+	} else if strings.EqualFold(source, "schedule") {
+		priority = 50
+	}
 	return swarm.Envelope{
+		ID:          uuid.NewString(),
 		Namespace:   sessionTurnNamespace(source),
 		Kind:        sessionTurnKind(source),
 		From:        swarm.ActorAddress{Target: source, Key: firstNonEmpty(payload.UserID, payload.Locator.AddressKey, "unknown")},
 		To:          swarm.ActorAddress{Target: swarm.ActorTypeSession, Key: payload.Locator.SessionID},
 		SessionID:   payload.Locator.SessionID,
+		Priority:    priority,
 		DedupeKey:   strings.TrimSpace(payload.DedupeKey),
 		PayloadJSON: string(data),
 	}, nil
-}
-
-func (h *BaldaHandler) enqueueSessionTurnDirect(payload sessionTurnPayload) (int, error) {
-	if h.turnDispatcher == nil {
-		return 0, fmt.Errorf("balda turn dispatcher is required")
-	}
-	return h.turnDispatcher.Enqueue(TurnTask{
-		SessionID: payload.Locator.SessionID,
-		Run: func(runCtx context.Context) error {
-			return h.runSessionTurnPayload(runCtx, payload)
-		},
-	})
 }
 
 func (h *BaldaHandler) runSessionTurnPayload(ctx context.Context, payload sessionTurnPayload) error {

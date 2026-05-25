@@ -299,7 +299,7 @@ func (h *BaldaHandler) enqueueTurn(
 		return fmt.Errorf("topic session is required")
 	}
 
-	position, err := h.submitSessionTurn(ctx, sessionTurnPayload{
+	_, err := h.submitSessionTurn(ctx, sessionTurnPayload{
 		Text:           text,
 		Locator:        locator,
 		UserID:         ts.GetUserID(),
@@ -313,18 +313,6 @@ func (h *BaldaHandler) enqueueTurn(
 	if err != nil {
 		return err
 	}
-
-	if position > 0 {
-		queuedMsg := fmt.Sprintf("Message queued (position %d). I will process it after the current turn.", position)
-		if sendErr := h.channel.SendPlain(ctx, locator, queuedMsg); sendErr != nil {
-			h.logger.Warn().
-				Err(sendErr).
-				Str("session_id", ts.GetSessionID()).
-				Int("position", position).
-				Msg("failed to send queued message notice")
-		}
-	}
-
 	return nil
 }
 

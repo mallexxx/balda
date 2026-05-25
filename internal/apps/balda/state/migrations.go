@@ -23,7 +23,6 @@ var requiredBaldaSQLiteTables = []string{
 	"balda_adk_sessions",
 	"balda_adk_events",
 	"balda_scheduled_jobs",
-	"swarm_messages",
 	"swarm_tasks",
 	"swarm_task_events",
 }

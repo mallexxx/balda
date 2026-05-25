@@ -1,4 +1,4 @@
-// Package swarm contains Balda's actor mailbox runtime primitives.
+// Package swarm contains Balda's JetStream-backed actor runtime primitives.
 package swarm
 
 import (
@@ -42,10 +42,6 @@ func SystemAddress(key string) ActorAddress {
 
 func WildcardAddress(target string) string {
 	return strings.ToLower(strings.TrimSpace(target)) + ":*"
-}
-
-func (a ActorAddress) MailboxID() (string, error) {
-	return a.String()
 }
 
 func (a ActorAddress) String() (string, error) {

@@ -55,7 +55,6 @@ type jobSchedulerParams struct {
 	LC             fx.Lifecycle
 	StateProvider  baldastate.Provider
 	SessionManager *baldasession.Manager
-	TurnDispatcher *TurnDispatcher
 	Coordinator    *swarm.Coordinator
 	Channel        *baldatelegram.Adapter
 	OwnerStore     *auth.OwnerStore
@@ -67,7 +66,6 @@ type jobSchedulerParams struct {
 type JobScheduler struct {
 	jobStore    baldastate.ScheduledJobStore
 	sessions    schedulerSessionManager
-	dispatch    turnQueue
 	coordinator *swarm.Coordinator
 	channel     schedulerChannel
 	owner       *auth.OwnerStore
@@ -89,11 +87,11 @@ func NewJobScheduler(params jobSchedulerParams) (*JobScheduler, error) {
 	if params.SessionManager == nil {
 		return nil, fmt.Errorf("balda session manager is required")
 	}
-	if params.TurnDispatcher == nil {
-		return nil, fmt.Errorf("balda turn dispatcher is required")
-	}
 	if params.Channel == nil {
 		return nil, fmt.Errorf("balda channel adapter is required")
+	}
+	if params.Coordinator == nil {
+		return nil, fmt.Errorf("balda swarm coordinator is required for scheduler")
 	}
 	config, err := normalizeJobSchedulerConfig(params.Config)
 	if err != nil {
@@ -106,7 +104,6 @@ func NewJobScheduler(params jobSchedulerParams) (*JobScheduler, error) {
 	scheduler := &JobScheduler{
 		jobStore:     params.StateProvider.ScheduledJobs(),
 		sessions:     params.SessionManager,
-		dispatch:     params.TurnDispatcher,
 		coordinator:  params.Coordinator,
 		channel:      params.Channel,
 		owner:        params.OwnerStore,
@@ -272,23 +269,23 @@ func (s *JobScheduler) dispatchJob(ctx context.Context, job baldastate.Scheduled
 		return nil
 	}
 
-	target, err := resolveEnvelopeTarget(ctx, s.owner, ownerEnvelopeTarget())
+	target, err := s.resolveScheduledJobTarget(ctx, current)
 	if err != nil {
 		return s.markFailure(ctx, jobID, fmt.Errorf("resolve scheduler target: %w", err))
 	}
 	locator := target.Locator
-
-	ts, err := s.resolveTopicSession(ctx, target)
-	if err != nil {
-		return s.markFailure(ctx, jobID, fmt.Errorf("resolve session: %w", err))
-	}
 
 	nextRunAt, err := nextRunAtFromSpec(current.ScheduleSpec, now)
 	if err != nil {
 		return s.markFailure(ctx, jobID, fmt.Errorf("invalid schedule_spec: %w", err))
 	}
 
-	// Claim this due-slot before enqueue so duplicate stale due entries do not dispatch twice.
+	prompt := strings.TrimSpace(current.Prompt)
+	if err := s.dispatchScheduledJobTask(ctx, current, target, prompt, dispatchKey); err != nil {
+		return err
+	}
+
+	// Mark the slot only after JetStream accepts the command.
 	current.LastDispatchKey = dispatchKey
 	current.LastError = ""
 	current.Status = baldastate.ScheduledJobStatusActive
@@ -298,30 +295,29 @@ func (s *JobScheduler) dispatchJob(ctx context.Context, job baldastate.Scheduled
 	current.AddressKey = locator.AddressKey
 	current.AddressJSON = locator.AddressJSON
 	if err := s.jobStore.Upsert(ctx, current); err != nil {
-		return fmt.Errorf("update job %q before enqueue: %w", jobID, err)
-	}
-
-	prompt := strings.TrimSpace(current.Prompt)
-	if s.coordinator != nil && s.coordinator.SchedulerShadowEnabled() {
-		s.shadowScheduledJobTask(ctx, current, target, prompt, dispatchKey)
-	}
-	if s.coordinator != nil && s.coordinator.SchedulerMailboxEnabled() {
-		return s.dispatchScheduledJobTask(ctx, current, target, prompt, dispatchKey)
-	}
-
-	if _, err := s.dispatch.Enqueue(TurnTask{
-		SessionID: ts.GetSessionID(),
-		Run: func(runCtx context.Context) error {
-			return s.executeJobTurn(runCtx, locator, jobID, prompt, ts)
-		},
-	}); err != nil {
-		return s.markFailure(ctx, jobID, fmt.Errorf("enqueue scheduled job: %w", err))
-	}
-	if s.coordinator != nil && s.coordinator.SchedulerShadowEnabled() {
-		s.coordinator.RecordShadowDispatch()
+		return fmt.Errorf("update job %q after publish: %w", jobID, err)
 	}
 
 	return nil
+}
+
+func (s *JobScheduler) resolveScheduledJobTarget(ctx context.Context, job baldastate.ScheduledJobRecord) (resolvedEnvelopeTarget, error) {
+	locator, err := baldasession.NewSessionLocator(job.ChannelType, job.AddressKey, job.AddressJSON, job.SessionID)
+	if err != nil {
+		return resolveEnvelopeTarget(ctx, s.owner, ownerEnvelopeTarget())
+	}
+	target := resolvedEnvelopeTarget{Locator: locator}
+	if address, ok, decodeErr := baldatelegram.DecodeLocator(locator); decodeErr != nil {
+		return resolvedEnvelopeTarget{}, decodeErr
+	} else if ok {
+		target.TopicID = address.TopicID
+	}
+	if s.owner != nil {
+		if owner := s.owner.GetOwner(); owner != nil && owner.UserID != 0 {
+			target.UserID = baldatelegram.UserID(owner.UserID)
+		}
+	}
+	return target, nil
 }
 
 func (s *JobScheduler) dispatchScheduledJobTask(
@@ -336,26 +332,9 @@ func (s *JobScheduler) dispatchScheduledJobTask(
 		return s.markFailure(ctx, job.JobID, err)
 	}
 	if _, err := s.coordinator.Submit(ctx, env); err != nil {
-		return s.markFailure(ctx, job.JobID, fmt.Errorf("enqueue scheduled job task: %w", err))
+		return s.markFailure(ctx, job.JobID, fmt.Errorf("publish scheduled job command: %w", err))
 	}
 	return nil
-}
-
-func (s *JobScheduler) shadowScheduledJobTask(
-	ctx context.Context,
-	job baldastate.ScheduledJobRecord,
-	target resolvedEnvelopeTarget,
-	prompt string,
-	dispatchKey string,
-) {
-	env, err := scheduledJobEnvelope(job, target, prompt, dispatchKey)
-	if err != nil {
-		s.logger.Warn().Err(err).Str("job_id", job.JobID).Msg("failed to build swarm shadow scheduled job envelope")
-		return
-	}
-	if _, err := s.coordinator.SubmitShadow(ctx, env); err != nil {
-		s.logger.Warn().Err(err).Str("job_id", job.JobID).Msg("failed to persist swarm shadow scheduled job envelope")
-	}
 }
 
 func scheduledJobEnvelope(

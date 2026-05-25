@@ -2,28 +2,31 @@ package eventbus
 
 import "testing"
 
-func TestConfigNormalizedDefaultsToNATSCore(t *testing.T) {
+func TestConfigNormalized_DefaultsToEmbeddedJetStream(t *testing.T) {
 	cfg, err := (Config{}).Normalized()
 	if err != nil {
 		t.Fatalf("Normalized() error = %v", err)
 	}
-	if cfg.Mode != ModeNATSCore {
-		t.Fatalf("Mode = %q, want %q", cfg.Mode, ModeNATSCore)
+	if !cfg.Embedded {
+		t.Fatal("Embedded = false, want true")
 	}
-	if !cfg.NATS.Embedded {
-		t.Fatal("NATS.Embedded = false, want true")
+	if cfg.Host != "127.0.0.1" || cfg.Port != -1 {
+		t.Fatalf("address = %s:%d, want 127.0.0.1:-1", cfg.Host, cfg.Port)
 	}
-	if cfg.NATS.Host != defaultNATSHost || cfg.NATS.Port != defaultNATSPort {
-		t.Fatalf("NATS address = %s:%d, want %s:%d", cfg.NATS.Host, cfg.NATS.Port, defaultNATSHost, defaultNATSPort)
+	if !cfg.JetStream {
+		t.Fatal("JetStream = false, want true")
 	}
-	if !cfg.NATS.JetStream {
-		t.Fatal("NATS.JetStream = false, want true")
+	if cfg.StoreDir != ".balda/nats" {
+		t.Fatalf("StoreDir = %q, want .balda/nats", cfg.StoreDir)
 	}
 }
 
-func TestConfigNormalizedRejectsInvalidMode(t *testing.T) {
-	_, err := (Config{Mode: "redis"}).Normalized()
-	if err == nil {
-		t.Fatal("Normalized() error = nil, want invalid mode error")
+func TestConfigNormalized_ForcesJetStreamOn(t *testing.T) {
+	cfg, err := (Config{Embedded: true, JetStream: false}).Normalized()
+	if err != nil {
+		t.Fatalf("Normalized() error = %v", err)
+	}
+	if !cfg.JetStream {
+		t.Fatal("JetStream = false, want forced true")
 	}
 }

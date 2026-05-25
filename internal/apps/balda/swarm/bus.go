@@ -6,75 +6,106 @@ import (
 	"time"
 )
 
+// CommandPublishResult is the JetStream acknowledgement for an accepted command.
+type CommandPublishResult struct {
+	Stream   string
+	Sequence uint64
+	Subject  string
+	MsgID    string
+}
+
+// CommandMessage is a command delivered by the durable command bus.
+type CommandMessage interface {
+	Envelope() Envelope
+	Subject() string
+	InProgress(ctx context.Context) error
+}
+
+// CommandHandler handles one durable command message.
+type CommandHandler func(ctx context.Context, msg CommandMessage) error
+
+// CommandBus is Balda's transport contract. JetStream is the only runtime implementation.
+type CommandBus interface {
+	PublishCommand(ctx context.Context, env Envelope) (*CommandPublishResult, error)
+	PublishEvent(ctx context.Context, subject string, env Envelope) error
+	PublishDLQ(ctx context.Context, env Envelope, reason string) error
+	RunCommandConsumer(ctx context.Context, handler CommandHandler) error
+	Drain(ctx context.Context) error
+}
+
+// CommandBusStatus describes JetStream stream and consumer state for /swarm status.
+type CommandBusStatus struct {
+	CommandBus       string
+	SQLiteCommandBus bool
+	ShadowMode       bool
+	LegacyDirectPath bool
+	Embedded         bool
+	Running          bool
+	JetStream        bool
+	ClientURL        string
+	Commands         StreamStatus
+	Events           StreamStatus
+	DLQ              StreamStatus
+	Worker           ConsumerStatus
+	ProjectionLag    map[string]uint64
+}
+
+// StreamStatus contains compact JetStream stream metadata.
+type StreamStatus struct {
+	Name     string
+	Messages uint64
+	Bytes    uint64
+	FirstSeq uint64
+	LastSeq  uint64
+}
+
+// ConsumerStatus contains compact JetStream consumer metadata.
+type ConsumerStatus struct {
+	Name           string
+	NumPending     uint64
+	NumAckPending  int
+	NumRedelivered uint64
+	NumWaiting     int
+	DeliveredSeq   uint64
+	AckFloorSeq    uint64
+}
+
+// CommandBusStatusProvider is implemented by buses that can report runtime status.
+type CommandBusStatusProvider interface {
+	Status(ctx context.Context) (CommandBusStatus, error)
+}
+
+// UnsupportedCommandBus is used only in tests that do not exercise transport.
+type UnsupportedCommandBus struct{}
+
+func (UnsupportedCommandBus) PublishCommand(context.Context, Envelope) (*CommandPublishResult, error) {
+	return nil, fmt.Errorf("command bus is unavailable")
+}
+
+func (UnsupportedCommandBus) PublishEvent(context.Context, string, Envelope) error { return nil }
+
+func (UnsupportedCommandBus) PublishDLQ(context.Context, Envelope, string) error { return nil }
+
+func (UnsupportedCommandBus) RunCommandConsumer(ctx context.Context, _ CommandHandler) error {
+	<-ctx.Done()
+	return ctx.Err()
+}
+
+func (UnsupportedCommandBus) Drain(context.Context) error { return nil }
+
+func (UnsupportedCommandBus) Status(context.Context) (CommandBusStatus, error) {
+	return CommandBusStatus{CommandBus: "unavailable", SQLiteCommandBus: false, ShadowMode: false, LegacyDirectPath: false}, nil
+}
+
+// EventHandler is kept for event projector code that consumes decoded events.
 type EventHandler func(ctx context.Context, subject string, env Envelope) error
 
+// Subscription is a cancellable event subscription.
 type Subscription interface {
 	Unsubscribe() error
 }
 
-type EventBus interface {
-	Publish(ctx context.Context, subject string, env Envelope) error
-	Subscribe(ctx context.Context, subject string, handler EventHandler) (Subscription, error)
-	Request(ctx context.Context, subject string, env Envelope, timeout time.Duration) (*Envelope, error)
-	Drain(ctx context.Context) error
+// RetryDelay computes the first retry delay for simple bus adapters.
+func RetryDelay(attempt int) time.Duration {
+	return nextRetryDelay(attempt)
 }
-
-type MessageRef struct {
-	Source    string
-	Subject   string
-	Mailbox   string
-	MessageID string
-}
-
-type DurableMailbox interface {
-	PublishCommand(ctx context.Context, env Envelope) error
-	ConsumeCommands(ctx context.Context, actorGroup string, handler EventHandler) error
-	Ack(ctx context.Context, msg MessageRef) error
-	Retry(ctx context.Context, msg MessageRef, delay time.Duration, reason string) error
-	DeadLetter(ctx context.Context, msg MessageRef, reason string) error
-}
-
-type CommandShadowPublisher interface {
-	PublishCommandShadow(ctx context.Context, env Envelope) error
-}
-
-type EventBusStatus struct {
-	Mode      string
-	Embedded  bool
-	Running   bool
-	JetStream bool
-	ClientURL string
-}
-
-type EventBusStatusProvider interface {
-	Status() EventBusStatus
-}
-
-type NoopEventBus struct {
-	mode string
-}
-
-func NewNoopEventBus(mode string) *NoopEventBus {
-	if mode == "" {
-		mode = "sqlite"
-	}
-	return &NoopEventBus{mode: mode}
-}
-
-func (b *NoopEventBus) Publish(context.Context, string, Envelope) error { return nil }
-
-func (b *NoopEventBus) Subscribe(context.Context, string, EventHandler) (Subscription, error) {
-	return noopSubscription{}, nil
-}
-
-func (b *NoopEventBus) Request(context.Context, string, Envelope, time.Duration) (*Envelope, error) {
-	return nil, fmt.Errorf("event bus %q does not support request", b.mode)
-}
-
-func (b *NoopEventBus) Drain(context.Context) error { return nil }
-
-func (b *NoopEventBus) Status() EventBusStatus { return EventBusStatus{Mode: b.mode} }
-
-type noopSubscription struct{}
-
-func (noopSubscription) Unsubscribe() error { return nil }

@@ -35,9 +35,8 @@ type CommandHandler struct {
 	turnDispatcher    turnQueue
 	swarmCoordinator  *swarm.Coordinator
 	swarmConfig       swarm.Config
-	eventBus          swarm.EventBus
+	commandBus        swarm.CommandBus
 	agentRegistry     *swarm.AgentRegistry
-	mailboxes         *swarm.MailboxService
 	tasks             *swarm.TaskService
 	taskRuns          *taskRunRegistry
 	goalRunner        goalCommandRunner
@@ -60,9 +59,8 @@ type commandHandlerParams struct {
 	TurnDispatcher    *TurnDispatcher
 	SwarmCoordinator  *swarm.Coordinator
 	SwarmConfig       swarm.Config
-	EventBus          swarm.EventBus
+	CommandBus        swarm.CommandBus
 	AgentRegistry     *swarm.AgentRegistry
-	MailboxService    *swarm.MailboxService
 	TaskService       *swarm.TaskService
 	TaskRuns          *taskRunRegistry
 	GoalRunner        *GoalRunner
@@ -81,9 +79,8 @@ func NewCommandHandler(params commandHandlerParams) *CommandHandler {
 		turnDispatcher:    params.TurnDispatcher,
 		swarmCoordinator:  params.SwarmCoordinator,
 		swarmConfig:       params.SwarmConfig,
-		eventBus:          params.EventBus,
+		commandBus:        params.CommandBus,
 		agentRegistry:     params.AgentRegistry,
-		mailboxes:         params.MailboxService,
 		tasks:             params.TaskService,
 		taskRuns:          params.TaskRuns,
 		goalRunner:        params.GoalRunner,
@@ -144,13 +141,6 @@ func (h *CommandHandler) onGoalCommand(ctx context.Context, commandCtx baldatele
 	objective := strings.TrimSpace(commandCtx.Args)
 	if objective == "" {
 		if err := h.channel.SendAgentReply(ctx, commandCtx.Locator, "Usage: /goal <objective>"); err != nil {
-			return err
-		}
-		return nil
-	}
-
-	if h.goalRunner == nil {
-		if err := h.channel.SendAgentReply(ctx, commandCtx.Locator, "Goal runs are unavailable right now. Please try again."); err != nil {
 			return err
 		}
 		return nil
@@ -434,16 +424,6 @@ func (h *CommandHandler) onCancelCommand(ctx context.Context, commandCtx baldate
 		}
 		return nil
 	}
-	mailboxDropped := 0
-	if h.swarmCoordinator != nil && h.swarmCoordinator.RuntimeEnabled() {
-		canceled, cancelErr := h.swarmCoordinator.CancelSession(ctx, commandCtx.Locator.SessionID, "session canceled by user")
-		if cancelErr != nil {
-			log.Warn().Err(cancelErr).Str("session_id", commandCtx.Locator.SessionID).Msg("failed to cancel session mailbox")
-		} else {
-			mailboxDropped = canceled
-		}
-	}
-
 	taskCanceled := 0
 	if h.tasks != nil {
 		taskIDs, cancelErr := h.tasks.CancelBySession(ctx, commandCtx.Locator.SessionID, "command.cancel", "session canceled by user")
@@ -462,7 +442,7 @@ func (h *CommandHandler) onCancelCommand(ctx context.Context, commandCtx baldate
 		goalCanceled = h.goalRunner.Cancel(commandCtx.Locator)
 	}
 
-	totalDropped := dropped + mailboxDropped
+	totalDropped := dropped
 	if !hadInFlight && totalDropped == 0 && !goalCanceled && taskCanceled == 0 {
 		if err := h.channel.SendPlain(ctx, commandCtx.Locator, "No running or queued turns for this session."); err != nil {
 			return err

@@ -8,6 +8,10 @@ import (
 	"time"
 )
 
+type sqliteSwarmStore struct {
+	db *sql.DB
+}
+
 func (s *sqliteSwarmStore) CreateTask(ctx context.Context, record SwarmTaskRecord) (bool, error) {
 	now := time.Now().UTC()
 	normalized, err := normalizeSwarmTask(record, now)
@@ -448,4 +452,19 @@ func statusTimestamps(status string, now time.Time) (startedAt time.Time, comple
 	default:
 		return time.Time{}, time.Time{}, time.Time{}
 	}
+}
+
+func nullIfEmpty(value string) any {
+	trimmed := strings.TrimSpace(value)
+	if trimmed == "" {
+		return nil
+	}
+	return trimmed
+}
+
+func optionalTimeValue(value time.Time) any {
+	if value.IsZero() {
+		return nil
+	}
+	return value.UTC().Format(time.RFC3339)
 }

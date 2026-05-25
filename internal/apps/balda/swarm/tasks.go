@@ -27,14 +27,14 @@ const (
 
 type TaskService struct {
 	store baldastate.SwarmStore
-	bus   EventBus
+	bus   CommandBus
 }
 
 type taskServiceParams struct {
 	fx.In
 
 	StateProvider baldastate.Provider
-	Bus           EventBus `optional:"true"`
+	Bus           CommandBus `optional:"true"`
 }
 
 func NewTaskService(params taskServiceParams) (*TaskService, error) {
@@ -230,17 +230,21 @@ func (s *TaskService) publishTaskEvent(ctx context.Context, event baldastate.Swa
 			"message_id": event.MessageID,
 		},
 	}
-	_ = s.bus.Publish(ctx, subjectForTaskEvent(event.EventType), env)
+	_ = s.bus.PublishEvent(ctx, subjectForTaskEvent(event.EventType), env)
 }
 
 func subjectForTaskEvent(eventType string) string {
 	switch strings.TrimSpace(eventType) {
 	case TaskEventAgentStarted, TaskEventAgentProgress, TaskEventAgentResult:
-		return SubjectEventAgent
+		return SubjectEventTaskUpdated
 	case TaskEventDeliverySent:
-		return SubjectEventDelivery
+		return SubjectEventDeliverySent
+	case TaskEventTaskCreated:
+		return SubjectEventTaskCreated
+	case TaskEventTaskCompleted:
+		return SubjectEventTaskCompleted
 	default:
-		return SubjectEventTask
+		return SubjectEventTaskUpdated
 	}
 }
 

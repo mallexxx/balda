@@ -12,10 +12,11 @@ import (
 	"go.uber.org/fx"
 )
 
+const heartbeatInterval = 30 * time.Second
+
 const (
-	defaultRecoveryInterval = 2 * time.Second
-	retryBaseDelay          = time.Second
-	retryMaxDelay           = time.Minute
+	retryBaseDelay = time.Second
+	retryMaxDelay  = time.Minute
 )
 
 type Actor interface {
@@ -66,36 +67,29 @@ func (r *Registry) Resolve(address string) (Actor, bool) {
 }
 
 type Runtime struct {
-	mailboxes *MailboxService
+	bus       CommandBus
 	tasks     *TaskService
 	registry  ActorRegistry
 	scheduler *KeyedActorScheduler
 	logger    zerolog.Logger
-	workerID  string
 
-	mu       sync.Mutex
-	draining map[string]struct{}
-	cancel   context.CancelFunc
-	wg       sync.WaitGroup
+	cancel context.CancelFunc
+	wg     sync.WaitGroup
 }
 
 type runtimeParams struct {
 	fx.In
 
-	LC        fx.Lifecycle
-	Bus       EventBus
-	Mailboxes *MailboxService
-	Tasks     *TaskService
-	Logger    zerolog.Logger
-	Actors    []Actor `group:"balda_swarm_actors"`
+	LC     fx.Lifecycle
+	Bus    CommandBus
+	Tasks  *TaskService
+	Logger zerolog.Logger
+	Actors []Actor `group:"balda_swarm_actors"`
 }
 
 func NewRuntime(params runtimeParams) (*Runtime, error) {
 	if params.Bus == nil {
-		return nil, fmt.Errorf("swarm wake bus is required")
-	}
-	if params.Mailboxes == nil {
-		return nil, fmt.Errorf("swarm mailbox service is required")
+		return nil, fmt.Errorf("jetstream command bus is required")
 	}
 	registry := NewRegistry()
 	for _, actor := range params.Actors {
@@ -104,52 +98,33 @@ func NewRuntime(params runtimeParams) (*Runtime, error) {
 		}
 	}
 	r := &Runtime{
-		mailboxes: params.Mailboxes,
+		bus:       params.Bus,
 		tasks:     params.Tasks,
 		registry:  registry,
 		scheduler: NewKeyedActorScheduler(),
 		logger:    params.Logger.With().Str("component", "balda.swarm.runtime").Logger(),
-		workerID:  "balda-single-worker",
-		draining:  make(map[string]struct{}),
 	}
 	params.LC.Append(fx.Hook{
-		OnStart: func(ctx context.Context) error { return r.Start(ctx, params.Bus) },
-		OnStop:  func(ctx context.Context) error { return r.Stop(ctx) },
+		OnStart: r.Start,
+		OnStop:  r.Stop,
 	})
 	return r, nil
 }
 
-func (r *Runtime) Start(ctx context.Context, bus EventBus) error {
+func (r *Runtime) Start(context.Context) error {
 	if r.cancel != nil {
-		return nil
-	}
-	if !r.mailboxes.Enabled() {
-		r.logger.Info().Msg("swarm mailbox runtime disabled")
 		return nil
 	}
 	runCtx, cancel := context.WithCancel(context.Background())
 	r.cancel = cancel
-	if _, err := r.mailboxes.Recover(ctx, time.Now().UTC()); err != nil {
-		cancel()
-		return err
-	}
-	if _, err := bus.Subscribe(runCtx, SubjectWakeupMailbox, func(ctx context.Context, _ string, env Envelope) error {
-		mailboxID, err := env.To.MailboxID()
-		if err != nil {
-			return err
-		}
-		r.wake(ctx, mailboxID)
-		return nil
-	}); err != nil {
-		cancel()
-		return err
-	}
 	r.wg.Add(1)
 	go func() {
 		defer r.wg.Done()
-		r.scanLoop(runCtx)
+		if err := r.bus.RunCommandConsumer(runCtx, r.HandleCommand); err != nil && !strings.Contains(err.Error(), "context canceled") {
+			r.logger.Error().Err(err).Msg("jetstream command consumer stopped")
+		}
 	}()
-	return r.wakeReady(ctx)
+	return nil
 }
 
 func (r *Runtime) Stop(ctx context.Context) error {
@@ -170,93 +145,70 @@ func (r *Runtime) Stop(ctx context.Context) error {
 	}
 }
 
-func (r *Runtime) wake(ctx context.Context, mailboxID string) {
-	trimmed := strings.TrimSpace(mailboxID)
-	if trimmed == "" {
-		return
+func (r *Runtime) HandleCommand(ctx context.Context, cmd CommandMessage) error {
+	env := cmd.Envelope()
+	if r.isCanceledOrCompleted(ctx, env) {
+		_ = r.bus.PublishEvent(ctx, SubjectEventCommandNoop, commandNoopEvent(env))
+		return nil
 	}
-	r.mu.Lock()
-	if _, exists := r.draining[trimmed]; exists {
-		r.mu.Unlock()
-		return
-	}
-	r.draining[trimmed] = struct{}{}
-	r.wg.Add(1)
-	r.mu.Unlock()
-
-	go func() {
-		defer r.wg.Done()
-		defer func() {
-			r.mu.Lock()
-			delete(r.draining, trimmed)
-			r.mu.Unlock()
-		}()
-		r.runMailbox(ctx, trimmed)
-	}()
-}
-
-func (r *Runtime) runMailbox(ctx context.Context, mailbox string) {
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		default:
-		}
-		batch, err := r.mailboxes.Claim(ctx, mailbox, r.workerID, DefaultClaimLimit, DefaultLeaseDuration)
-		if err != nil {
-			r.logger.Warn().Err(err).Str("mailbox", mailbox).Msg("failed to claim swarm messages")
-			return
-		}
-		if len(batch) == 0 {
-			return
-		}
-		for _, env := range batch {
-			if err := r.handleEnvelope(ctx, mailbox, env); err != nil {
-				r.logger.Warn().Err(err).Str("mailbox", mailbox).Str("message_id", env.ID).Msg("failed to settle swarm message")
-			}
-		}
-	}
-}
-
-func (r *Runtime) handleEnvelope(ctx context.Context, mailbox string, env Envelope) error {
+	heartbeatCtx, stop := r.startHeartbeat(ctx, cmd, env)
+	defer stop()
 	if r.scheduler != nil {
-		return r.scheduler.Dispatch(ctx, env, func(ctx context.Context, env Envelope) error {
-			return r.handleEnvelopeDirect(ctx, mailbox, env)
-		})
+		return r.scheduler.Dispatch(heartbeatCtx, env, r.handleEnvelopeDirect)
 	}
-	return r.handleEnvelopeDirect(ctx, mailbox, env)
+	return r.handleEnvelopeDirect(heartbeatCtx, env)
 }
 
-func (r *Runtime) handleEnvelopeDirect(ctx context.Context, mailbox string, env Envelope) error {
+func (r *Runtime) handleEnvelopeDirect(ctx context.Context, env Envelope) error {
 	to, err := env.To.String()
 	if err != nil {
-		return r.mailboxes.DeadLetter(context.Background(), mailbox, env.ID, err.Error())
+		return PermanentError(err)
 	}
 	actor, ok := r.registry.Resolve(to)
 	if !ok {
 		r.deadletterTask(ctx, env, "actor not found: "+to)
-		return r.mailboxes.DeadLetter(context.Background(), mailbox, env.ID, "actor not found: "+to)
+		return PermanentError(fmt.Errorf("actor not found: %s", to))
 	}
 	if err := actor.Handle(ctx, env); err != nil {
-		return r.settleError(context.Background(), mailbox, env, err)
+		if !isRetryableRuntimeError(err) {
+			r.deadletterTask(ctx, env, err.Error())
+		}
+		return err
 	}
-	return r.mailboxes.Ack(context.Background(), mailbox, env.ID)
+	return nil
 }
 
-func (r *Runtime) settleError(ctx context.Context, mailbox string, env Envelope, err error) error {
-	switch classifyError(err) {
-	case ErrorKindDuplicate:
-		return r.mailboxes.Ack(ctx, mailbox, env.ID)
-	case ErrorKindAuth, ErrorKindPolicy, ErrorKindPermanent:
-		r.deadletterTask(ctx, env, err.Error())
-		return r.mailboxes.DeadLetter(ctx, mailbox, env.ID, err.Error())
-	default:
-		if env.MaxAttempts > 0 && env.Attempt >= env.MaxAttempts {
-			r.deadletterTask(ctx, env, err.Error())
-			return r.mailboxes.DeadLetter(ctx, mailbox, env.ID, err.Error())
+func (r *Runtime) startHeartbeat(ctx context.Context, cmd CommandMessage, env Envelope) (context.Context, func()) {
+	child, cancel := context.WithCancel(ctx)
+	r.wg.Add(1)
+	go func() {
+		defer r.wg.Done()
+		ticker := time.NewTicker(heartbeatInterval)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ticker.C:
+				if err := cmd.InProgress(child); err != nil {
+					r.logger.Warn().Err(err).Str("envelope_id", env.ID).Msg("failed to send jetstream in-progress ack")
+				}
+				_ = r.bus.PublishEvent(child, SubjectEventCommandInProgress, commandNoopEvent(env))
+			case <-child.Done():
+				return
+			}
 		}
-		return r.mailboxes.Retry(ctx, mailbox, env.ID, nextRetryAt(env.Attempt), err.Error())
+	}()
+	return child, cancel
+}
+
+func (r *Runtime) isCanceledOrCompleted(ctx context.Context, env Envelope) bool {
+	if r == nil || r.tasks == nil || strings.TrimSpace(env.TaskID) == "" {
+		return false
 	}
+	task, ok, err := r.tasks.Get(ctx, env.TaskID)
+	if err != nil || !ok {
+		return false
+	}
+	return task.Status == "completed" || task.Status == "failed" || task.Status == "canceled" || task.Status == "deadlettered"
 }
 
 func (r *Runtime) deadletterTask(ctx context.Context, env Envelope, reason string) {
@@ -272,36 +224,16 @@ func (r *Runtime) deadletterTask(ctx context.Context, env Envelope, reason strin
 	}
 }
 
-func (r *Runtime) scanLoop(ctx context.Context) {
-	ticker := time.NewTicker(defaultRecoveryInterval)
-	defer ticker.Stop()
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case <-ticker.C:
-			if _, err := r.mailboxes.Recover(ctx, time.Now().UTC()); err != nil {
-				r.logger.Warn().Err(err).Msg("failed to recover swarm mailboxes")
-			}
-			if err := r.wakeReady(ctx); err != nil {
-				r.logger.Warn().Err(err).Msg("failed to wake ready swarm mailboxes")
-			}
-		}
+func isRetryableRuntimeError(err error) bool {
+	switch ClassifyError(err) {
+	case ErrorKindDuplicate, ErrorKindAuth, ErrorKindPolicy, ErrorKindPermanent:
+		return false
+	default:
+		return true
 	}
 }
 
-func (r *Runtime) wakeReady(ctx context.Context) error {
-	mailboxes, err := r.mailboxes.ListReadyMailboxes(ctx, 100)
-	if err != nil {
-		return err
-	}
-	for _, mailboxID := range mailboxes {
-		r.wake(ctx, mailboxID)
-	}
-	return nil
-}
-
-func nextRetryAt(attempt int) time.Time {
+func nextRetryDelay(attempt int) time.Duration {
 	if attempt < 0 {
 		attempt = 0
 	}
@@ -315,5 +247,15 @@ func nextRetryAt(attempt int) time.Time {
 	}
 	jitterCap := max(delay/4, time.Millisecond)
 	jitter := time.Duration(rand.Int64N(int64(jitterCap)))
-	return time.Now().UTC().Add(delay + jitter)
+	return delay + jitter
+}
+
+func commandNoopEvent(env Envelope) Envelope {
+	out := env
+	out.Namespace = NamespaceTelemetry
+	out.Kind = "command_event"
+	if strings.TrimSpace(out.PayloadJSON) == "" {
+		out.PayloadJSON = `{"ok":true}`
+	}
+	return out
 }

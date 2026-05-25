@@ -147,13 +147,13 @@ Built-in provider types:
 ## Bot Commands
 
 - `/topic <name>`: create a named topic session.
-- `/goal <objective>`: create a durable task record and work toward the goal in the current session context/workspace. Legacy/shadow modes run the Goalkeeper worker -> validator loop directly; mailbox mode routes the task through task, planner, executor, reviewer, and delivery actors. Goal updates use `balda.telegram.formatting_mode`; terminal updates include Result, Artifacts, Confidence, and Next action sections. See [`docs/goalkeeper.md`](docs/goalkeeper.md).
+- `/goal <objective>`: publish a durable JetStream task command and work toward the goal in the current session context/workspace through task, planner, executor, reviewer, and delivery actors. Goal updates use `balda.telegram.formatting_mode`; terminal updates include Result, Artifacts, Confidence, and Next action sections. See [`docs/goalkeeper.md`](docs/goalkeeper.md).
 - `/tasks`: list active task records for the current session.
 - `/task <id>`: inspect task status, objective, latest events, and reviewable outcome when the task is terminal.
 - `/task <id> events`: print the task event stream.
-- `/task <id> cancel`: cancel queued mailbox work, the active task run when present, and mark the task canceled.
-- `/swarm status`: show swarm rollout mode, event bus state, runtime state, shadow counters, configured logical agents, task status counts, and ready mailboxes.
-- `/mailbox status`: show non-terminal mailbox message counts by mailbox and status.
+- `/task <id> cancel`: publish a task-control command, cancel active local task work when present, and mark the task canceled.
+- `/swarm status`: show JetStream command/event/DLQ streams, worker consumer state, logical agents, and task status counts.
+- `/mailbox status`: compatibility alias for JetStream swarm status.
 - `/reset`: clear conversation history for the current session.
 - `/close`: reset history, then close the current topic or restart the owner session on the next message.
 - `/cancel`: cancel in-flight work, drop queued turns, cancel active task records, and abort active `/goal` work for the current session.
@@ -205,25 +205,30 @@ balda:
     enabled: true
   goal:
     max_iterations: 25
-  event_bus:
-    mode: "nats_core"
-    nats:
-      embedded: true
-      host: "127.0.0.1"
-      port: -1
-      jetstream: true
-      store_dir: ".balda/nats"
-      max_memory: "256mb"
-      max_store: "2gb"
-      sync_always: false
-      expose_monitoring: false
+  nats:
+    embedded: true
+    host: "127.0.0.1"
+    port: -1
+    jetstream: true
+    store_dir: ".balda/nats"
+    max_memory: "256mb"
+    max_store: "2gb"
+    sync_always: false
+    expose_monitoring: false
   swarm:
     enabled: true
-    mode: "shadow"
-    webhook_mode: "shadow"
-    scheduler_mode: "shadow"
-    shadow:
-      enabled: true
+    commands:
+      stream: "BALDA_COMMANDS"
+      consumer: "BALDA_WORKER_COMMANDS"
+      ack_wait: "5m"
+      max_deliver: 5
+      max_ack_pending: 64
+      fetch_batch: 16
+      fetch_wait: "1s"
+    events:
+      stream: "BALDA_EVENTS"
+    dlq:
+      stream: "BALDA_DLQ"
     queue:
       default_mode: "followup"
       debounce_ms: 500
@@ -266,16 +271,14 @@ Common settings:
 - `balda.sessions.persistence`: `sqlite` by default; keeps ADK conversation history across restarts until `/reset` or explicit `/close`.
 - `balda.memory.enabled`: `true` by default; controls `${balda.state_dir}/MEMORY.md`, `/memory`, and `balda.memory.*` MCP tools.
 - `balda.goal.max_iterations`: maximum Goalkeeper worker/validator iterations for `/goal`; defaults to `25`.
-- `balda.event_bus.mode`: `nats_core` by default. `sqlite` disables NATS and uses SQLite mailbox polling only; `nats_core` keeps SQLite as the durable mailbox and uses embedded NATS for wakeups/events; `nats_jetstream` also creates JetStream command/event/control/DLQ streams and shadow-publishes commands while SQLite remains product state.
-- `balda.event_bus.nats.*`: embedded NATS defaults bind to `127.0.0.1` on a random local port, keep monitoring disabled, and store JetStream files under `.balda/nats`.
-- `balda.swarm.enabled`: `true` by default; enables swarm rollout plumbing.
-- `balda.swarm.mode`: `shadow` by default; `shadow` dual-writes envelopes to SQLite and keeps the existing direct dispatch path, while `mailbox` routes work through SQLite-backed actor mailboxes with EventBus wakeups. `/goal` creates `swarm_tasks` records in all modes; mailbox mode coordinates Goal tasks through TaskActor -> AgentActor planner/executor/reviewer -> DeliveryActor.
-- `balda.swarm.webhook_mode`: `shadow` by default; controls only generic inbound webhook intake (`legacy|shadow|mailbox`).
-- `balda.swarm.scheduler_mode`: `shadow` by default; controls only config-managed recurring jobs (`legacy|shadow|mailbox`).
-- `balda.swarm.shadow.enabled`: `true` by default; stores Telegram, webhook, schedule, and `/goal` envelopes with `status=shadow` for rollout comparison when a resolved mode is `shadow`.
-- `balda.swarm.queue.*`: mailbox-mode queue policy only; defaults to `followup`, `500ms` collect debounce, cap `20`, and `summarize` overflow handling. Namespace overrides make `task.control` interrupt active work, while webhook intake follows up and schedule/memory inputs can collect. Deterministic collect/summarize rewrites only session envelopes; typed task envelopes keep their original payload contracts.
+- `balda.nats.*`: embedded JetStream is required by default, binds to `127.0.0.1` on a random local port, keeps monitoring disabled, and stores JetStream files under `.balda/nats`.
+- `balda.swarm.enabled`: `true` by default; enables the actor runtime. Ingress accepts work only by publishing commands to JetStream.
+- `balda.swarm.commands.*`: JetStream command stream and durable pull consumer settings. `BALDA_COMMANDS` is the only command queue.
+- `balda.swarm.events.*`: JetStream event stream settings for command/task/delivery events.
+- `balda.swarm.dlq.*`: JetStream dead-letter stream settings for terminal command failures.
+- `balda.swarm.queue.*`: local keyed actor scheduling policy. Namespace overrides make `task.control` interrupt active work, while webhook intake follows up and schedule/memory inputs can collect.
 - `balda.swarm.agents.*`: logical single-process agent roles used by the swarm allocator. Defaults are `planner`, `executor`, `reviewer`, and `memory`; `tools` are advisory routing hints (`workspace`, `shell`, `mcp`, `memory`), not separate runtimes. Optional `cost_penalty` lowers allocator preference for expensive roles.
-- Task visibility: `/tasks`, `/task <id>`, `/task <id> events`, `/task <id> cancel`, `/swarm status`, and `/mailbox status` read from `swarm_tasks`, `swarm_task_events`, and mailbox state.
+- Task visibility: `/tasks`, `/task <id>`, `/task <id> events`, `/task <id> cancel`, `/swarm status`, and `/mailbox status` read product projections from SQLite and transport state from JetStream.
 - `balda.scheduler.jobs`: startup-reconciled recurring jobs (`id`, `cron`, `prompt`) that target the owner DM session.
 - `${balda.state_dir}/SOUL.md`: optional operator instructions read at session start/restore when the file exists.
 - `balda.workspace.mode`: `auto` by default; uses git worktrees when Balda runs in a git repository.

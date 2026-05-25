@@ -41,11 +41,6 @@ type AgentRegistry struct {
 
 type AgentAllocator struct {
 	registry *AgentRegistry
-	depths   QueueDepthProvider
-}
-
-type QueueDepthProvider interface {
-	PendingCount(ctx context.Context, mailbox string) (int, error)
 }
 
 type AgentAllocationRequest struct {
@@ -67,11 +62,11 @@ func NewAgentRegistry(cfg Config) (*AgentRegistry, error) {
 	return registry, nil
 }
 
-func NewAgentAllocator(registry *AgentRegistry, mailboxes *MailboxService) (*AgentAllocator, error) {
+func NewAgentAllocator(registry *AgentRegistry) (*AgentAllocator, error) {
 	if registry == nil {
 		return nil, fmt.Errorf("agent registry is required")
 	}
-	return &AgentAllocator{registry: registry, depths: mailboxes}, nil
+	return &AgentAllocator{registry: registry}, nil
 }
 
 func NormalizeAgentSpecs(raw map[string]AgentSpec) ([]AgentSpec, error) {
@@ -255,11 +250,6 @@ func (a *AgentAllocator) score(ctx context.Context, spec AgentSpec, req AgentAll
 	if req.WorkspaceAffinity {
 		if _, ok := toolSet[AgentToolWorkspace]; ok {
 			score += 5
-		}
-	}
-	if a.depths != nil {
-		if depth, err := a.depths.PendingCount(ctx, ActorTypeAgent+":"+spec.Name); err == nil {
-			score -= depth
 		}
 	}
 	score -= spec.CostPenalty

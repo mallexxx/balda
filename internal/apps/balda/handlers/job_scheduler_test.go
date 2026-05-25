@@ -2,7 +2,6 @@ package handlers
 
 import (
 	"context"
-	"database/sql"
 	"errors"
 	"path/filepath"
 	"strings"
@@ -18,7 +17,7 @@ import (
 	"google.golang.org/adk/runner"
 )
 
-func TestJobSchedulerDispatchJob_EnqueuesAndReschedules(t *testing.T) {
+func TestJobSchedulerDispatchJob_PublishesCommandAndReschedules(t *testing.T) {
 	t.Parallel()
 
 	ctx := context.Background()
@@ -45,15 +44,28 @@ func TestJobSchedulerDispatchJob_EnqueuesAndReschedules(t *testing.T) {
 
 	ts := newSchedulerTopicSession(t, locator, "tg-101", "adk-1", nil)
 	sessions := &fakeSchedulerSessionManager{session: ts}
-	queue := &fakeSchedulerTurnQueue{}
 	channel := &fakeSchedulerChannel{}
-	scheduler := newSchedulerForTest(t, store, sessions, queue, channel, now)
+	bus := &recordingHandlerCommandBus{}
+	scheduler := newSchedulerForTest(t, store, sessions, bus, channel, now)
 
 	if err := scheduler.dispatchJob(ctx, record, now); err != nil {
 		t.Fatalf("dispatchJob() error = %v", err)
 	}
-	if got := len(queue.tasks); got != 1 {
-		t.Fatalf("queued tasks = %d, want 1", got)
+	if got := len(bus.commands); got != 1 {
+		t.Fatalf("published commands = %d, want 1", got)
+	}
+	command := bus.commands[0]
+	if got, want := command.Namespace, swarm.NamespaceScheduleInbound; got != want {
+		t.Fatalf("namespace = %q, want %q", got, want)
+	}
+	if got, want := command.Kind, swarm.KindScheduledJob; got != want {
+		t.Fatalf("kind = %q, want %q", got, want)
+	}
+	if got, want := command.SessionID, locator.SessionID; got != want {
+		t.Fatalf("session_id = %q, want %q", got, want)
+	}
+	if got, want := command.DedupeKey, dispatchAttemptKey(record.JobID, dueAt); got != want {
+		t.Fatalf("dedupe_key = %q, want %q", got, want)
 	}
 
 	updated, ok, err := store.GetByID(ctx, record.JobID)
@@ -75,7 +87,7 @@ func TestJobSchedulerDispatchJob_EnqueuesAndReschedules(t *testing.T) {
 	}
 }
 
-func TestJobSchedulerDispatchJob_RestoresSessionWhenNotInMemory(t *testing.T) {
+func TestJobSchedulerDispatchJob_PublishesWithoutRestoringSession(t *testing.T) {
 	t.Parallel()
 
 	ctx := context.Background()
@@ -104,17 +116,17 @@ func TestJobSchedulerDispatchJob_RestoresSessionWhenNotInMemory(t *testing.T) {
 		info:    baldasession.TopicSessionInfo{UserID: "tg-202"},
 		restore: restoreTS,
 	}
-	queue := &fakeSchedulerTurnQueue{}
-	scheduler := newSchedulerForTest(t, store, sessions, queue, &fakeSchedulerChannel{}, now)
+	bus := &recordingHandlerCommandBus{}
+	scheduler := newSchedulerForTest(t, store, sessions, bus, &fakeSchedulerChannel{}, now)
 
 	if err := scheduler.dispatchJob(ctx, record, now); err != nil {
 		t.Fatalf("dispatchJob() error = %v", err)
 	}
-	if got := sessions.restoreCalls; got != 1 {
-		t.Fatalf("restore calls = %d, want 1", got)
+	if got := sessions.restoreCalls; got != 0 {
+		t.Fatalf("restore calls = %d, want 0; TaskActor restores sessions after JetStream delivery", got)
 	}
-	if got := len(queue.tasks); got != 1 {
-		t.Fatalf("queued tasks = %d, want 1", got)
+	if got := len(bus.commands); got != 1 {
+		t.Fatalf("published commands = %d, want 1", got)
 	}
 }
 
@@ -145,8 +157,8 @@ func TestJobSchedulerDispatchJob_IdempotentForSameDueSlot(t *testing.T) {
 	sessions := &fakeSchedulerSessionManager{
 		session: newSchedulerTopicSession(t, locator, "tg-303", "adk-3", nil),
 	}
-	queue := &fakeSchedulerTurnQueue{}
-	scheduler := newSchedulerForTest(t, store, sessions, queue, &fakeSchedulerChannel{}, now)
+	bus := &recordingHandlerCommandBus{}
+	scheduler := newSchedulerForTest(t, store, sessions, bus, &fakeSchedulerChannel{}, now)
 
 	if err := scheduler.dispatchJob(ctx, record, now); err != nil {
 		t.Fatalf("dispatchJob() first call error = %v", err)
@@ -154,8 +166,8 @@ func TestJobSchedulerDispatchJob_IdempotentForSameDueSlot(t *testing.T) {
 	if err := scheduler.dispatchJob(ctx, record, now); err != nil {
 		t.Fatalf("dispatchJob() second call error = %v", err)
 	}
-	if got := len(queue.tasks); got != 1 {
-		t.Fatalf("queued tasks after duplicate dispatch = %d, want 1", got)
+	if got := len(bus.commands); got != 1 {
+		t.Fatalf("published commands after duplicate dispatch = %d, want 1", got)
 	}
 
 	updated, ok, err := store.GetByID(ctx, record.JobID)
@@ -168,89 +180,6 @@ func TestJobSchedulerDispatchJob_IdempotentForSameDueSlot(t *testing.T) {
 	if got, want := updated.LastDispatchKey, dispatchAttemptKey(record.JobID, dueAt); got != want {
 		t.Fatalf("LastDispatchKey = %q, want %q", got, want)
 	}
-}
-
-func TestJobSchedulerDispatchJob_SchedulerLegacyEnqueuesDirectOnly(t *testing.T) {
-	t.Parallel()
-
-	runSchedulerModeDispatchTest(t, schedulerModeDispatchCase{
-		mode:            "legacy",
-		jobID:           "job-legacy",
-		prompt:          "legacy direct",
-		now:             time.Date(2026, time.May, 14, 13, 30, 0, 0, time.UTC),
-		wantQueuedTasks: 1,
-	})
-}
-
-func TestJobSchedulerDispatchJob_SchedulerShadowPersistsAndEnqueuesDirect(t *testing.T) {
-	t.Parallel()
-
-	runSchedulerModeDispatchTest(t, schedulerModeDispatchCase{
-		mode:            "shadow",
-		jobID:           "job-shadow",
-		prompt:          "shadow direct",
-		now:             time.Date(2026, time.May, 14, 13, 45, 0, 0, time.UTC),
-		wantQueuedTasks: 1,
-		wantSwarmStatus: baldastate.SwarmMessageStatusShadow,
-	})
-}
-
-func TestJobSchedulerDispatchJob_SchedulerMailboxPublishesTaskOnly(t *testing.T) {
-	t.Parallel()
-
-	runSchedulerModeDispatchTest(t, schedulerModeDispatchCase{
-		mode:            "mailbox",
-		jobID:           "job-mailbox",
-		prompt:          "mailbox task",
-		now:             time.Date(2026, time.May, 14, 14, 15, 0, 0, time.UTC),
-		wantQueuedTasks: 0,
-		wantSwarmStatus: baldastate.SwarmMessageStatusQueued,
-	})
-}
-
-type schedulerModeDispatchCase struct {
-	mode            string
-	jobID           string
-	prompt          string
-	now             time.Time
-	wantQueuedTasks int
-	wantSwarmStatus string
-}
-
-func runSchedulerModeDispatchTest(t *testing.T, tc schedulerModeDispatchCase) {
-	t.Helper()
-
-	ctx := context.Background()
-	dbPath := filepath.Join(t.TempDir(), "state.db")
-	provider, coordinator := newHandlerSwarmCoordinator(t, ctx, dbPath, swarmConfigForSchedulerMode(t, tc.mode))
-	t.Cleanup(func() { _ = provider.Close() })
-	store := provider.ScheduledJobs()
-	locator := baldatelegram.NewLocator(9001, 0)
-	dueAt := tc.now.Add(-time.Second)
-	record := schedulerDueRecord(locator, tc.jobID, tc.prompt, dueAt)
-	if err := store.Upsert(ctx, record); err != nil {
-		t.Fatalf("Upsert() error = %v", err)
-	}
-
-	queue := &fakeSchedulerTurnQueue{}
-	scheduler := newSchedulerForTest(t, store, &fakeSchedulerSessionManager{
-		session: newSchedulerTopicSession(t, locator, "tg-303", "adk-3", nil),
-	}, queue, &fakeSchedulerChannel{}, tc.now)
-	scheduler.coordinator = coordinator
-
-	if err := scheduler.dispatchJob(ctx, record, tc.now); err != nil {
-		t.Fatalf("dispatchJob() error = %v", err)
-	}
-	if len(queue.tasks) != tc.wantQueuedTasks {
-		t.Fatalf("queued tasks = %d, want %d", len(queue.tasks), tc.wantQueuedTasks)
-	}
-	if tc.wantSwarmStatus == "" {
-		if got := countSwarmMessages(t, ctx, dbPath); got != 0 {
-			t.Fatalf("swarm message count = %d, want 0", got)
-		}
-		return
-	}
-	assertSchedulerSwarmMessage(t, ctx, dbPath, tc.wantSwarmStatus, locator.SessionID, dispatchAttemptKey(record.JobID, dueAt))
 }
 
 func TestJobSchedulerMarkFailure_RetryThenPause(t *testing.T) {
@@ -627,19 +556,6 @@ func (f *fakeSchedulerSessionManager) EnsureSession(
 	return nil, errors.New("ensure unavailable")
 }
 
-type fakeSchedulerTurnQueue struct {
-	tasks []TurnTask
-}
-
-func (f *fakeSchedulerTurnQueue) Enqueue(task TurnTask) (int, error) {
-	f.tasks = append(f.tasks, task)
-	return len(f.tasks) - 1, nil
-}
-
-func (*fakeSchedulerTurnQueue) CancelSession(baldasession.SessionLocator, bool) (bool, int, error) {
-	return false, 0, nil
-}
-
 type fakeSchedulerChannel struct {
 	plainTexts   []string
 	agentReplies []string
@@ -667,14 +583,18 @@ func newSchedulerForTest(
 	t *testing.T,
 	store baldastate.ScheduledJobStore,
 	sessions schedulerSessionManager,
-	queue turnQueue,
+	bus *recordingHandlerCommandBus,
 	channel schedulerChannel,
 	now time.Time,
 ) *JobScheduler {
+	t.Helper()
+	if bus == nil {
+		bus = &recordingHandlerCommandBus{}
+	}
 	return &JobScheduler{
 		jobStore:     store,
 		sessions:     sessions,
-		dispatch:     queue,
+		coordinator:  swarm.NewCoordinator(bus, swarm.Config{Enabled: true}),
 		channel:      channel,
 		owner:        newOwnerStoreForTest(t, 101, 9001),
 		logger:       zerolog.Nop(),
@@ -695,81 +615,6 @@ func newOwnerStoreForTest(t *testing.T, userID int64, chatID int64) *auth.OwnerS
 		t.Fatalf("RegisterOwner() error = %v", err)
 	}
 	return store
-}
-
-func swarmConfigForSchedulerMode(t *testing.T, mode string) swarm.Config {
-	t.Helper()
-
-	cfg, err := (swarm.Config{
-		Enabled:       true,
-		Mode:          swarm.ModeLegacy,
-		SchedulerMode: mode,
-		Shadow:        swarm.ShadowConfig{Enabled: true},
-	}).Normalized()
-	if err != nil {
-		t.Fatalf("Normalize scheduler swarm config: %v", err)
-	}
-	return cfg
-}
-
-func schedulerDueRecord(
-	locator baldasession.SessionLocator,
-	jobID string,
-	prompt string,
-	dueAt time.Time,
-) baldastate.ScheduledJobRecord {
-	return baldastate.ScheduledJobRecord{
-		JobID:        jobID,
-		SessionID:    locator.SessionID,
-		ChannelType:  locator.ChannelType,
-		AddressKey:   locator.AddressKey,
-		AddressJSON:  locator.AddressJSON,
-		Prompt:       prompt,
-		ScheduleSpec: "@every 5s",
-		Status:       baldastate.ScheduledJobStatusActive,
-		NextRunAt:    dueAt,
-	}
-}
-
-func assertSchedulerSwarmMessage(
-	t *testing.T,
-	ctx context.Context,
-	dbPath string,
-	wantStatus string,
-	wantSessionID string,
-	wantDedupeKey string,
-) {
-	t.Helper()
-
-	db, err := sql.Open("sqlite", dbPath)
-	if err != nil {
-		t.Fatalf("sql.Open() error = %v", err)
-	}
-	defer func() { _ = db.Close() }()
-
-	var status, namespace, kind, sessionID, dedupeKey string
-	if err := db.QueryRowContext(ctx, `
-		SELECT status, namespace, kind, COALESCE(session_id, ''), COALESCE(dedupe_key, '')
-		FROM swarm_messages
-		LIMIT 1`,
-	).Scan(&status, &namespace, &kind, &sessionID, &dedupeKey); err != nil {
-		t.Fatalf("query scheduler swarm message: %v", err)
-	}
-	if status != wantStatus {
-		t.Fatalf("status = %q, want %q", status, wantStatus)
-	}
-	if namespace != swarm.NamespaceScheduleInbound {
-		t.Fatalf("namespace = %q, want %q", namespace, swarm.NamespaceScheduleInbound)
-	}
-	if kind != swarm.KindScheduledJob {
-		t.Fatalf("kind = %q, want %q", kind, swarm.KindScheduledJob)
-	}
-	if sessionID != wantSessionID {
-		t.Fatalf("session_id = %q, want %q", sessionID, wantSessionID)
-	}
-	if dedupeKey != wantDedupeKey {
-		t.Fatalf("dedupe_key = %q, want %q", dedupeKey, wantDedupeKey)
-	}
 }
 
 func newSchedulerJobStore(t *testing.T) baldastate.ScheduledJobStore {

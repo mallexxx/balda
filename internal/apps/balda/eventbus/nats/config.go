@@ -8,21 +8,20 @@ import (
 	"time"
 
 	baldaeventbus "github.com/normahq/balda/internal/apps/balda/eventbus"
+	"github.com/normahq/balda/internal/apps/balda/swarm"
 )
 
 type resolvedConfig struct {
-	baldaeventbus.Config
+	NATS       baldaeventbus.Config
+	Swarm      swarm.Config
 	StoreDir   string
 	MaxMemory  int64
 	MaxStore   int64
-	StreamSpec streamSpecSet
-}
-
-type streamSpecSet struct {
-	Commands streamSpec
-	Events   streamSpec
-	DLQ      streamSpec
-	Control  streamSpec
+	Commands   streamSpec
+	Events     streamSpec
+	DLQ        streamSpec
+	AckWait    time.Duration
+	FetchWait  time.Duration
 }
 
 type streamSpec struct {
@@ -32,65 +31,40 @@ type streamSpec struct {
 	Discard    string
 }
 
-func resolveConfig(cfg baldaeventbus.Config, workingDir string) (resolvedConfig, error) {
-	normalized, err := cfg.Normalized()
+func resolveConfig(natsCfg baldaeventbus.Config, swarmCfg swarm.Config, workingDir string) (resolvedConfig, error) {
+	normalizedNATS, err := natsCfg.Normalized()
 	if err != nil {
 		return resolvedConfig{}, err
 	}
-	out := resolvedConfig{Config: normalized}
-	out.StoreDir = strings.TrimSpace(normalized.NATS.StoreDir)
+	normalizedSwarm, err := swarmCfg.Normalized()
+	if err != nil {
+		return resolvedConfig{}, err
+	}
+	out := resolvedConfig{NATS: normalizedNATS, Swarm: normalizedSwarm}
+	out.StoreDir = strings.TrimSpace(normalizedNATS.StoreDir)
 	if out.StoreDir != "" && !filepath.IsAbs(out.StoreDir) {
 		out.StoreDir = filepath.Join(workingDir, out.StoreDir)
 	}
-	out.MaxMemory, err = parseBytes(normalized.NATS.MaxMemory)
+	out.MaxMemory, err = parseBytes(normalizedNATS.MaxMemory)
 	if err != nil {
-		return resolvedConfig{}, fmt.Errorf("event_bus.nats.max_memory: %w", err)
+		return resolvedConfig{}, fmt.Errorf("balda.nats.max_memory: %w", err)
 	}
-	out.MaxStore, err = parseBytes(normalized.NATS.MaxStore)
+	out.MaxStore, err = parseBytes(normalizedNATS.MaxStore)
 	if err != nil {
-		return resolvedConfig{}, fmt.Errorf("event_bus.nats.max_store: %w", err)
+		return resolvedConfig{}, fmt.Errorf("balda.nats.max_store: %w", err)
 	}
-	out.StreamSpec.Commands, err = resolveStreamSpec(normalized.NATS.Streams.Commands)
+	out.Commands = streamSpec{MaxAge: 7 * 24 * time.Hour, MaxBytes: -1, MaxMsgSize: -1, Discard: "new"}
+	out.Events = streamSpec{MaxAge: 30 * 24 * time.Hour, MaxBytes: -1, MaxMsgSize: -1, Discard: "old"}
+	out.DLQ = streamSpec{MaxAge: 30 * 24 * time.Hour, MaxBytes: -1, MaxMsgSize: -1, Discard: "new"}
+	out.AckWait, err = parseDuration(normalizedSwarm.Commands.AckWait)
 	if err != nil {
-		return resolvedConfig{}, fmt.Errorf("event_bus.nats.streams.commands: %w", err)
+		return resolvedConfig{}, fmt.Errorf("balda.swarm.commands.ack_wait: %w", err)
 	}
-	out.StreamSpec.Events, err = resolveStreamSpec(normalized.NATS.Streams.Events)
+	out.FetchWait, err = parseDuration(normalizedSwarm.Commands.FetchWait)
 	if err != nil {
-		return resolvedConfig{}, fmt.Errorf("event_bus.nats.streams.events: %w", err)
-	}
-	out.StreamSpec.DLQ, err = resolveStreamSpec(normalized.NATS.Streams.DLQ)
-	if err != nil {
-		return resolvedConfig{}, fmt.Errorf("event_bus.nats.streams.dlq: %w", err)
-	}
-	out.StreamSpec.Control, err = resolveStreamSpec(normalized.NATS.Streams.Control)
-	if err != nil {
-		return resolvedConfig{}, fmt.Errorf("event_bus.nats.streams.control: %w", err)
+		return resolvedConfig{}, fmt.Errorf("balda.swarm.commands.fetch_wait: %w", err)
 	}
 	return out, nil
-}
-
-func resolveStreamSpec(cfg baldaeventbus.NATSStreamConfig) (streamSpec, error) {
-	maxAge, err := parseDuration(strings.TrimSpace(cfg.MaxAge))
-	if err != nil {
-		return streamSpec{}, fmt.Errorf("max_age: %w", err)
-	}
-	maxBytes, err := parseBytes(cfg.MaxBytes)
-	if err != nil {
-		return streamSpec{}, fmt.Errorf("max_bytes: %w", err)
-	}
-	maxMsgSize, err := parseBytes(cfg.MaxMsgSize)
-	if err != nil {
-		return streamSpec{}, fmt.Errorf("max_msg_size: %w", err)
-	}
-	if maxMsgSize > int64(^uint32(0)>>1) {
-		return streamSpec{}, fmt.Errorf("max_msg_size exceeds int32: %d", maxMsgSize)
-	}
-	return streamSpec{
-		MaxAge:     maxAge,
-		MaxBytes:   maxBytes,
-		MaxMsgSize: int32(maxMsgSize),
-		Discard:    strings.ToLower(strings.TrimSpace(cfg.Discard)),
-	}, nil
 }
 
 func parseDuration(raw string) (time.Duration, error) {

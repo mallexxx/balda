@@ -19,6 +19,7 @@ import (
 	"github.com/normahq/balda/internal/apps/balda/auth"
 	baldachannel "github.com/normahq/balda/internal/apps/balda/channel"
 	baldasession "github.com/normahq/balda/internal/apps/balda/session"
+	"github.com/normahq/balda/internal/apps/balda/swarm"
 	"github.com/rs/zerolog"
 	"go.uber.org/fx"
 	"google.golang.org/adk/runner"
@@ -72,7 +73,7 @@ type inboundWebhookSessionManager interface {
 }
 
 type inboundTurnExecutor interface {
-	submitSessionTurn(ctx context.Context, payload sessionTurnPayload) (int, error)
+	submitWebhookTask(ctx context.Context, payload sessionTurnPayload, routeName string, requestID string) (*swarm.CommandPublishResult, string, error)
 	runTurnTaskWithDelivery(
 		ctx context.Context,
 		text string,
@@ -94,7 +95,6 @@ type inboundWebhookParams struct {
 	LC         fx.Lifecycle
 	Config     InboundWebhookConfig
 	Sessions   *baldasession.Manager
-	Dispatcher *TurnDispatcher
 	Balda      *BaldaHandler
 	OwnerStore *auth.OwnerStore
 	Logger     zerolog.Logger
@@ -106,7 +106,6 @@ type InboundWebhookReceiver struct {
 	listenAddr string
 	routes     map[string]inboundWebhookRoute
 	sessions   inboundWebhookSessionManager
-	dispatch   turnQueue
 	balda      inboundTurnExecutor
 	owner      *auth.OwnerStore
 	logger     zerolog.Logger
@@ -136,10 +135,14 @@ type inboundWebhookTemplateData struct {
 }
 
 type inboundWebhookAcceptedResponse struct {
-	Status        string `json:"status"`
-	RequestID     string `json:"request_id"`
-	SessionID     string `json:"session_id"`
-	QueuePosition int    `json:"queue_position"`
+	Status    string `json:"status"`
+	Accepted  bool   `json:"accepted"`
+	RequestID string `json:"request_id"`
+	MessageID string `json:"message_id"`
+	TaskID    string `json:"task_id"`
+	SessionID string `json:"session_id"`
+	Stream    string `json:"stream"`
+	Sequence  uint64 `json:"sequence"`
 }
 
 type inboundWebhookErrorResponse struct {
@@ -190,7 +193,6 @@ func NewInboundWebhookReceiver(params inboundWebhookParams) (*InboundWebhookRece
 		listenAddr: normalized.ListenAddr,
 		routes:     normalized.Routes,
 		sessions:   params.Sessions,
-		dispatch:   params.Dispatcher,
 		balda:      params.Balda,
 		owner:      params.OwnerStore,
 		logger:     params.Logger.With().Str("component", "balda.inbound_webhook").Logger(),
@@ -201,9 +203,6 @@ func NewInboundWebhookReceiver(params inboundWebhookParams) (*InboundWebhookRece
 	}
 	if receiver.sessions == nil {
 		return nil, fmt.Errorf("balda session manager is required for inbound webhooks")
-	}
-	if receiver.dispatch == nil {
-		return nil, fmt.Errorf("balda turn dispatcher is required for inbound webhooks")
 	}
 	if receiver.balda == nil {
 		return nil, fmt.Errorf("balda handler is required for inbound webhooks")
@@ -441,7 +440,7 @@ func (r *InboundWebhookReceiver) handleInboundWebhook(w http.ResponseWriter, req
 		return
 	}
 
-	position, enqueueErr := r.balda.submitSessionTurn(req.Context(), sessionTurnPayload{
+	result, taskID, enqueueErr := r.balda.submitWebhookTask(req.Context(), sessionTurnPayload{
 		Text:           env.Content,
 		Locator:        target.Locator,
 		UserID:         ts.GetUserID(),
@@ -451,7 +450,7 @@ func (r *InboundWebhookReceiver) handleInboundWebhook(w http.ResponseWriter, req
 		Deliver:        env.ReportTo != nil,
 		Source:         "webhook",
 		DedupeKey:      "webhook:" + route.Name + ":" + requestID,
-	})
+	}, route.Name, requestID)
 	if enqueueErr != nil {
 		if errors.Is(enqueueErr, ErrTurnQueueFull) {
 			r.metrics.queueFull.Add(1)
@@ -466,9 +465,9 @@ func (r *InboundWebhookReceiver) handleInboundWebhook(w http.ResponseWriter, req
 
 		r.metrics.dispatchErr.Add(1)
 		r.writeInboundWebhookError(w, requestID, newInboundWebhookHTTPError(
-			http.StatusInternalServerError,
+			http.StatusServiceUnavailable,
 			inboundWebhookCodeDispatchFailed,
-			"failed to dispatch inbound turn",
+			"failed to publish inbound command",
 			enqueueErr,
 		))
 		return
@@ -482,14 +481,20 @@ func (r *InboundWebhookReceiver) handleInboundWebhook(w http.ResponseWriter, req
 		Str("session_id", target.Locator.SessionID).
 		Str("channel_type", target.Locator.ChannelType).
 		Str("address_key", target.Locator.AddressKey).
-		Int("queue_position", position).
+		Str("stream", result.Stream).
+		Uint64("sequence", result.Sequence).
+		Str("task_id", taskID).
 		Msg("inbound webhook accepted")
 
 	writeInboundWebhookJSON(w, http.StatusAccepted, inboundWebhookAcceptedResponse{
-		Status:        inboundWebhookStatusAccepted,
-		RequestID:     requestID,
-		SessionID:     target.Locator.SessionID,
-		QueuePosition: position,
+		Status:    inboundWebhookStatusAccepted,
+		Accepted:  true,
+		RequestID: requestID,
+		MessageID: result.MsgID,
+		TaskID:    taskID,
+		SessionID: target.Locator.SessionID,
+		Stream:    result.Stream,
+		Sequence:  result.Sequence,
 	})
 }
 

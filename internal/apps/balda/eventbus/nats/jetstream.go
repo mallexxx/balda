@@ -2,9 +2,9 @@ package natsbus
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"strings"
-	"sync"
 	"time"
 
 	gnats "github.com/nats-io/nats.go"
@@ -12,48 +12,21 @@ import (
 	"github.com/normahq/balda/internal/apps/balda/swarm"
 )
 
-const (
-	streamCommands = "BALDA_COMMANDS"
-	streamEvents   = "BALDA_EVENTS"
-	streamDLQ      = "BALDA_DLQ"
-	streamControl  = "BALDA_CONTROL"
-)
-
-type JetStreamMailbox struct {
-	js      jetstream.JetStream
-	cfg     resolvedConfig
-	pending sync.Map
+type commandMessage struct {
+	subject string
+	env     swarm.Envelope
+	msg     jetstream.Msg
 }
 
-func (m *JetStreamMailbox) PublishCommand(ctx context.Context, env swarm.Envelope) error {
-	if m == nil || m.js == nil {
-		return nil
-	}
-	subject := swarm.SubjectForEnvelope(env)
-	msg, err := messageFromEnvelope(subject, env)
-	if err != nil {
-		return err
-	}
-	_, err = m.js.PublishMsg(ctx, msg, jetstream.WithMsgID(swarm.DedupeKeyOrID(env)))
-	if err != nil {
-		return fmt.Errorf("publish jetstream command %q: %w", subject, err)
-	}
-	return nil
+func (m commandMessage) Envelope() swarm.Envelope { return m.env }
+func (m commandMessage) Subject() string          { return m.subject }
+func (m commandMessage) InProgress(context.Context) error {
+	return m.msg.InProgress()
 }
 
-func (m *JetStreamMailbox) ConsumeCommands(ctx context.Context, actorGroup string, handler swarm.EventHandler) error {
-	if m == nil || m.js == nil || handler == nil {
-		return nil
-	}
-	consumer, err := m.js.CreateOrUpdateConsumer(ctx, streamCommands, jetstream.ConsumerConfig{
-		Durable:       durableName(actorGroup),
-		AckPolicy:     jetstream.AckExplicitPolicy,
-		AckWait:       consumerAckWait(m.cfg),
-		MaxAckPending: m.cfg.NATS.Consumers.Commands.MaxAckPending,
-		FilterSubject: swarm.SubjectCommandAll,
-	})
-	if err != nil {
-		return fmt.Errorf("create jetstream command consumer: %w", err)
+func (b *Bus) RunCommandConsumer(ctx context.Context, handler swarm.CommandHandler) error {
+	if b == nil || b.consumer == nil {
+		return fmt.Errorf("jetstream command consumer is required")
 	}
 	for {
 		select {
@@ -61,72 +34,44 @@ func (m *JetStreamMailbox) ConsumeCommands(ctx context.Context, actorGroup strin
 			return ctx.Err()
 		default:
 		}
-		batch, err := consumer.Fetch(m.cfg.NATS.Consumers.Commands.FetchBatch, jetstream.FetchMaxWait(time.Second))
+		batch, err := b.consumer.Fetch(b.cfg.Swarm.Commands.FetchBatch, jetstream.FetchMaxWait(b.cfg.FetchWait))
 		if err != nil {
+			if ctx.Err() != nil {
+				return ctx.Err()
+			}
 			continue
 		}
 		for msg := range batch.Messages() {
-			env, err := swarm.DecodeEnvelope(string(msg.Data()))
-			if err != nil {
-				_ = msg.TermWithReason(err.Error())
-				continue
+			if err := b.handleMessage(ctx, msg, handler); err != nil {
+				b.logger.Warn().Err(err).Str("subject", msg.Subject()).Msg("failed to settle jetstream command")
 			}
-			ref := MessageRefFromJetStreamMsg(msg)
-			if ref.MessageID == "" {
-				ref.MessageID = env.ID
-			}
-			m.pending.Store(ref.MessageID, msg)
-			if err := handler(ctx, msg.Subject(), env); err != nil {
-				_ = m.settleError(ctx, ref, err)
-				m.pending.Delete(ref.MessageID)
-				continue
-			}
-			_ = m.Ack(ctx, ref)
-			m.pending.Delete(ref.MessageID)
 		}
 	}
 }
 
-func (m *JetStreamMailbox) Ack(ctx context.Context, msg swarm.MessageRef) error {
-	jsMsg, ok := m.pending.Load(msg.MessageID)
-	if !ok {
-		return nil
+func (b *Bus) handleMessage(ctx context.Context, msg jetstream.Msg, handler swarm.CommandHandler) error {
+	env, err := swarm.DecodeEnvelope(string(msg.Data()))
+	if err != nil {
+		_ = msg.TermWithReason("decode failed: " + err.Error())
+		return err
 	}
-	return jsMsg.(jetstream.Msg).DoubleAck(ctx)
-}
-
-func (m *JetStreamMailbox) Retry(_ context.Context, msg swarm.MessageRef, delay time.Duration, _ string) error {
-	jsMsg, ok := m.pending.Load(msg.MessageID)
-	if !ok {
-		return nil
+	if md, metaErr := msg.Metadata(); metaErr == nil && md.NumDelivered > 0 {
+		env.Attempt = int(md.NumDelivered) - 1
 	}
-	return jsMsg.(jetstream.Msg).NakWithDelay(delay)
-}
-
-func (m *JetStreamMailbox) DeadLetter(ctx context.Context, msg swarm.MessageRef, reason string) error {
-	jsMsg, ok := m.pending.Load(msg.MessageID)
-	if !ok {
-		return nil
-	}
-	env, err := swarm.DecodeEnvelope(string(jsMsg.(jetstream.Msg).Data()))
+	cmd := commandMessage{subject: msg.Subject(), env: env, msg: msg}
+	_ = b.PublishEvent(ctx, swarm.SubjectEventCommandRunning, commandEventEnvelope(env, nil, "running", ""))
+	err = handler(ctx, cmd)
 	if err == nil {
-		dlq, msgErr := newDLQMessage(env, reason)
-		if msgErr == nil {
-			_, _ = m.js.PublishMsg(ctx, dlq, jetstream.WithMsgID(swarm.DedupeKeyOrID(env)+":dlq"))
-		}
+		_ = b.PublishEvent(ctx, swarm.SubjectEventCommandAcked, commandEventEnvelope(env, nil, "acked", ""))
+		return msg.DoubleAck(ctx)
 	}
-	return jsMsg.(jetstream.Msg).TermWithReason(reason)
-}
-
-func (m *JetStreamMailbox) settleError(ctx context.Context, ref swarm.MessageRef, err error) error {
-	switch swarm.ClassifyError(err) {
-	case swarm.ErrorKindDuplicate:
-		return m.Ack(ctx, ref)
-	case swarm.ErrorKindAuth, swarm.ErrorKindPolicy, swarm.ErrorKindPermanent:
-		return m.DeadLetter(ctx, ref, err.Error())
-	default:
-		return m.Retry(ctx, ref, time.Second, err.Error())
+	if isRetryable(err) {
+		delay := computeBackoff(env.Attempt)
+		_ = b.PublishEvent(ctx, swarm.SubjectEventCommandRetrying, commandEventEnvelope(env, nil, "retrying", err.Error()))
+		return msg.NakWithDelay(delay)
 	}
+	_ = b.PublishDLQ(ctx, env, err.Error())
+	return msg.TermWithReason(err.Error())
 }
 
 func ensureStreams(ctx context.Context, js jetstream.JetStream, cfg resolvedConfig) error {
@@ -134,10 +79,9 @@ func ensureStreams(ctx context.Context, js jetstream.JetStream, cfg resolvedConf
 		return fmt.Errorf("jetstream is required")
 	}
 	streams := []jetstream.StreamConfig{
-		streamConfig(streamCommands, []string{swarm.SubjectCommandAll}, jetstream.WorkQueuePolicy, cfg.StreamSpec.Commands),
-		streamConfig(streamEvents, []string{swarm.SubjectEventAll}, jetstream.LimitsPolicy, cfg.StreamSpec.Events),
-		streamConfig(streamDLQ, []string{swarm.SubjectDLQ}, jetstream.LimitsPolicy, cfg.StreamSpec.DLQ),
-		streamConfig(streamControl, []string{swarm.SubjectControlAll}, jetstream.WorkQueuePolicy, cfg.StreamSpec.Control),
+		streamConfig(cfg.Swarm.Commands.Stream, []string{swarm.SubjectCommandAll}, jetstream.WorkQueuePolicy, cfg.Commands),
+		streamConfig(cfg.Swarm.Events.Stream, []string{swarm.SubjectEventAll}, jetstream.LimitsPolicy, cfg.Events),
+		streamConfig(cfg.Swarm.DLQ.Stream, []string{swarm.SubjectDLQAll}, jetstream.LimitsPolicy, cfg.DLQ),
 	}
 	for _, stream := range streams {
 		if _, err := js.CreateOrUpdateStream(ctx, stream); err != nil {
@@ -168,16 +112,8 @@ func discardPolicy(raw string) jetstream.DiscardPolicy {
 	return jetstream.DiscardOld
 }
 
-func MessageRefFromJetStreamMsg(msg jetstream.Msg) swarm.MessageRef {
-	if msg == nil {
-		return swarm.MessageRef{Source: "jetstream"}
-	}
-	id := msg.Headers().Get(swarm.HeaderEnvelopeID)
-	return swarm.MessageRef{Source: "jetstream", Subject: msg.Subject(), MessageID: id}
-}
-
 func newDLQMessage(env swarm.Envelope, reason string) (*gnats.Msg, error) {
-	msg, err := messageFromEnvelope(swarm.SubjectDLQ, env)
+	msg, err := messageFromEnvelope(swarm.SubjectDLQCommand, env)
 	if err != nil {
 		return nil, err
 	}
@@ -185,19 +121,57 @@ func newDLQMessage(env swarm.Envelope, reason string) (*gnats.Msg, error) {
 	return msg, nil
 }
 
-func durableName(actorGroup string) string {
-	trimmed := strings.TrimSpace(actorGroup)
-	if trimmed == "" {
-		trimmed = "balda-workers"
+func isRetryable(err error) bool {
+	switch swarm.ClassifyError(err) {
+	case swarm.ErrorKindDuplicate, swarm.ErrorKindAuth, swarm.ErrorKindPolicy, swarm.ErrorKindPermanent:
+		return false
+	default:
+		return true
 	}
-	replacer := strings.NewReplacer(".", "-", "*", "all", ">", "all", " ", "-", "/", "-")
-	return replacer.Replace(trimmed)
 }
 
-func consumerAckWait(cfg resolvedConfig) time.Duration {
-	ackWait, err := parseDuration(cfg.NATS.Consumers.Commands.AckWait)
-	if err != nil {
-		return 5 * time.Minute
+func computeBackoff(attempt int) time.Duration {
+	if attempt < 0 {
+		attempt = 0
 	}
-	return ackWait
+	delay := time.Second
+	for range attempt {
+		delay *= 2
+		if delay >= time.Minute {
+			return time.Minute
+		}
+	}
+	return delay
+}
+
+func commandEventEnvelope(env swarm.Envelope, result *swarm.CommandPublishResult, status string, reason string) swarm.Envelope {
+	payload := map[string]any{
+		"envelope_id": env.ID,
+		"task_id":     env.TaskID,
+		"session_id":  env.SessionID,
+		"namespace":   env.Namespace,
+		"status":      status,
+	}
+	if result != nil {
+		payload["stream"] = result.Stream
+		payload["sequence"] = result.Sequence
+		payload["subject"] = result.Subject
+		payload["msg_id"] = result.MsgID
+	}
+	if strings.TrimSpace(reason) != "" {
+		payload["reason"] = reason
+	}
+	data, _ := json.Marshal(payload)
+	out := env
+	out.ID = strings.TrimSpace(env.ID) + ":event:" + strings.TrimSpace(status)
+	out.Namespace = swarm.NamespaceTelemetry
+	out.Kind = "command_event"
+	out.PayloadJSON = string(data)
+	if out.From.Target == "" {
+		out.From = swarm.SystemAddress("jetstream")
+	}
+	if out.To.Target == "" {
+		out.To = swarm.SystemAddress("jetstream")
+	}
+	return out
 }

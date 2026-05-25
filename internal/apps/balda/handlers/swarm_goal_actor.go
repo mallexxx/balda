@@ -11,13 +11,13 @@ import (
 	baldasession "github.com/normahq/balda/internal/apps/balda/session"
 	baldastate "github.com/normahq/balda/internal/apps/balda/state"
 	"github.com/normahq/balda/internal/apps/balda/swarm"
-	"github.com/rs/zerolog/log"
 	"go.uber.org/fx"
 )
 
 const (
 	taskPayloadKindGoal         = "goal"
 	taskPayloadKindScheduledJob = "scheduled_job"
+	taskPayloadKindSessionTurn  = "session_turn"
 	taskPayloadKindAgentResult  = "agent_result"
 	taskPayloadKindDelivery     = "delivery"
 
@@ -31,6 +31,7 @@ type taskEnvelopePayload struct {
 	Kind         string                   `json:"kind"`
 	Goal         *goalTaskPayload         `json:"goal,omitempty"`
 	ScheduledJob *scheduledJobTaskPayload `json:"scheduled_job,omitempty"`
+	SessionTurn  *sessionTurnPayload      `json:"session_turn,omitempty"`
 	AgentResult  *taskAgentResultPayload  `json:"agent_result,omitempty"`
 }
 
@@ -105,98 +106,14 @@ func (h *CommandHandler) submitGoalTask(ctx context.Context, locator baldasessio
 	if err != nil {
 		return false, err
 	}
-	if err := h.createGoalTask(ctx, env, locator, objective, transportUserID); err != nil {
-		return false, err
-	}
-
-	if h.swarmCoordinator != nil && h.swarmCoordinator.ShadowEnabled() {
-		h.shadowGoalTask(ctx, env)
-		started, err := h.goalRunner.StartTask(ctx, env.TaskID, locator, objective, transportUserID)
-		if err == nil && started {
-			h.swarmCoordinator.RecordShadowDispatch()
-		}
-		if err != nil {
-			h.markGoalTaskFailed(ctx, env.TaskID, err)
-		} else if !started {
-			h.markGoalTaskCanceled(ctx, env.TaskID, "another goal run is already active for this session")
-		}
-		return started, err
-	}
 	if h.swarmCoordinator == nil || !h.swarmCoordinator.Enabled() {
-		started, err := h.goalRunner.StartTask(ctx, env.TaskID, locator, objective, transportUserID)
-		if err != nil {
-			h.markGoalTaskFailed(ctx, env.TaskID, err)
-		} else if !started {
-			h.markGoalTaskCanceled(ctx, env.TaskID, "another goal run is already active for this session")
-		}
-		return started, err
+		return false, fmt.Errorf("jetstream swarm runtime is unavailable")
 	}
 	_, err = h.swarmCoordinator.Submit(ctx, env)
 	if err != nil {
-		h.markGoalTaskFailed(ctx, env.TaskID, err)
 		return false, err
 	}
 	return true, nil
-}
-
-func (h *CommandHandler) createGoalTask(
-	ctx context.Context,
-	env swarm.Envelope,
-	locator baldasession.SessionLocator,
-	objective string,
-	transportUserID string,
-) error {
-	if h.tasks == nil {
-		return nil
-	}
-	taskID := strings.TrimSpace(env.TaskID)
-	if taskID == "" {
-		return fmt.Errorf("goal task id is required")
-	}
-	payload := map[string]any{
-		"objective":         strings.TrimSpace(objective),
-		"session_id":        strings.TrimSpace(locator.SessionID),
-		"transport_user_id": strings.TrimSpace(transportUserID),
-	}
-	if _, err := h.tasks.Create(ctx, baldastate.SwarmTaskRecord{
-		ID:            taskID,
-		SessionID:     strings.TrimSpace(locator.SessionID),
-		Title:         goalTaskTitle(objective),
-		Objective:     strings.TrimSpace(objective),
-		Status:        baldastate.SwarmTaskStatusCreated,
-		OwnerActor:    swarm.ActorTypeTask + ":" + taskID,
-		AssignedActor: swarm.ActorTypeAgent + ":" + taskAgentRolePlanner,
-		Priority:      90,
-		CreatedBy:     strings.TrimSpace(transportUserID),
-		CreatedFrom:   "goal",
-	}, "command.goal", payload); err != nil {
-		return err
-	}
-	return h.tasks.MarkStatus(ctx, taskID, baldastate.SwarmTaskStatusQueued, "command.goal", env.ID, "", payload)
-}
-
-func (h *CommandHandler) markGoalTaskFailed(ctx context.Context, taskID string, cause error) {
-	if h.tasks == nil || cause == nil {
-		return
-	}
-	if err := h.tasks.MarkStatus(ctx, taskID, baldastate.SwarmTaskStatusFailed, "command.goal", "", cause.Error(), nil); err != nil {
-		log.Warn().Err(err).Str("task_id", taskID).Msg("failed to mark goal task failed")
-	}
-}
-
-func (h *CommandHandler) markGoalTaskCanceled(ctx context.Context, taskID string, reason string) {
-	if h.tasks == nil {
-		return
-	}
-	if err := h.tasks.MarkStatus(ctx, taskID, baldastate.SwarmTaskStatusCanceled, "command.goal", "", reason, nil); err != nil {
-		log.Warn().Err(err).Str("task_id", taskID).Msg("failed to mark goal task canceled")
-	}
-}
-
-func (h *CommandHandler) shadowGoalTask(ctx context.Context, env swarm.Envelope) {
-	if _, err := h.swarmCoordinator.SubmitShadow(ctx, env); err != nil {
-		log.Warn().Err(err).Str("session_id", env.SessionID).Msg("failed to persist swarm shadow goal envelope")
-	}
 }
 
 func goalTaskEnvelope(
@@ -277,6 +194,41 @@ func newTaskActorExecutor(params taskActorExecutorParams) swarm.Actor {
 	}
 }
 
+func (h *BaldaHandler) submitWebhookTask(ctx context.Context, payload sessionTurnPayload, routeName string, requestID string) (*swarm.CommandPublishResult, string, error) {
+	if h.swarmCoordinator == nil || !h.swarmCoordinator.RuntimeEnabled() {
+		return nil, "", fmt.Errorf("jetstream swarm runtime is unavailable")
+	}
+	taskID := "webhook-" + strings.TrimSpace(routeName) + "-" + uuid.NewString()
+	data, err := json.Marshal(taskEnvelopePayload{
+		Kind:        taskPayloadKindSessionTurn,
+		SessionTurn: &payload,
+	})
+	if err != nil {
+		return nil, "", fmt.Errorf("encode webhook task payload: %w", err)
+	}
+	dedupeKey := strings.TrimSpace(payload.DedupeKey)
+	if dedupeKey == "" {
+		dedupeKey = "webhook:" + strings.TrimSpace(routeName) + ":" + strings.TrimSpace(requestID)
+	}
+	env := swarm.Envelope{
+		ID:          uuid.NewString(),
+		Namespace:   swarm.NamespaceWebhookInbound,
+		Kind:        swarm.KindWebhookEvent,
+		From:        swarm.ActorAddress{Target: "webhook", Key: firstNonEmpty(routeName, requestID, "inbound")},
+		To:          swarm.ActorAddress{Target: swarm.ActorTypeTask, Key: taskID},
+		SessionID:   payload.Locator.SessionID,
+		TaskID:      taskID,
+		Priority:    80,
+		DedupeKey:   dedupeKey,
+		PayloadJSON: string(data),
+	}
+	result, err := h.swarmCoordinator.Submit(ctx, env)
+	if err != nil {
+		return nil, "", err
+	}
+	return result, taskID, nil
+}
+
 func (e *taskActorExecutor) Address() string {
 	return swarm.WildcardAddress(swarm.ActorTypeTask)
 }
@@ -311,9 +263,54 @@ func (e *taskActorExecutor) Handle(ctx context.Context, env swarm.Envelope) erro
 			return swarm.TransientError(fmt.Errorf("job scheduler is required"))
 		}
 		return e.scheduler.executeScheduledJobTask(ctx, *payload.ScheduledJob)
+	case taskPayloadKindSessionTurn:
+		if payload.SessionTurn == nil {
+			return swarm.PolicyError(fmt.Errorf("session turn task payload is required"))
+		}
+		return e.dispatchSessionTurn(ctx, env, *payload.SessionTurn)
 	default:
 		return swarm.PolicyError(fmt.Errorf("unsupported task payload kind %q", payload.Kind))
 	}
+}
+
+func (e *taskActorExecutor) dispatchSessionTurn(ctx context.Context, env swarm.Envelope, payload sessionTurnPayload) error {
+	taskID := firstNonEmpty(env.TaskID, env.To.Key)
+	if taskID != "" && e.tasks != nil {
+		_, err := e.tasks.Create(ctx, baldastate.SwarmTaskRecord{
+			ID:            taskID,
+			SessionID:     strings.TrimSpace(payload.Locator.SessionID),
+			Title:         "Webhook task",
+			Objective:     strings.TrimSpace(payload.Text),
+			Status:        baldastate.SwarmTaskStatusCreated,
+			OwnerActor:    swarm.ActorTypeTask + ":" + taskID,
+			AssignedActor: swarm.ActorTypeSession + ":" + payload.Locator.SessionID,
+			Priority:      80,
+			CreatedBy:     strings.TrimSpace(payload.UserID),
+			CreatedFrom:   strings.TrimSpace(payload.Source),
+		}, "task.actor", payload)
+		if err != nil {
+			return swarm.TransientError(err)
+		}
+		if err := e.tasks.MarkStatus(ctx, taskID, baldastate.SwarmTaskStatusRunning, "task.actor", env.ID, "", nil); err != nil {
+			return swarm.TransientError(err)
+		}
+	}
+	sessionEnv, err := sessionTurnEnvelope(payload)
+	if err != nil {
+		return swarm.PermanentError(err)
+	}
+	sessionEnv.TaskID = taskID
+	sessionEnv.CorrelationID = firstNonEmpty(env.CorrelationID, taskID)
+	sessionEnv.CausationID = env.ID
+	if _, err := e.coordinator.Submit(ctx, sessionEnv); err != nil {
+		return swarm.TransientError(err)
+	}
+	if taskID != "" && e.tasks != nil {
+		if err := e.tasks.MarkStatus(ctx, taskID, baldastate.SwarmTaskStatusCompleted, "task.actor", sessionEnv.ID, "", nil); err != nil {
+			return swarm.TransientError(err)
+		}
+	}
+	return nil
 }
 
 func (e *taskActorExecutor) startGoalTask(ctx context.Context, env swarm.Envelope, payload goalTaskPayload) error {

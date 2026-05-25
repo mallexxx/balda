@@ -16,10 +16,7 @@ type baldaTestConfigDocument struct {
 	Balda   baldaapp.BaldaConfig    `mapstructure:"balda"`
 }
 
-const (
-	testBaldaDefaultProfile  = "default"
-	testBaldaSwarmModeShadow = "shadow"
-)
+const testBaldaDefaultProfile = "default"
 
 func TestLoadConfigDocument_AppliesProfileBaldaOverrides(t *testing.T) {
 	workingDir := t.TempDir()
@@ -125,26 +122,17 @@ balda:
 	if doc.Balda.Sessions.Persistence != "sqlite" {
 		t.Fatalf("sessions.persistence = %q, want sqlite from defaults", doc.Balda.Sessions.Persistence)
 	}
-	if doc.Balda.Swarm.Mode != testBaldaSwarmModeShadow {
-		t.Fatalf("swarm.mode = %q, want shadow from defaults", doc.Balda.Swarm.Mode)
+	if !doc.Balda.NATS.Embedded {
+		t.Fatal("nats.embedded = false, want true from defaults")
 	}
-	if doc.Balda.Swarm.WebhookMode != testBaldaSwarmModeShadow {
-		t.Fatalf("swarm.webhook_mode = %q, want shadow from defaults", doc.Balda.Swarm.WebhookMode)
+	if doc.Balda.NATS.StoreDir != ".balda/nats" {
+		t.Fatalf("nats.store_dir = %q, want .balda/nats", doc.Balda.NATS.StoreDir)
 	}
-	if doc.Balda.Swarm.SchedulerMode != testBaldaSwarmModeShadow {
-		t.Fatalf("swarm.scheduler_mode = %q, want shadow from defaults", doc.Balda.Swarm.SchedulerMode)
+	if doc.Balda.Swarm.Commands.Stream != "BALDA_COMMANDS" {
+		t.Fatalf("swarm.commands.stream = %q, want BALDA_COMMANDS", doc.Balda.Swarm.Commands.Stream)
 	}
-	if doc.Balda.EventBus.Mode != "nats_core" {
-		t.Fatalf("event_bus.mode = %q, want nats_core from defaults", doc.Balda.EventBus.Mode)
-	}
-	if !doc.Balda.EventBus.NATS.Embedded {
-		t.Fatal("event_bus.nats.embedded = false, want true from defaults")
-	}
-	if doc.Balda.EventBus.NATS.StoreDir != ".balda/nats" {
-		t.Fatalf("event_bus.nats.store_dir = %q, want .balda/nats from defaults", doc.Balda.EventBus.NATS.StoreDir)
-	}
-	if !doc.Balda.Swarm.Shadow.Enabled {
-		t.Fatal("swarm.shadow.enabled = false, want true from defaults")
+	if doc.Balda.Swarm.Commands.Consumer != "BALDA_WORKER_COMMANDS" {
+		t.Fatalf("swarm.commands.consumer = %q, want BALDA_WORKER_COMMANDS", doc.Balda.Swarm.Commands.Consumer)
 	}
 	if got := doc.Balda.Swarm.Agents["planner"].Role; got != "Plan work and split into subtasks" {
 		t.Fatalf("swarm.agents.planner.role = %q, want default planner role", got)
