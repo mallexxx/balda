@@ -556,6 +556,33 @@ func TestTaskAgentResolveSessionEnsuresMissingSession(t *testing.T) {
 	}
 }
 
+func TestTaskActorDeliverAssignsDedupeKeyWithoutTaskID(t *testing.T) {
+	ctx := context.Background()
+	provider, bus, coordinator, tasks, allocator := newTaskActorSwarmServices(t, ctx)
+	_ = provider
+	_ = tasks
+	_ = allocator
+	exec := &taskActorExecutor{coordinator: coordinator}
+	locator := taskActorTestLocator()
+
+	if err := exec.deliver(ctx, "", locator, "done", "final"); err != nil {
+		t.Fatalf("deliver() error = %v", err)
+	}
+	if len(bus.commands) != 1 {
+		t.Fatalf("published commands = %d, want 1", len(bus.commands))
+	}
+	cmd := bus.commands[0]
+	if strings.TrimSpace(cmd.DedupeKey) == "" {
+		t.Fatal("delivery dedupe key is empty")
+	}
+	if cmd.ID != cmd.DedupeKey {
+		t.Fatalf("delivery envelope id = %q, want dedupe key %q", cmd.ID, cmd.DedupeKey)
+	}
+	if !strings.Contains(cmd.DedupeKey, ":delivery:final") {
+		t.Fatalf("delivery dedupe key = %q, want :delivery:final suffix", cmd.DedupeKey)
+	}
+}
+
 func newTaskActorSwarmServices(t *testing.T, ctx context.Context) (baldastate.Provider, *recordingHandlerCommandBus, *swarm.Coordinator, *swarm.TaskService, *swarm.AgentAllocator) {
 	t.Helper()
 	provider, err := baldastate.NewSQLiteProvider(ctx, filepath.Join(t.TempDir(), "state.db"))

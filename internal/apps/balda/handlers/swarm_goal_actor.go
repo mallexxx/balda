@@ -877,15 +877,18 @@ func (e *taskActorExecutor) deliver(
 		return swarm.PermanentError(fmt.Errorf("encode task delivery payload: %w", err))
 	}
 	dedupeKey := strings.TrimSpace(taskID)
-	if dedupeKey != "" && strings.TrimSpace(dedupeSuffix) != "" {
-		dedupeKey += ":delivery:" + strings.TrimSpace(dedupeSuffix)
+	if dedupeKey == "" {
+		dedupeKey = "delivery:" + shortTaskHash(strings.Join([]string{
+			strings.TrimSpace(locator.SessionID),
+			strings.TrimSpace(locator.AddressKey),
+			message,
+		}, "|"))
 	}
-	envelopeID := dedupeKey
-	if strings.TrimSpace(envelopeID) == "" {
-		envelopeID = uuid.NewString()
+	if suffix := strings.TrimSpace(dedupeSuffix); suffix != "" {
+		dedupeKey += ":delivery:" + suffix
 	}
 	env := swarm.Envelope{
-		ID:            envelopeID,
+		ID:            dedupeKey,
 		Namespace:     swarm.NamespaceAgentResult,
 		Kind:          taskPayloadKindDelivery,
 		From:          swarm.ActorAddress{Target: swarm.ActorTypeTask, Key: taskID},
