@@ -288,6 +288,97 @@ func TestBus_CommandAckedEventFailureDoesNotRedeliverCompletedCommand(t *testing
 	}
 }
 
+func TestBus_CommandRetryingEventFailureStillRedeliversAndSettles(t *testing.T) {
+	busRaw, err := NewCommandBus(Params{
+		LC:     fxtest.NewLifecycle(t),
+		Config: baldaeventbus.Config{Embedded: true, JetStream: true},
+		Swarm: swarm.Config{Enabled: true, Commands: swarm.CommandConfig{
+			AckWait:    "100ms",
+			FetchWait:  "50ms",
+			MaxDeliver: 2,
+		}},
+		WorkingDir: t.TempDir(),
+		Logger:     zerolog.Nop(),
+	})
+	if err != nil {
+		t.Fatalf("NewCommandBus() error = %v", err)
+	}
+	bus := busRaw.(*Bus)
+	defer func() { _ = bus.Drain(context.Background()) }()
+
+	if _, err := bus.PublishCommand(context.Background(), commandTestEnvelope("retrying-event-fails")); err != nil {
+		t.Fatalf("PublishCommand() error = %v", err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	var calls atomic.Int32
+	done := make(chan struct{}, 1)
+	go func() {
+		_ = bus.RunCommandConsumer(ctx, func(context.Context, swarm.CommandMessage) error {
+			call := calls.Add(1)
+			if call == 1 {
+				if err := bus.js.DeleteStream(context.Background(), swarm.DefaultEventStream); err != nil {
+					t.Errorf("DeleteStream(events) error = %v", err)
+				}
+				return swarm.TransientError(errors.New("retry please"))
+			}
+			done <- struct{}{}
+			return nil
+		})
+	}()
+	select {
+	case <-done:
+	case <-ctx.Done():
+		t.Fatal("timed out waiting for command redelivery")
+	}
+	assertCommandStreamDrained(t, bus)
+	if got := calls.Load(); got != 2 {
+		t.Fatalf("handler calls = %d, want 2 (retry + success)", got)
+	}
+}
+
+func TestBus_CommandDeadletteredEventFailureStillSettlesDLQ(t *testing.T) {
+	busRaw, err := NewCommandBus(Params{
+		LC:     fxtest.NewLifecycle(t),
+		Config: baldaeventbus.Config{Embedded: true, JetStream: true},
+		Swarm: swarm.Config{Enabled: true, Commands: swarm.CommandConfig{
+			AckWait:    "100ms",
+			FetchWait:  "50ms",
+			MaxDeliver: 1,
+		}},
+		WorkingDir: t.TempDir(),
+		Logger:     zerolog.Nop(),
+	})
+	if err != nil {
+		t.Fatalf("NewCommandBus() error = %v", err)
+	}
+	bus := busRaw.(*Bus)
+	defer func() { _ = bus.Drain(context.Background()) }()
+
+	if _, err := bus.PublishCommand(context.Background(), commandTestEnvelope("deadlettered-event-fails")); err != nil {
+		t.Fatalf("PublishCommand() error = %v", err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	handled := make(chan struct{}, 1)
+	go func() {
+		_ = bus.RunCommandConsumer(ctx, func(context.Context, swarm.CommandMessage) error {
+			if err := bus.js.DeleteStream(context.Background(), swarm.DefaultEventStream); err != nil {
+				t.Errorf("DeleteStream(events) error = %v", err)
+			}
+			handled <- struct{}{}
+			return swarm.PermanentError(errors.New("permanent failure"))
+		})
+	}()
+	select {
+	case <-handled:
+	case <-ctx.Done():
+		t.Fatal("timed out waiting for command handler")
+	}
+	waitStreamMessages(t, bus, swarm.DefaultDLQStream, 1)
+	assertCommandStreamDrained(t, bus)
+}
+
 func TestBus_CommandSuccessSettlesWithCanceledParent(t *testing.T) {
 	busRaw, err := NewCommandBus(Params{
 		LC:     fxtest.NewLifecycle(t),

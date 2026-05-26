@@ -95,6 +95,7 @@ func TestCommandHandlerSwarmAndMailboxStatusCommands(t *testing.T) {
 	}
 	assertLastSentContains(t, tgClient, "Swarm status")
 	assertLastSentContains(t, tgClient, "command_bus: jetstream")
+	assertLastSentContains(t, tgClient, "command_event_publishing_mode: best_effort_visibility")
 	assertLastSentNotContains(t, tgClient, "sqlite_command_bus")
 	assertLastSentNotContains(t, tgClient, "shadow_mode")
 	assertLastSentNotContains(t, tgClient, "legacy_direct_path")

@@ -164,6 +164,8 @@ func (h *CommandHandler) formatSwarmStatus(ctx context.Context) (string, error) 
 		}
 		out.WriteString("\n- command_bus: ")
 		out.WriteString(firstNonEmpty(status.CommandBus, "unknown"))
+		out.WriteString("\n- command_event_publishing_mode: ")
+		out.WriteString(swarm.CommandLifecycleEventPublishingMode)
 		out.WriteString("\n- embedded_nats: ")
 		fmt.Fprintf(&out, "%t", status.Embedded)
 		out.WriteString("\n- running: ")
