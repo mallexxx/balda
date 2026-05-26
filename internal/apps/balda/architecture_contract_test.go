@@ -116,6 +116,34 @@ func TestJetStreamArchitectureContract_Static(t *testing.T) {
 			t.Fatal("telegram ingress must route user messages through the session command publisher")
 		}
 	})
+
+	t.Run("jetstream runtime is initialized before ingress starts accepting transport input", func(t *testing.T) {
+		appSource := readSource(t, filepath.Join(root, "app.go"))
+		const runtimeInit = "runtimeManager.EnsureRuntime(ctx)"
+		const botRun = "bot.Run(runCtx)"
+		if !strings.Contains(appSource, runtimeInit) {
+			t.Fatalf("app startup must initialize balda runtime via %q before ingress starts", runtimeInit)
+		}
+		if !strings.Contains(appSource, botRun) {
+			t.Fatalf("app startup must run transport ingress via %q", botRun)
+		}
+		if strings.Index(appSource, runtimeInit) > strings.Index(appSource, botRun) {
+			t.Fatal("transport ingress runtime starts before runtime initialization; expected JetStream and runtime readiness first")
+		}
+
+		busSource := readSource(t, filepath.Join(root, "eventbus/nats/connection.go"))
+		const ensureRuntimeCall = "bus.ensureRuntime(context.Background())"
+		const lifecycleHook = "params.LC.Append(fx.Hook{OnStop: bus.Drain})"
+		if !strings.Contains(busSource, ensureRuntimeCall) {
+			t.Fatalf("command bus must call %q during construction", ensureRuntimeCall)
+		}
+		if !strings.Contains(busSource, lifecycleHook) {
+			t.Fatalf("command bus lifecycle hook %q is missing", lifecycleHook)
+		}
+		if strings.Index(busSource, ensureRuntimeCall) > strings.Index(busSource, lifecycleHook) {
+			t.Fatal("command bus readiness checks must run before transport lifecycle can continue")
+		}
+	})
 }
 
 type sourceMatch struct {

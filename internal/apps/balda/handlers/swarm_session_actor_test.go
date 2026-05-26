@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"strings"
 	"testing"
 
 	baldasession "github.com/normahq/balda/internal/apps/balda/session"
@@ -117,6 +118,32 @@ func TestSessionActorSettleSessionTurnResultKeepsNonTaskErrorsRetryable(t *testi
 	err := exec.settleSessionTurnResult(context.Background(), testSessionTurnEnvelope(t, nil), sessionTurnPayload{}, runErr)
 	if !errors.Is(err, runErr) {
 		t.Fatalf("settleSessionTurnResult() error = %v, want original run error", err)
+	}
+}
+
+func TestSubmitSessionTurnToSwarm_RequiresRuntimeEnabled(t *testing.T) {
+	t.Parallel()
+
+	handler := &BaldaHandler{
+		swarmCoordinator: swarm.NewCoordinator(&fakeTurnDispatcher{}, swarm.Config{Enabled: false}),
+	}
+
+	_, err := handler.submitSessionTurnToSwarm(context.Background(), sessionTurnPayload{
+		Text:    "hello",
+		Locator: baldasession.SessionLocator{
+			ChannelType: "telegram",
+			AddressKey:  "tg-9001-77",
+			AddressJSON: `{"chat_id":9001,"topic_id":77}`,
+			SessionID:   "tg-9001-77",
+		},
+		Source:  sessionTurnSourceTelegram,
+		Deliver: true,
+	})
+	if err == nil {
+		t.Fatal("submitSessionTurnToSwarm() error = nil, want runtime unavailable")
+	}
+	if !strings.Contains(err.Error(), "runtime is unavailable") {
+		t.Fatalf("submitSessionTurnToSwarm() error = %q, want runtime unavailable marker", err.Error())
 	}
 }
 
