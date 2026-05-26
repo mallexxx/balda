@@ -56,7 +56,7 @@ type jobSchedulerParams struct {
 	Config        JobSchedulerConfig
 }
 
-// JobScheduler dispatches due locator-bound recurring jobs into the turn queue.
+// JobScheduler publishes due locator-bound recurring jobs as durable task commands.
 type JobScheduler struct {
 	jobStore    baldastate.ScheduledJobStore
 	coordinator *swarm.Coordinator

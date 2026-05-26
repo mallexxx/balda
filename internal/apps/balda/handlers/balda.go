@@ -256,13 +256,13 @@ func (h *BaldaHandler) onMessage(ctx context.Context, event *events.MessageEvent
 		topicID,
 		messageCtx.ProgressPolicy,
 	); err != nil {
-		if errors.Is(err, ErrTurnQueueFull) {
-			_ = h.channel.SendPlain(ctx, locator, fmt.Sprintf("Session is busy and queue is full (%d). Please wait or use /cancel.", perSessionQueueLimit))
+		if swarm.IsCommandQueueFull(err) {
+			_ = h.channel.SendPlain(ctx, locator, "Session command queue is full. Please wait or use /cancel.")
 			return nil
 		}
 
-		log.Error().Err(err).Int("topic_id", topicID).Msg("failed to enqueue balda turn")
-		_ = h.channel.SendPlain(ctx, locator, "Failed to queue your message for processing. Please try again.")
+		log.Error().Err(err).Int("topic_id", topicID).Msg("failed to publish balda session command")
+		_ = h.channel.SendPlain(ctx, locator, "Failed to publish your message for processing. Please try again.")
 	}
 
 	return nil

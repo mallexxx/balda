@@ -153,14 +153,14 @@ func (a *taskControlActor) sendControlMessage(ctx context.Context, locator balda
 
 func formatCancelResponse(hadInFlight bool, dropped int, taskCanceled int) string {
 	if !hadInFlight && dropped == 0 && taskCanceled == 0 {
-		return "No running or queued turns for this session."
+		return "No running or queued session work."
 	}
 	response := "Canceled current turn."
 	if !hadInFlight {
 		response = "No running turn to cancel."
 	}
 	if dropped > 0 {
-		response += fmt.Sprintf("\nDropped %d queued message(s).", dropped)
+		response += fmt.Sprintf("\nDropped %d queued session message(s).", dropped)
 	}
 	if taskCanceled > 0 {
 		response += fmt.Sprintf("\nCanceled %d active task(s).", taskCanceled)

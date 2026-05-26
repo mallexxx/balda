@@ -156,7 +156,7 @@ Built-in provider types:
 - `/mailbox status`: compatibility alias for JetStream swarm status.
 - `/reset`: clear conversation history for the current session.
 - `/close`: reset history, then close the current topic or restart the owner session on the next message.
-- `/cancel`: publish a durable session-control command; ControlActor cancels in-flight work, drops queued turns, cancels active task records, and aborts active `/goal` work when processed.
+- `/cancel`: publish a durable session-control command; ControlActor cancels in-flight work, drops queued session work, cancels active task records, and aborts active `/goal` work when processed.
 - `/memory`: print current `${balda.state_dir}/MEMORY.md` contents when memory is enabled.
 - `/start owner=<owner_token>`: authenticate the owner in direct messages.
 - `/start invite=<invite_token>`: onboard a collaborator in direct messages.

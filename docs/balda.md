@@ -501,7 +501,7 @@ Balda runs with a single provider per process (`balda.provider`).
 - `/mailbox status` (owner/collaborator): compatibility alias for JetStream swarm status.
 - `/close` (DM only, owner/collaborator): resets current session history, then in the owner DM `topic_id=0` stops the owner session; in topic contexts, closes that topic.
 - `/reset` (owner/collaborator): cancels queued work and clears the current session's persisted ADK conversation history without deleting Balda metadata or the workspace branch.
-- `/cancel` (owner/collaborator): publishes a durable session-control command; ControlActor cancels active turns, drops queued turns, marks active session tasks canceled, and aborts active `/goal` work when the command is processed.
+- `/cancel` (owner/collaborator): publishes a durable session-control command; ControlActor cancels active session work, drops queued session work, marks active session tasks canceled, and aborts active `/goal` work when the command is processed.
 - `/memory` (DM only, owner/collaborator): prints current `${balda.state_dir}/MEMORY.md` contents when `balda.memory.enabled=true`; otherwise reports that memory is disabled.
 
 ### Task actor runtime semantics (internal)
