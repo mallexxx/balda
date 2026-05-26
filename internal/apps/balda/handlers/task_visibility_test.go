@@ -153,6 +153,18 @@ func TestCommandHandlerSwarmQueueAndMailboxStatusCommands(t *testing.T) {
 	}
 	assertLastSentContains(t, tgClient, "DLQ status")
 	assertLastSentContains(t, tgClient, "stream: BALDA_DLQ")
+
+	if err := handler.onCommand(ctx, newCommandEvent("projection", "status", 101, 9001, nil)); err != nil {
+		t.Fatalf("/projection status error = %v", err)
+	}
+	assertLastSentContains(t, tgClient, "Projection status")
+	assertLastSentContains(t, tgClient, "BALDA_EVENT_PROJECTOR_lag: 2")
+
+	if err := handler.onCommand(ctx, newCommandEvent("actors", "status", 101, 9001, nil)); err != nil {
+		t.Fatalf("/actors status error = %v", err)
+	}
+	assertLastSentContains(t, tgClient, "Actors status")
+	assertLastSentContains(t, tgClient, "planner")
 }
 
 func TestCommandHandlerSwarmStatusShowsDisabledModeContract(t *testing.T) {

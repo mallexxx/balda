@@ -46,6 +46,8 @@ go tool golangci-lint run
 - `/queue status`: owner/collaborator; shows JetStream queue/runtime status (preferred command).
 - `/mailbox status`: owner/collaborator; compatibility alias for `/queue status`.
 - `/dlq`: owner/collaborator; shows JetStream DLQ stream backlog summary.
+- `/projection status`: owner/collaborator; shows event-projector lag and projection health summary.
+- `/actors status`: owner/collaborator; shows configured logical agent roles/toolsets.
 - `/close`: owner/collaborator, direct message only; closes a topic session or stops the owner session.
 - `/cancel`: owner/collaborator; publishes durable session-control work; ControlActor cancels in-flight turn processing, drops queued turns, cancels active tasks, and aborts active `/goal` work when processed.
 - `/user add|list|remove <user_id>`: owner only; collaborator invite and management commands.

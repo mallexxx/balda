@@ -21,6 +21,7 @@ const (
 	maxTaskListItems        = 20
 	maxTaskPayloadSummary   = 180
 	maxTaskOutcomeTextRunes = 1200
+	statusCommandArg        = "status"
 )
 
 type taskSessionInfoProvider interface {
@@ -124,7 +125,7 @@ func (h *CommandHandler) onSwarmCommand(ctx context.Context, commandCtx baldatel
 	if !h.canUseSessionCommand(ctx, commandCtx.UserID) {
 		return h.channel.SendPlain(ctx, commandCtx.Locator, "Only the bot owner or collaborators can use this command.")
 	}
-	if strings.TrimSpace(commandCtx.Args) != "status" {
+	if strings.TrimSpace(commandCtx.Args) != statusCommandArg {
 		return h.channel.SendPlain(ctx, commandCtx.Locator, "Usage: /swarm status")
 	}
 	text, err := h.formatSwarmStatus(ctx)
@@ -147,7 +148,7 @@ func (h *CommandHandler) onQueueStatusCommand(ctx context.Context, commandCtx ba
 	if !h.canUseSessionCommand(ctx, commandCtx.UserID) {
 		return h.channel.SendPlain(ctx, commandCtx.Locator, "Only the bot owner or collaborators can use this command.")
 	}
-	if strings.TrimSpace(commandCtx.Args) != "status" {
+	if strings.TrimSpace(commandCtx.Args) != statusCommandArg {
 		if alias == "queue" {
 			return h.channel.SendPlain(ctx, commandCtx.Locator, "Usage: /queue status")
 		}
@@ -190,6 +191,67 @@ func (h *CommandHandler) onDLQCommand(ctx context.Context, commandCtx baldateleg
 	fmt.Fprintf(&out, "%d", status.DLQ.FirstSeq)
 	out.WriteString("\n- last_seq: ")
 	fmt.Fprintf(&out, "%d", status.DLQ.LastSeq)
+	return h.channel.SendAgentReply(ctx, commandCtx.Locator, out.String())
+}
+
+func (h *CommandHandler) onProjectionCommand(ctx context.Context, commandCtx baldatelegram.CommandContext) error {
+	if !h.canUseSessionCommand(ctx, commandCtx.UserID) {
+		return h.channel.SendPlain(ctx, commandCtx.Locator, "Only the bot owner or collaborators can use this command.")
+	}
+	if strings.TrimSpace(commandCtx.Args) != statusCommandArg {
+		return h.channel.SendPlain(ctx, commandCtx.Locator, "Usage: /projection status")
+	}
+	if h.commandBus == nil {
+		return h.channel.SendPlain(ctx, commandCtx.Locator, "Projection visibility is unavailable right now.")
+	}
+	status, err := h.commandBus.Status(ctx)
+	if err != nil {
+		return h.channel.SendPlain(ctx, commandCtx.Locator, fmt.Sprintf("Failed to read projection status: %v", err))
+	}
+	var out strings.Builder
+	out.WriteString("Projection status")
+	if len(status.ProjectionLag) == 0 {
+		out.WriteString("\n- none")
+		return h.channel.SendAgentReply(ctx, commandCtx.Locator, out.String())
+	}
+	keys := make([]string, 0, len(status.ProjectionLag))
+	for name := range status.ProjectionLag {
+		keys = append(keys, name)
+	}
+	sort.Strings(keys)
+	for _, name := range keys {
+		out.WriteString("\n- ")
+		out.WriteString(name)
+		out.WriteString("_lag: ")
+		fmt.Fprintf(&out, "%d", status.ProjectionLag[name])
+	}
+	return h.channel.SendAgentReply(ctx, commandCtx.Locator, out.String())
+}
+
+func (h *CommandHandler) onActorsCommand(ctx context.Context, commandCtx baldatelegram.CommandContext) error {
+	if !h.canUseSessionCommand(ctx, commandCtx.UserID) {
+		return h.channel.SendPlain(ctx, commandCtx.Locator, "Only the bot owner or collaborators can use this command.")
+	}
+	if strings.TrimSpace(commandCtx.Args) != statusCommandArg {
+		return h.channel.SendPlain(ctx, commandCtx.Locator, "Usage: /actors status")
+	}
+	var out strings.Builder
+	out.WriteString("Actors status")
+	if h.agentRegistry == nil || len(h.agentRegistry.All()) == 0 {
+		out.WriteString("\n- none configured")
+		return h.channel.SendAgentReply(ctx, commandCtx.Locator, out.String())
+	}
+	for _, agent := range h.agentRegistry.All() {
+		out.WriteString("\n- ")
+		out.WriteString(agent.Name)
+		out.WriteString(": ")
+		out.WriteString(agent.Role)
+		if len(agent.Tools) > 0 {
+			out.WriteString(" [")
+			out.WriteString(strings.Join(agent.Tools, ", "))
+			out.WriteString("]")
+		}
+	}
 	return h.channel.SendAgentReply(ctx, commandCtx.Locator, out.String())
 }
 

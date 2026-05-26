@@ -122,6 +122,10 @@ func (h *CommandHandler) onCommand(ctx context.Context, event *events.CommandEve
 		return h.onQueueCommand(ctx, commandCtx)
 	case "mailbox":
 		return h.onMailboxCommand(ctx, commandCtx)
+	case "projection":
+		return h.onProjectionCommand(ctx, commandCtx)
+	case "actors":
+		return h.onActorsCommand(ctx, commandCtx)
 	case "dlq":
 		return h.onDLQCommand(ctx, commandCtx)
 	case "memory":

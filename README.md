@@ -156,6 +156,8 @@ Built-in provider types:
 - `/queue status`: show JetStream queue/runtime status (preferred command).
 - `/mailbox status`: compatibility alias for `/queue status`.
 - `/dlq`: show JetStream DLQ stream backlog summary.
+- `/projection status`: show projector lag and projection health summary.
+- `/actors status`: show configured logical agents and toolsets.
 - `/reset`: clear conversation history for the current session.
 - `/close`: reset history, then close the current topic or restart the owner session on the next message.
 - `/cancel`: publish a durable session-control command; ControlActor cancels in-flight work, drops queued session work, cancels active task records, and aborts active `/goal` work when processed.
