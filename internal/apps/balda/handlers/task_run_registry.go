@@ -2,43 +2,61 @@ package handlers
 
 import (
 	"context"
+	"strconv"
 	"strings"
 	"sync"
 )
 
 type taskRunRegistry struct {
 	mu      sync.Mutex
-	cancels map[string]context.CancelFunc
+	nextID  uint64
+	cancels map[string]map[string]context.CancelFunc
 }
 
 func newTaskRunRegistry() *taskRunRegistry {
-	return &taskRunRegistry{cancels: make(map[string]context.CancelFunc)}
+	return &taskRunRegistry{cancels: make(map[string]map[string]context.CancelFunc)}
 }
 
-func (r *taskRunRegistry) register(taskID string, cancel context.CancelFunc) {
+func (r *taskRunRegistry) register(taskID string, cancel context.CancelFunc) string {
 	if r == nil || cancel == nil {
-		return
+		return ""
 	}
 	trimmed := strings.TrimSpace(taskID)
 	if trimmed == "" {
-		return
+		return ""
 	}
 	r.mu.Lock()
-	r.cancels[trimmed] = cancel
-	r.mu.Unlock()
+	defer r.mu.Unlock()
+	r.nextID++
+	runID := strconv.FormatUint(r.nextID, 10)
+	runs := r.cancels[trimmed]
+	if runs == nil {
+		runs = make(map[string]context.CancelFunc)
+		r.cancels[trimmed] = runs
+	}
+	runs[runID] = cancel
+	return runID
 }
 
-func (r *taskRunRegistry) unregister(taskID string) {
+func (r *taskRunRegistry) unregister(taskID string, runID string) {
 	if r == nil {
 		return
 	}
-	trimmed := strings.TrimSpace(taskID)
-	if trimmed == "" {
+	trimmedTaskID := strings.TrimSpace(taskID)
+	trimmedRunID := strings.TrimSpace(runID)
+	if trimmedTaskID == "" || trimmedRunID == "" {
 		return
 	}
 	r.mu.Lock()
-	delete(r.cancels, trimmed)
-	r.mu.Unlock()
+	defer r.mu.Unlock()
+	runs := r.cancels[trimmedTaskID]
+	if runs == nil {
+		return
+	}
+	delete(runs, trimmedRunID)
+	if len(runs) == 0 {
+		delete(r.cancels, trimmedTaskID)
+	}
 }
 
 func (r *taskRunRegistry) cancel(taskID string) bool {
@@ -50,12 +68,23 @@ func (r *taskRunRegistry) cancel(taskID string) bool {
 		return false
 	}
 	r.mu.Lock()
-	cancel := r.cancels[trimmed]
+	runs := r.cancels[trimmed]
 	delete(r.cancels, trimmed)
+	cancelFuncs := make([]context.CancelFunc, 0, len(runs))
+	for _, cancel := range runs {
+		cancelFuncs = append(cancelFuncs, cancel)
+	}
 	r.mu.Unlock()
-	if cancel == nil {
+	if len(cancelFuncs) == 0 {
 		return false
 	}
-	cancel()
-	return true
+	canceled := false
+	for _, cancel := range cancelFuncs {
+		if cancel == nil {
+			continue
+		}
+		cancel()
+		canceled = true
+	}
+	return canceled
 }

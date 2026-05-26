@@ -143,8 +143,8 @@ func (a *taskAgentActor) Handle(ctx context.Context, env swarm.Envelope) error {
 	}()
 
 	runCtx, cancel := context.WithCancel(ctx)
-	a.taskRuns.register(payload.TaskID, cancel)
-	defer a.taskRuns.unregister(payload.TaskID)
+	runID := a.taskRuns.register(payload.TaskID, cancel)
+	defer a.taskRuns.unregister(payload.TaskID, runID)
 	defer cancel()
 
 	prompt := formatTaskAgentPrompt(payload, spec)

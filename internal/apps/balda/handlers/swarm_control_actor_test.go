@@ -3,6 +3,7 @@ package handlers
 import (
 	"context"
 	"testing"
+	"time"
 
 	baldatelegram "github.com/normahq/balda/internal/apps/balda/channel/telegram"
 	baldastate "github.com/normahq/balda/internal/apps/balda/state"
@@ -91,5 +92,68 @@ func TestTaskControlActorCancelsTaskWork(t *testing.T) {
 	}
 	if !ok || task.Status != baldastate.SwarmTaskStatusCanceled {
 		t.Fatalf("task = %+v found=%v, want canceled", task, ok)
+	}
+}
+
+func TestTaskControlActorCancelsAllRegisteredTaskRuns(t *testing.T) {
+	ctx := context.Background()
+	provider, bus, coordinator, tasks, allocator := newTaskActorSwarmServices(t, ctx)
+	_ = provider
+	_ = bus
+	_ = coordinator
+	_ = allocator
+
+	locator := baldatelegram.NewLocator(9001, 0)
+	_, err := tasks.Create(ctx, baldastate.SwarmTaskRecord{
+		ID:        "task-multi-run",
+		SessionID: locator.SessionID,
+		Objective: "active",
+		Status:    baldastate.SwarmTaskStatusRunning,
+	}, "test", nil)
+	if err != nil {
+		t.Fatalf("Create task: %v", err)
+	}
+
+	registry := newTaskRunRegistry()
+	runCtxOne, cancelOne := context.WithCancel(context.Background())
+	defer cancelOne()
+	runCtxTwo, cancelTwo := context.WithCancel(context.Background())
+	defer cancelTwo()
+	registry.register("task-multi-run", cancelOne)
+	registry.register("task-multi-run", cancelTwo)
+
+	actor := &taskControlActor{
+		turnDispatcher: &fakeTurnDispatcher{},
+		tasks:          tasks,
+		taskRuns:       registry,
+		channel:        newBaldaTestTelegramAdapter(),
+	}
+
+	env, err := controlCancelEnvelope(locator, "task-multi-run", testTelegramUserID101, "task canceled by user")
+	if err != nil {
+		t.Fatalf("controlCancelEnvelope() error = %v", err)
+	}
+	if err := actor.Handle(ctx, env); err != nil {
+		t.Fatalf("Handle() error = %v", err)
+	}
+
+	waitCancelDone(t, runCtxOne, "run one")
+	waitCancelDone(t, runCtxTwo, "run two")
+
+	task, ok, err := tasks.Get(ctx, "task-multi-run")
+	if err != nil {
+		t.Fatalf("Get task: %v", err)
+	}
+	if !ok || task.Status != baldastate.SwarmTaskStatusCanceled {
+		t.Fatalf("task = %+v found=%v, want canceled", task, ok)
+	}
+}
+
+func waitCancelDone(t *testing.T, runCtx context.Context, label string) {
+	t.Helper()
+	select {
+	case <-runCtx.Done():
+	case <-time.After(time.Second):
+		t.Fatalf("timeout waiting for %s cancellation", label)
 	}
 }
