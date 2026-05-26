@@ -2,7 +2,9 @@ package natsbus
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	gnats "github.com/nats-io/nats.go"
@@ -91,6 +93,9 @@ func (b *Bus) PublishCommand(ctx context.Context, env swarm.Envelope) (*swarm.Co
 	msgID := swarm.DedupeKeyOrID(env)
 	ack, err := b.js.PublishMsg(ctx, msg, jetstream.WithMsgID(msgID), jetstream.WithExpectStream(b.cfg.Swarm.Commands.Stream))
 	if err != nil {
+		if isJetStreamQueuePressure(err) {
+			return nil, fmt.Errorf("%w: publish jetstream command %q: %w", swarm.ErrCommandQueueFull, subject, err)
+		}
 		return nil, fmt.Errorf("publish jetstream command %q: %w", subject, err)
 	}
 	result := &swarm.CommandPublishResult{Stream: ack.Stream, Sequence: ack.Sequence, Subject: subject, MsgID: msgID, Duplicate: ack.Duplicate}
@@ -102,6 +107,40 @@ func (b *Bus) PublishCommand(ctx context.Context, env swarm.Envelope) (*swarm.Co
 			Msg("failed to publish command accepted event")
 	}
 	return result, nil
+}
+
+func isJetStreamQueuePressure(err error) bool {
+	var jsErr jetstream.JetStreamError
+	if errors.As(err, &jsErr) {
+		apiErr := jsErr.APIError()
+		if apiErr != nil && isQueuePressureText(apiErr.Description) {
+			return true
+		}
+	}
+	return isQueuePressureText(err.Error())
+}
+
+func isQueuePressureText(raw string) bool {
+	text := strings.ToLower(strings.TrimSpace(raw))
+	if text == "" {
+		return false
+	}
+	for _, phrase := range []string{
+		"maximum messages exceeded",
+		"maximum bytes exceeded",
+		"max messages exceeded",
+		"max bytes exceeded",
+		"resource limits exceeded",
+		"stream is full",
+		"no space left",
+		"insufficient storage",
+		"discard new",
+	} {
+		if strings.Contains(text, phrase) {
+			return true
+		}
+	}
+	return false
 }
 
 func (b *Bus) PublishEvent(ctx context.Context, subject string, env swarm.Envelope) error {

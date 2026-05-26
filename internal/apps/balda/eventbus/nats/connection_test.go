@@ -2,10 +2,12 @@ package natsbus
 
 import (
 	"context"
+	"errors"
 	"sync/atomic"
 	"testing"
 	"time"
 
+	"github.com/nats-io/nats.go/jetstream"
 	baldaeventbus "github.com/normahq/balda/internal/apps/balda/eventbus"
 	"github.com/normahq/balda/internal/apps/balda/swarm"
 	"github.com/rs/zerolog"
@@ -25,6 +27,23 @@ func TestNewCommandBus_DisabledSwarmReturnsUnsupportedBus(t *testing.T) {
 	}
 	if _, ok := bus.(swarm.UnsupportedCommandBus); !ok {
 		t.Fatalf("bus type = %T, want swarm.UnsupportedCommandBus", bus)
+	}
+}
+
+func TestIsJetStreamQueuePressure(t *testing.T) {
+	t.Parallel()
+
+	for _, err := range []error{
+		fakeJetStreamAPIError{description: "maximum messages exceeded"},
+		fakeJetStreamAPIError{description: "resource limits exceeded"},
+		errors.New("nats: stream is full"),
+	} {
+		if !isJetStreamQueuePressure(err) {
+			t.Fatalf("isJetStreamQueuePressure(%v) = false, want true", err)
+		}
+	}
+	if isJetStreamQueuePressure(errors.New("stream not found")) {
+		t.Fatal("isJetStreamQueuePressure(stream not found) = true, want false")
 	}
 }
 
@@ -562,6 +581,18 @@ func TestBus_StatusReportsJetStreamOnly(t *testing.T) {
 	if status.CommandBus != "jetstream" || status.SQLiteCommandBus || status.ShadowMode || status.LegacyDirectPath {
 		t.Fatalf("Status() = %+v, want hard JetStream", status)
 	}
+}
+
+type fakeJetStreamAPIError struct {
+	description string
+}
+
+func (e fakeJetStreamAPIError) Error() string {
+	return e.description
+}
+
+func (e fakeJetStreamAPIError) APIError() *jetstream.APIError {
+	return &jetstream.APIError{Code: 503, Description: e.description}
 }
 
 func commandTestEnvelope(id string) swarm.Envelope {

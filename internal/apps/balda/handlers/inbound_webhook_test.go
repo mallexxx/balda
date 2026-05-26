@@ -136,7 +136,7 @@ func TestInboundWebhookReceiver_AcceptsWithoutSessionRestore(t *testing.T) {
 func TestInboundWebhookReceiver_QueueFull(t *testing.T) {
 	t.Parallel()
 
-	executor := &fakeInboundTurnExecutor{submitErr: ErrTurnQueueFull}
+	executor := &fakeInboundTurnExecutor{submitErr: swarm.ErrCommandQueueFull}
 	receiver := newInboundWebhookReceiverForTest(t)
 	receiver.balda = executor
 	receiver.routes = map[string]inboundWebhookRoute{
@@ -153,6 +153,21 @@ func TestInboundWebhookReceiver_QueueFull(t *testing.T) {
 	receiver.handleInboundWebhook(rec, req)
 
 	assertInboundWebhookError(t, rec, http.StatusTooManyRequests, inboundWebhookCodeQueueFull)
+}
+
+func TestInboundWebhookReceiver_TurnQueueFullIsNotIngressQueueFull(t *testing.T) {
+	t.Parallel()
+
+	executor := &fakeInboundTurnExecutor{submitErr: ErrTurnQueueFull}
+	receiver := newInboundWebhookReceiverForTest(t)
+	receiver.balda = executor
+
+	req := httptest.NewRequest(http.MethodPost, "/webhook1", bytes.NewBufferString("hello"))
+	rec := httptest.NewRecorder()
+
+	receiver.handleInboundWebhook(rec, req)
+
+	assertInboundWebhookError(t, rec, http.StatusServiceUnavailable, inboundWebhookCodeDispatchFailed)
 }
 
 func TestInboundWebhookReceiver_AcceptsAndPublishesCommand(t *testing.T) {

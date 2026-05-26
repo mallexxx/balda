@@ -433,12 +433,12 @@ func (r *InboundWebhookReceiver) handleInboundWebhook(w http.ResponseWriter, req
 		DedupeKey:      "webhook:" + route.Name + ":" + requestID,
 	}, route.Name, requestID)
 	if enqueueErr != nil {
-		if errors.Is(enqueueErr, ErrTurnQueueFull) {
+		if swarm.IsCommandQueueFull(enqueueErr) {
 			r.metrics.queueFull.Add(1)
 			r.writeInboundWebhookError(w, requestID, newInboundWebhookHTTPError(
 				http.StatusTooManyRequests,
 				inboundWebhookCodeQueueFull,
-				"turn queue is full",
+				"command queue is full",
 				enqueueErr,
 			))
 			return
