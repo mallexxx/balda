@@ -22,10 +22,14 @@ Architecture contracts and migration execution documents are maintained in:
 
 ## User Onboarding Reference
 
-The primary onboarding path runs Balda as a single app with no required backing
-services. Balda persists local state in SQLite and uses Telegram polling by
-default, so first-time setup does not require Redis, Postgres, object storage,
-queues, a public URL, or a webhook endpoint.
+The primary onboarding path runs Balda as a single app with embedded JetStream
+and local SQLite state. JetStream is mandatory for command/event transport, but
+it is bundled inside the Balda process by default, so first-time setup still
+does not require operating an external queue service.
+
+SQLite remains product/read-model state (owner/collaborator, session metadata,
+task views, memory state, scheduler metadata, delivery outbox), not a command
+queue.
 
 npm remains the shortest install path:
 
