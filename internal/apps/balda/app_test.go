@@ -300,6 +300,24 @@ func TestBuildInboundWebhookConfig(t *testing.T) {
 				" webhook1 ": {
 					Path:           " webhook1 ",
 					PromptTemplate: " {{.RawBody}} ",
+					Envelope: WebhookRouteEnvelopeConfig{
+						Target: " alias ",
+						Key:    " owner ",
+						Mode:   " task ",
+						ReportTo: &WebhookRouteEnvelopeTargetConfig{
+							Target: " alias ",
+							Key:    " owner ",
+						},
+					},
+					Auth: WebhookRouteAuthConfig{
+						Type:   " header ",
+						Header: " X-Test-Auth ",
+						Value:  " s3cr3t ",
+					},
+					Dedupe: WebhookRouteDedupeConfig{
+						Source: " header ",
+						Header: " X-Event-ID ",
+					},
 				},
 			},
 		},
@@ -313,6 +331,24 @@ func TestBuildInboundWebhookConfig(t *testing.T) {
 			"webhook1": {
 				Path:           "webhook1",
 				PromptTemplate: "{{.RawBody}}",
+				Envelope: handlers.InboundWebhookRouteEnvelopeConfig{
+					Target: "alias",
+					Key:    "owner",
+					Mode:   "task",
+					ReportTo: &handlers.InboundWebhookRouteTargetConfig{
+						Target: "alias",
+						Key:    "owner",
+					},
+				},
+				Auth: handlers.InboundWebhookRouteAuthConfig{
+					Type:   "header",
+					Header: "X-Test-Auth",
+					Value:  "s3cr3t",
+				},
+				Dedupe: handlers.InboundWebhookRouteDedupeConfig{
+					Source: "header",
+					Header: "X-Event-ID",
+				},
 			},
 		},
 	}
@@ -326,8 +362,34 @@ func TestBuildInboundWebhookConfig(t *testing.T) {
 	if len(got.Routes) != len(want.Routes) {
 		t.Fatalf("len(routes) = %d, want %d", len(got.Routes), len(want.Routes))
 	}
-	if got.Routes["webhook1"] != want.Routes["webhook1"] {
+	if !reflect.DeepEqual(got.Routes["webhook1"], want.Routes["webhook1"]) {
 		t.Fatalf("route mismatch: got %+v want %+v", got.Routes["webhook1"], want.Routes["webhook1"])
+	}
+}
+
+func TestBuildInboundWebhookConfig_UsesSecretEnvAuthValue(t *testing.T) {
+	t.Setenv("BALDA_WEBHOOK_AUTH_VALUE", "from-env")
+	cfg := BaldaConfig{
+		Webhooks: WebhooksConfig{
+			Enabled: true,
+			Routes: map[string]WebhookRouteConfig{
+				"webhook1": {
+					Path:           "/webhook1",
+					PromptTemplate: "{{.RawBody}}",
+					Auth: WebhookRouteAuthConfig{
+						Type:      "header",
+						Header:    "X-Auth",
+						SecretEnv: "BALDA_WEBHOOK_AUTH_VALUE",
+					},
+				},
+			},
+		},
+	}
+
+	got := buildInboundWebhookConfig(cfg)
+	route := got.Routes["webhook1"]
+	if route.Auth.Value != "from-env" {
+		t.Fatalf("auth value = %q, want from-env", route.Auth.Value)
 	}
 }
 

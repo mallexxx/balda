@@ -372,8 +372,16 @@ session-start snapshot. New or restored sessions read the latest file.
   - each route requires:
     - `path`: local inbound webhook path (for example `/webhook/release`)
     - `prompt_template`: Go `text/template` rendered with `RequestID`, `Path`, `Method`, `RawBody`, and `Headers`
-  - runtime target is fixed to owner DM session (`alias: owner`)
-  - inbound webhook requests are not authenticated by balda; keep the listener private or front it with gateway auth
+  - optional `envelope`:
+    - `target` + `key`: destination address (defaults to `alias` + `owner`)
+    - `mode`: `task` (default) or `session`
+    - `report_to`: optional destination for progress/final replies
+  - optional `auth`:
+    - `type`: `none` (default) or `header`
+    - `header` + `value` (or `secret_env`) for `type=header`
+  - optional `dedupe`:
+    - `source`: `request_id` (default), `header`, or `body_sha256`
+    - `header` required for `source=header`
 
 ### Balda settings
 
@@ -592,6 +600,35 @@ runs, retries, or wakes up.
 - Task-mutating envelopes are serialized on a single task lane
   (`task:<task_id>`) across task control, agent command/result, and task-bound
   human/webhook/schedule ingress. Different task IDs still run concurrently.
+- Command consumer backpressure boundary:
+  - JetStream durable pull consumer (`BALDA_WORKER_COMMANDS`) is the transport queue.
+  - Local in-process worker fan-out is capped to `fetch_batch` (not `max_ack_pending`) to avoid creating a second deep in-memory queue ahead of actor lanes.
+  - `max_ack_pending` remains a JetStream transport limit; it is not used as local goroutine fan-out.
+
+### Command-path queue ownership (internal)
+
+- JetStream command stream (`BALDA_COMMANDS`):
+  - owner: JetStream
+  - capacity/backpressure: stream limits + discard policy (`balda.nats.streams.commands.*`)
+  - retry/redelivery: JetStream consumer (`Ack`, `NakWithDelay`, `InProgress`, `Term`)
+  - visibility: `/swarm status` stream metrics (`messages`, `bytes`, seq range)
+- JetStream worker consumer (`BALDA_WORKER_COMMANDS`):
+  - owner: JetStream
+  - capacity: `max_ack_pending`
+  - fetch window: `fetch_batch`, `fetch_wait`
+  - visibility: `/swarm status` worker metrics (`num_pending`, `num_ack_pending`, `num_redelivered`)
+- Local command handler workers:
+  - owner: process-local `RunCommandConsumer`
+  - capacity: `fetch_batch` (bounded local fan-out)
+  - behavior: no persistence, no retry policy; settlement remains JetStream-owned
+- Keyed actor lanes:
+  - owner: process-local `KeyedActorScheduler`
+  - capacity: 1 active handler per actor key (`task:<id>`, session/agent fallbacks)
+  - behavior: serializes mutable task/session state transitions
+- Session turn queue:
+  - owner: process-local `TurnDispatcher` inside SessionActor
+  - capacity: bounded by turn-dispatcher queue size
+  - behavior: per-session ordering/cancel semantics for provider turn execution
 
 ### Scheduled task runtime semantics (internal)
 
@@ -613,29 +650,40 @@ Each configured task has `id`, `cron`, and an `envelope` with `target`, `key`,
 
 ### Inbound webhook contract (internal)
 
-Balda can optionally expose local webhook routes that map path -> prompt template.
+ Balda can optionally expose local webhook routes that map path -> route envelope.
 
 - Endpoint config: `balda.webhooks.enabled`, `listen_addr`, `routes`.
-- Security: balda does not validate webhook signatures/tokens for this receiver. Keep the endpoint private or protected by a trusted gateway.
+- Security:
+  - each route can require shared-header auth (`auth.type=header`, `auth.header`, `auth.value|secret_env`)
+  - keep the endpoint private or protected by a trusted gateway even with route auth
 - Method: `POST` only.
 - Route resolution:
   - request path must match a configured route `path`
-  - session target is fixed to owner DM alias (`target=alias`, `key=owner`)
+  - destination comes from route `envelope.target` + `envelope.key` (default `alias:owner`)
+  - route `envelope.mode` decides publish target:
+    - `task` (default): publish webhook task command; TaskActor emits session command
+    - `session`: publish session command directly
 - Prompt generation:
   - request body is treated as opaque raw text
   - route `prompt_template` is rendered with `RequestID`, `Path`, `Method`, `RawBody`, `Headers`
   - rendered prompt must be non-empty
 - Session resolution:
-  - ingress resolves only the owner DM locator and user id from owner store
-  - ingress publishes a durable JetStream task command after prompt rendering
-  - TaskActor then emits a session command for execution
+  - ingress resolves route target locator and user id from owner store aliases
+  - ingress publishes a durable JetStream command after prompt rendering
+  - task mode: TaskActor emits session command for execution
+  - session mode: ingress command is already a session command
   - SessionActor lazily restores the persisted session when inactive in memory and creates the owner session when no persisted session exists
   - webhook acceptance therefore depends on JetStream publish, not on synchronous session restore
-  - uses `deliver=false` by default, so the resulting session turn is fire-and-forget unless route delivery is enabled later
+  - uses `deliver=false` by default; route `envelope.report_to` enables progress/final delivery to that destination
+- Dedupe:
+  - default source is `request_id`
+  - `dedupe.source=header` uses `dedupe.header` value when present
+  - `dedupe.source=body_sha256` uses body hash
 - Response model (JSON):
   - accepted: `202` with `{status:"accepted", accepted:true, request_id, message_id, task_id, session_id, stream, sequence, duplicate?}`
   - route not found: `404` + `error.code="route_not_found"`
   - invalid method: `405` + `error.code="invalid_method"`
+  - auth reject: `401` + `error.code="unauthorized"`
   - invalid body/template render: `400` + `error.code="invalid_payload"`
   - unresolved/restore-failed session: `404` + `error.code="session_not_found"`
   - queue pressure: `429` + `error.code="queue_full"`

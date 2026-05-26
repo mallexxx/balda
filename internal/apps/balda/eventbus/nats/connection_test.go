@@ -3,6 +3,7 @@ package natsbus
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -516,6 +517,94 @@ func TestBus_RunCommandConsumerHandlesCommandsConcurrently(t *testing.T) {
 		case <-ctx.Done():
 			t.Fatal("timed out waiting for concurrent command completion")
 		}
+	}
+}
+
+func TestBus_RunCommandConsumerLimitsInFlightToFetchBatch(t *testing.T) {
+	busRaw, err := NewCommandBus(Params{
+		LC:     fxtest.NewLifecycle(t),
+		Config: baldaeventbus.Config{Embedded: true, JetStream: true},
+		Swarm: swarm.Config{Enabled: true, Commands: swarm.CommandConfig{
+			FetchBatch:    2,
+			MaxAckPending: 8,
+			FetchWait:     "50ms",
+		}},
+		WorkingDir: t.TempDir(),
+		Logger:     zerolog.Nop(),
+	})
+	if err != nil {
+		t.Fatalf("NewCommandBus() error = %v", err)
+	}
+	bus := busRaw.(*Bus)
+	defer func() { _ = bus.Drain(context.Background()) }()
+
+	for i := 0; i < 6; i++ {
+		id := fmt.Sprintf("bounded-%d", i)
+		env := commandTestEnvelope(id)
+		env.TaskID = id
+		env.To = swarm.ActorAddress{Target: swarm.ActorTypeTask, Key: id}
+		if _, err := bus.PublishCommand(context.Background(), env); err != nil {
+			t.Fatalf("PublishCommand(%d) error = %v", i, err)
+		}
+	}
+
+	runCtx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	release := make(chan struct{})
+	started := atomic.Int64{}
+	done := make(chan error, 1)
+	go func() {
+		done <- bus.RunCommandConsumer(runCtx, func(_ context.Context, _ swarm.CommandMessage) error {
+			started.Add(1)
+			<-release
+			return nil
+		})
+	}()
+
+	waitCtx, waitCancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer waitCancel()
+	for started.Load() < 2 {
+		select {
+		case <-waitCtx.Done():
+			t.Fatalf("started handlers = %d, want at least 2", started.Load())
+		case <-time.After(10 * time.Millisecond):
+		}
+	}
+
+	// With fetch_batch=2 local fan-out must stay bounded even when max_ack_pending is larger.
+	select {
+	case <-time.After(200 * time.Millisecond):
+	case <-waitCtx.Done():
+		t.Fatalf("timed out waiting for bounded fan-out check: %v", waitCtx.Err())
+	}
+	if got := started.Load(); got != 2 {
+		t.Fatalf("started handlers = %d, want 2 before release", got)
+	}
+	info, err := bus.consumer.Info(context.Background())
+	if err != nil {
+		t.Fatalf("command consumer info: %v", err)
+	}
+	if info.NumAckPending > 2 {
+		t.Fatalf("ack_pending = %d, want <= 2", info.NumAckPending)
+	}
+
+	close(release)
+	assertCommandStreamDrained(t, bus)
+	cancel()
+	waitConsumerCanceled(t, done)
+}
+
+func TestBus_CommandWorkerLimitUsesFetchBatch(t *testing.T) {
+	t.Parallel()
+
+	bus := &Bus{cfg: resolvedConfig{
+		Swarm: swarm.Config{Commands: swarm.CommandConfig{
+			FetchBatch:    3,
+			MaxAckPending: 11,
+		}},
+	}}
+	if got, want := bus.commandWorkerLimit(), 3; got != want {
+		t.Fatalf("commandWorkerLimit() = %d, want %d", got, want)
 	}
 }
 

@@ -3,6 +3,8 @@ package handlers
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"crypto/subtle"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -41,16 +43,59 @@ const (
 
 	inboundWebhookCodeInvalidMethod   = "invalid_method"
 	inboundWebhookCodeRouteNotFound   = "route_not_found"
+	inboundWebhookCodeUnauthorized    = "unauthorized"
 	inboundWebhookCodeInvalidPayload  = "invalid_payload"
 	inboundWebhookCodeSessionNotFound = "session_not_found"
 	inboundWebhookCodeQueueFull       = "queue_full"
 	inboundWebhookCodeDispatchFailed  = "dispatch_failed"
 )
 
+const (
+	inboundWebhookRouteModeTask    = "task"
+	inboundWebhookRouteModeSession = "session"
+)
+
+const (
+	inboundWebhookAuthTypeNone   = "none"
+	inboundWebhookAuthTypeHeader = "header"
+)
+
+const (
+	inboundWebhookDedupeSourceRequestID = "request_id"
+	inboundWebhookDedupeSourceHeader    = "header"
+	inboundWebhookDedupeSourceBodySHA   = "body_sha256"
+)
+
 // InboundWebhookRouteConfig configures one inbound webhook route.
 type InboundWebhookRouteConfig struct {
 	Path           string
 	PromptTemplate string
+	Envelope       InboundWebhookRouteEnvelopeConfig
+	Auth           InboundWebhookRouteAuthConfig
+	Dedupe         InboundWebhookRouteDedupeConfig
+}
+
+type InboundWebhookRouteEnvelopeConfig struct {
+	Target   string
+	Key      string
+	Mode     string
+	ReportTo *InboundWebhookRouteTargetConfig
+}
+
+type InboundWebhookRouteTargetConfig struct {
+	Target string
+	Key    string
+}
+
+type InboundWebhookRouteAuthConfig struct {
+	Type   string
+	Header string
+	Value  string
+}
+
+type InboundWebhookRouteDedupeConfig struct {
+	Source string
+	Header string
 }
 
 // InboundWebhookConfig controls inbound webhook routing and dispatch behavior.
@@ -64,10 +109,27 @@ type inboundWebhookRoute struct {
 	Name           string
 	Path           string
 	PromptTemplate *template.Template
+	Target         envelopeTarget
+	Mode           string
+	ReportTo       *envelopeTarget
+	Auth           inboundWebhookAuthPolicy
+	Dedupe         inboundWebhookDedupePolicy
+}
+
+type inboundWebhookAuthPolicy struct {
+	Type   string
+	Header string
+	Value  string
+}
+
+type inboundWebhookDedupePolicy struct {
+	Source string
+	Header string
 }
 
 type inboundTurnExecutor interface {
 	submitWebhookTask(ctx context.Context, payload sessionTurnPayload, routeName string, requestID string) (*swarm.CommandPublishResult, string, error)
+	submitSessionTurn(ctx context.Context, payload sessionTurnPayload) (*swarm.CommandPublishResult, error)
 	runTurnTaskWithDelivery(
 		ctx context.Context,
 		text string,
@@ -111,11 +173,12 @@ type InboundWebhookReceiver struct {
 }
 
 type inboundWebhookMetrics struct {
-	accepted    atomic.Uint64
-	invalid     atomic.Uint64
-	notFound    atomic.Uint64
-	queueFull   atomic.Uint64
-	dispatchErr atomic.Uint64
+	accepted     atomic.Uint64
+	invalid      atomic.Uint64
+	notFound     atomic.Uint64
+	unauthorized atomic.Uint64
+	queueFull    atomic.Uint64
+	dispatchErr  atomic.Uint64
 }
 
 type inboundWebhookTemplateData struct {
@@ -256,11 +319,54 @@ func normalizeInboundWebhookConfig(cfg InboundWebhookConfig) (normalizedInboundW
 		if err != nil {
 			return normalizedInboundWebhookConfig{}, fmt.Errorf("invalid balda.webhooks.routes.%s.prompt_template: %w", routeName, err)
 		}
+		target := envelopeTarget{
+			Target: strings.TrimSpace(rawRoute.Envelope.Target),
+			Key:    strings.TrimSpace(rawRoute.Envelope.Key),
+		}
+		if target.Target == "" && target.Key == "" {
+			target = ownerEnvelopeTarget()
+		}
+		if target.Target == "" {
+			return normalizedInboundWebhookConfig{}, fmt.Errorf("balda.webhooks.routes.%s.envelope.target is required", routeName)
+		}
+		if target.Key == "" {
+			return normalizedInboundWebhookConfig{}, fmt.Errorf("balda.webhooks.routes.%s.envelope.key is required", routeName)
+		}
+		var reportTo *envelopeTarget
+		if rawRoute.Envelope.ReportTo != nil {
+			reportTo = &envelopeTarget{
+				Target: strings.TrimSpace(rawRoute.Envelope.ReportTo.Target),
+				Key:    strings.TrimSpace(rawRoute.Envelope.ReportTo.Key),
+			}
+			if reportTo.Target == "" {
+				return normalizedInboundWebhookConfig{}, fmt.Errorf("balda.webhooks.routes.%s.envelope.report_to.target is required", routeName)
+			}
+			if reportTo.Key == "" {
+				return normalizedInboundWebhookConfig{}, fmt.Errorf("balda.webhooks.routes.%s.envelope.report_to.key is required", routeName)
+			}
+		}
+		mode, err := normalizeInboundWebhookRouteMode(rawRoute.Envelope.Mode)
+		if err != nil {
+			return normalizedInboundWebhookConfig{}, fmt.Errorf("balda.webhooks.routes.%s.envelope.mode: %w", routeName, err)
+		}
+		authPolicy, err := normalizeInboundWebhookAuthPolicy(rawRoute.Auth)
+		if err != nil {
+			return normalizedInboundWebhookConfig{}, fmt.Errorf("balda.webhooks.routes.%s.auth: %w", routeName, err)
+		}
+		dedupePolicy, err := normalizeInboundWebhookDedupePolicy(rawRoute.Dedupe)
+		if err != nil {
+			return normalizedInboundWebhookConfig{}, fmt.Errorf("balda.webhooks.routes.%s.dedupe: %w", routeName, err)
+		}
 
 		normalized.Routes[path] = inboundWebhookRoute{
 			Name:           routeName,
 			Path:           path,
 			PromptTemplate: tmpl,
+			Target:         target,
+			Mode:           mode,
+			ReportTo:       reportTo,
+			Auth:           authPolicy,
+			Dedupe:         dedupePolicy,
 		}
 	}
 
@@ -284,6 +390,68 @@ func normalizeInboundWebhookPath(raw string) (string, error) {
 		trimmed = "/" + trimmed
 	}
 	return trimmed, nil
+}
+
+func normalizeInboundWebhookRouteMode(raw string) (string, error) {
+	mode := strings.ToLower(strings.TrimSpace(raw))
+	if mode == "" {
+		return inboundWebhookRouteModeTask, nil
+	}
+	switch mode {
+	case inboundWebhookRouteModeTask, inboundWebhookRouteModeSession:
+		return mode, nil
+	default:
+		return "", fmt.Errorf("unsupported mode %q", raw)
+	}
+}
+
+func normalizeInboundWebhookAuthPolicy(raw InboundWebhookRouteAuthConfig) (inboundWebhookAuthPolicy, error) {
+	policy := inboundWebhookAuthPolicy{
+		Type:   strings.ToLower(strings.TrimSpace(raw.Type)),
+		Header: strings.TrimSpace(raw.Header),
+		Value:  strings.TrimSpace(raw.Value),
+	}
+	if policy.Type == "" {
+		policy.Type = inboundWebhookAuthTypeNone
+	}
+	switch policy.Type {
+	case inboundWebhookAuthTypeNone:
+		return inboundWebhookAuthPolicy{Type: inboundWebhookAuthTypeNone}, nil
+	case inboundWebhookAuthTypeHeader:
+		if policy.Header == "" {
+			return inboundWebhookAuthPolicy{}, fmt.Errorf("header is required for type=%q", inboundWebhookAuthTypeHeader)
+		}
+		if policy.Value == "" {
+			return inboundWebhookAuthPolicy{}, fmt.Errorf("value is required for type=%q", inboundWebhookAuthTypeHeader)
+		}
+		return policy, nil
+	default:
+		return inboundWebhookAuthPolicy{}, fmt.Errorf("unsupported type %q", raw.Type)
+	}
+}
+
+func normalizeInboundWebhookDedupePolicy(raw InboundWebhookRouteDedupeConfig) (inboundWebhookDedupePolicy, error) {
+	policy := inboundWebhookDedupePolicy{
+		Source: strings.ToLower(strings.TrimSpace(raw.Source)),
+		Header: strings.TrimSpace(raw.Header),
+	}
+	if policy.Source == "" && policy.Header != "" {
+		policy.Source = inboundWebhookDedupeSourceHeader
+	}
+	if policy.Source == "" {
+		policy.Source = inboundWebhookDedupeSourceRequestID
+	}
+	switch policy.Source {
+	case inboundWebhookDedupeSourceRequestID, inboundWebhookDedupeSourceBodySHA:
+		return policy, nil
+	case inboundWebhookDedupeSourceHeader:
+		if policy.Header == "" {
+			return inboundWebhookDedupePolicy{}, fmt.Errorf("header is required for source=%q", inboundWebhookDedupeSourceHeader)
+		}
+		return policy, nil
+	default:
+		return inboundWebhookDedupePolicy{}, fmt.Errorf("unsupported source %q", raw.Source)
+	}
 }
 
 func (r *InboundWebhookReceiver) start(_ context.Context) error {
@@ -378,6 +546,16 @@ func (r *InboundWebhookReceiver) handleInboundWebhook(w http.ResponseWriter, req
 		))
 		return
 	}
+	if authErr := authorizeInboundWebhookRequest(req, route.Auth); authErr != nil {
+		r.metrics.unauthorized.Add(1)
+		r.writeInboundWebhookError(w, requestID, newInboundWebhookHTTPError(
+			http.StatusUnauthorized,
+			inboundWebhookCodeUnauthorized,
+			"webhook request is unauthorized",
+			authErr,
+		))
+		return
+	}
 
 	rawBody, readErr := readInboundWebhookBody(req.Body)
 	if readErr != nil {
@@ -408,9 +586,7 @@ func (r *InboundWebhookReceiver) handleInboundWebhook(w http.ResponseWriter, req
 		))
 		return
 	}
-
-	env := ownerEnvelope(prompt)
-	target, targetErr := resolveEnvelopeTarget(req.Context(), r.owner, env.Target)
+	target, targetErr := resolveEnvelopeTarget(req.Context(), r.owner, route.Target)
 	if targetErr != nil {
 		r.metrics.notFound.Add(1)
 		r.writeInboundWebhookError(w, requestID, newInboundWebhookHTTPError(
@@ -421,17 +597,43 @@ func (r *InboundWebhookReceiver) handleInboundWebhook(w http.ResponseWriter, req
 		))
 		return
 	}
-
-	result, taskID, enqueueErr := r.balda.submitWebhookTask(req.Context(), sessionTurnPayload{
-		Text:           env.Content,
+	var reportTo *baldasession.SessionLocator
+	if route.ReportTo != nil {
+		resolved, err := resolveEnvelopeTarget(req.Context(), r.owner, *route.ReportTo)
+		if err != nil {
+			r.metrics.notFound.Add(1)
+			r.writeInboundWebhookError(w, requestID, newInboundWebhookHTTPError(
+				http.StatusNotFound,
+				inboundWebhookCodeSessionNotFound,
+				"failed to resolve webhook report_to",
+				err,
+			))
+			return
+		}
+		reportTo = &resolved.Locator
+	}
+	dedupeKey := dedupeKeyForInboundWebhook(route, req, requestID, rawBody)
+	payload := sessionTurnPayload{
+		Text:           prompt,
 		Locator:        target.Locator,
+		ReportTo:       reportTo,
 		UserID:         target.UserID,
 		TopicID:        target.TopicID,
 		ProgressPolicy: inboundWebhookProgressPolicy(),
-		Deliver:        env.ReportTo != nil,
+		Deliver:        reportTo != nil,
 		Source:         sessionTurnSourceWebhook,
-		DedupeKey:      "webhook:" + route.Name + ":" + requestID,
-	}, route.Name, requestID)
+		DedupeKey:      dedupeKey,
+	}
+	var (
+		result     *swarm.CommandPublishResult
+		taskID     string
+		enqueueErr error
+	)
+	if route.Mode == inboundWebhookRouteModeSession {
+		result, enqueueErr = r.balda.submitSessionTurn(req.Context(), payload)
+	} else {
+		result, taskID, enqueueErr = r.balda.submitWebhookTask(req.Context(), payload, route.Name, requestID)
+	}
 	if enqueueErr != nil {
 		if swarm.IsCommandQueueFull(enqueueErr) {
 			r.metrics.queueFull.Add(1)
@@ -462,6 +664,8 @@ func (r *InboundWebhookReceiver) handleInboundWebhook(w http.ResponseWriter, req
 		Str("session_id", target.Locator.SessionID).
 		Str("channel_type", target.Locator.ChannelType).
 		Str("address_key", target.Locator.AddressKey).
+		Str("mode", route.Mode).
+		Str("dedupe_key", dedupeKey).
 		Str("stream", result.Stream).
 		Uint64("sequence", result.Sequence).
 		Str("task_id", taskID).
@@ -486,6 +690,40 @@ func requestIDFromInboundWebhookRequest(req *http.Request) string {
 		return requestID
 	}
 	return fmt.Sprintf("inbound-%d", time.Now().UnixNano())
+}
+
+func authorizeInboundWebhookRequest(req *http.Request, policy inboundWebhookAuthPolicy) error {
+	switch policy.Type {
+	case inboundWebhookAuthTypeNone:
+		return nil
+	case inboundWebhookAuthTypeHeader:
+		got := strings.TrimSpace(req.Header.Get(policy.Header))
+		want := strings.TrimSpace(policy.Value)
+		if subtle.ConstantTimeCompare([]byte(got), []byte(want)) != 1 {
+			return fmt.Errorf("header %q does not match", policy.Header)
+		}
+		return nil
+	default:
+		return fmt.Errorf("unsupported auth type %q", policy.Type)
+	}
+}
+
+func dedupeKeyForInboundWebhook(route inboundWebhookRoute, req *http.Request, requestID string, body string) string {
+	base := strings.TrimSpace(requestID)
+	switch route.Dedupe.Source {
+	case inboundWebhookDedupeSourceHeader:
+		if header := strings.TrimSpace(req.Header.Get(route.Dedupe.Header)); header != "" {
+			base = header
+		}
+	case inboundWebhookDedupeSourceBodySHA:
+		base = webhookBodySHA256(body)
+	}
+	return strings.Join([]string{"webhook", strings.TrimSpace(route.Name), base}, ":")
+}
+
+func webhookBodySHA256(body string) string {
+	sum := sha256.Sum256([]byte(body))
+	return fmt.Sprintf("%x", sum[:])
 }
 
 func readInboundWebhookBody(body io.ReadCloser) (string, error) {

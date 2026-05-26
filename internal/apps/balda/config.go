@@ -50,10 +50,41 @@ type WebhooksConfig struct {
 	Routes     map[string]WebhookRouteConfig `mapstructure:"routes"`
 }
 
-// WebhookRouteConfig binds a webhook path to a prompt template.
+// WebhookRouteConfig binds a webhook path to route envelope/auth/dedupe policy.
 type WebhookRouteConfig struct {
-	Path           string `mapstructure:"path"`
-	PromptTemplate string `mapstructure:"prompt_template"`
+	Path           string                     `mapstructure:"path"`
+	PromptTemplate string                     `mapstructure:"prompt_template"`
+	Envelope       WebhookRouteEnvelopeConfig `mapstructure:"envelope"`
+	Auth           WebhookRouteAuthConfig     `mapstructure:"auth"`
+	Dedupe         WebhookRouteDedupeConfig   `mapstructure:"dedupe"`
+}
+
+// WebhookRouteEnvelopeConfig configures the session envelope for one route.
+type WebhookRouteEnvelopeConfig struct {
+	Target   string                            `mapstructure:"target"`
+	Key      string                            `mapstructure:"key"`
+	Mode     string                            `mapstructure:"mode"`
+	ReportTo *WebhookRouteEnvelopeTargetConfig `mapstructure:"report_to"`
+}
+
+// WebhookRouteEnvelopeTargetConfig defines a route report_to address.
+type WebhookRouteEnvelopeTargetConfig struct {
+	Target string `mapstructure:"target"`
+	Key    string `mapstructure:"key"`
+}
+
+// WebhookRouteAuthConfig configures route-level request authentication.
+type WebhookRouteAuthConfig struct {
+	Type      string `mapstructure:"type"`
+	Header    string `mapstructure:"header"`
+	Value     string `mapstructure:"value"`
+	SecretEnv string `mapstructure:"secret_env"`
+}
+
+// WebhookRouteDedupeConfig configures dedupe key extraction for one route.
+type WebhookRouteDedupeConfig struct {
+	Source string `mapstructure:"source"`
+	Header string `mapstructure:"header"`
 }
 
 // LoggerConfig holds the logger configuration.

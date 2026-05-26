@@ -256,8 +256,8 @@ Common settings:
 - `balda.provider`: provider ID selected during `balda init`.
 - `balda.telegram.token`: Telegram bot token, usually supplied by `.env` as `BALDA_TELEGRAM_TOKEN`.
 - `balda.telegram.webhook.auth_token`: required when Telegram webhook mode is enabled; Telegram sends it as `X-Telegram-Bot-Api-Secret-Token`.
-- `balda.webhooks.*`: optional local inbound webhook receiver for external event-to-session prompt injection via route templates (`path`, `prompt_template`) into the owner DM session. Webhook ingress publishes to JetStream first; SessionActor restores or creates the owner session when the command is executed.
-- `balda.webhooks.*` security: inbound webhook requests are not authenticated by Balda; keep `listen_addr` private (localhost/private network) or front it with trusted gateway auth.
+- `balda.webhooks.*`: optional local inbound webhook receiver for external event-to-session ingress. Each route defines `path`, `prompt_template`, `envelope` (`target`, `key`, optional `mode=task|session`, optional `report_to`), `auth` (`type=none|header`, `header`, `value` or `secret_env`), and `dedupe` (`source=request_id|header|body_sha256`, optional `header` for header source).
+- `balda.webhooks.*` security: set route `auth` (for example shared-token header) and keep `listen_addr` private (localhost/private network) or front it with trusted gateway auth.
 - `balda.sessions.persistence`: `sqlite` by default; keeps ADK conversation history across restarts until `/reset` or explicit `/close`.
 - `balda.memory.enabled`: `true` by default; controls `${balda.state_dir}/MEMORY.md`, `/memory`, and `balda.memory.*` MCP tools.
 - `balda.goal.max_iterations`: maximum Goalkeeper worker/validator iterations for `/goal`; defaults to `25`.
@@ -266,7 +266,7 @@ Common settings:
 - `balda.swarm.commands.*`: JetStream command stream and durable pull consumer settings. `BALDA_COMMANDS` is the only command queue.
 - `balda.swarm.events.*`: JetStream event stream settings for command/task/delivery events.
 - `balda.swarm.dlq.*`: JetStream dead-letter stream settings for terminal command failures.
-- Actor-lane queue policy is not a public config surface yet; JetStream is the only command queue. SessionActor currently honors only the internal per-envelope `queue_mode=interrupt` control hint.
+- Actor-lane queue policy is not a public config surface yet; JetStream is the only durable command queue. Local in-process command fan-out is bounded to `fetch_batch`, and SessionActor currently honors only the internal per-envelope `queue_mode=interrupt` control hint.
 - `balda.swarm.agents.*`: logical single-process agent roles used by the swarm allocator. Defaults are `planner`, `executor`, `reviewer`, and `memory`; `tools` are advisory routing hints (`workspace`, `shell`, `mcp`, `memory`), not separate runtimes. Optional `cost_penalty` lowers allocator preference for expensive roles.
 - Task visibility: task events are published to `BALDA_EVENTS` and projected into SQLite for `/tasks`, `/task <id>`, and `/task <id> events`. Actor success does not depend on synchronous SQLite event projection. `/task <id> cancel` writes a durable JetStream control command. `/swarm status` and `/mailbox status` read JetStream transport state plus projection lag.
 - Command lifecycle events (`accepted|running|acked|retrying|deadlettered`) are best-effort visibility telemetry. Command settlement does not depend on lifecycle event publication.

@@ -45,8 +45,21 @@ func TestNormalizeInboundWebhookConfig_AllowsRouteWithoutReportTo(t *testing.T) 
 	if err != nil {
 		t.Fatalf("normalizeInboundWebhookConfig() error = %v", err)
 	}
-	if _, ok := got.Routes["/webhook1"]; !ok {
+	route, ok := got.Routes["/webhook1"]
+	if !ok {
 		t.Fatal("route /webhook1 missing")
+	}
+	if route.Target != ownerEnvelopeTarget() {
+		t.Fatalf("target = %+v, want owner alias target", route.Target)
+	}
+	if route.Mode != inboundWebhookRouteModeTask {
+		t.Fatalf("mode = %q, want %q", route.Mode, inboundWebhookRouteModeTask)
+	}
+	if route.Auth.Type != inboundWebhookAuthTypeNone {
+		t.Fatalf("auth type = %q, want %q", route.Auth.Type, inboundWebhookAuthTypeNone)
+	}
+	if route.Dedupe.Source != inboundWebhookDedupeSourceRequestID {
+		t.Fatalf("dedupe source = %q, want %q", route.Dedupe.Source, inboundWebhookDedupeSourceRequestID)
 	}
 }
 
@@ -70,6 +83,52 @@ func TestNormalizeInboundWebhookConfig_RejectsDuplicatePaths(t *testing.T) {
 		t.Fatal("normalizeInboundWebhookConfig() error = nil, want non-nil")
 	}
 	if !strings.Contains(err.Error(), "duplicates route") {
+		t.Fatalf("normalizeInboundWebhookConfig() error = %v", err)
+	}
+}
+
+func TestNormalizeInboundWebhookConfig_RejectsInvalidAuthHeaderPolicy(t *testing.T) {
+	t.Parallel()
+
+	_, err := normalizeInboundWebhookConfig(InboundWebhookConfig{
+		Enabled: true,
+		Routes: map[string]InboundWebhookRouteConfig{
+			"webhook1": {
+				Path:           "/webhook1",
+				PromptTemplate: "{{.RawBody}}",
+				Auth: InboundWebhookRouteAuthConfig{
+					Type: inboundWebhookAuthTypeHeader,
+				},
+			},
+		},
+	})
+	if err == nil {
+		t.Fatal("normalizeInboundWebhookConfig() error = nil, want non-nil")
+	}
+	if !strings.Contains(err.Error(), "auth") {
+		t.Fatalf("normalizeInboundWebhookConfig() error = %v", err)
+	}
+}
+
+func TestNormalizeInboundWebhookConfig_RejectsInvalidDedupeHeaderSource(t *testing.T) {
+	t.Parallel()
+
+	_, err := normalizeInboundWebhookConfig(InboundWebhookConfig{
+		Enabled: true,
+		Routes: map[string]InboundWebhookRouteConfig{
+			"webhook1": {
+				Path:           "/webhook1",
+				PromptTemplate: "{{.RawBody}}",
+				Dedupe: InboundWebhookRouteDedupeConfig{
+					Source: inboundWebhookDedupeSourceHeader,
+				},
+			},
+		},
+	})
+	if err == nil {
+		t.Fatal("normalizeInboundWebhookConfig() error = nil, want non-nil")
+	}
+	if !strings.Contains(err.Error(), "dedupe") {
 		t.Fatalf("normalizeInboundWebhookConfig() error = %v", err)
 	}
 }
@@ -98,6 +157,34 @@ func TestInboundWebhookReceiver_RouteNotFound(t *testing.T) {
 	assertInboundWebhookError(t, rec, http.StatusNotFound, inboundWebhookCodeRouteNotFound)
 }
 
+func TestInboundWebhookReceiver_Unauthorized(t *testing.T) {
+	t.Parallel()
+
+	receiver := newInboundWebhookReceiverForTest(t)
+	receiver.routes = map[string]inboundWebhookRoute{
+		"/webhook1": {
+			Name:           "webhook1",
+			Path:           "/webhook1",
+			PromptTemplate: template.Must(template.New("webhook1").Option("missingkey=error").Parse("{{.RawBody}}")),
+			Target:         ownerEnvelopeTarget(),
+			Mode:           inboundWebhookRouteModeTask,
+			Auth: inboundWebhookAuthPolicy{
+				Type:   inboundWebhookAuthTypeHeader,
+				Header: "X-Webhook-Token",
+				Value:  "secret",
+			},
+			Dedupe: inboundWebhookDedupePolicy{Source: inboundWebhookDedupeSourceRequestID},
+		},
+	}
+
+	req := httptest.NewRequest(http.MethodPost, "/webhook1", bytes.NewBufferString("payload"))
+	rec := httptest.NewRecorder()
+
+	receiver.handleInboundWebhook(rec, req)
+
+	assertInboundWebhookError(t, rec, http.StatusUnauthorized, inboundWebhookCodeUnauthorized)
+}
+
 func TestInboundWebhookReceiver_TemplateRenderError(t *testing.T) {
 	t.Parallel()
 
@@ -107,6 +194,10 @@ func TestInboundWebhookReceiver_TemplateRenderError(t *testing.T) {
 			Name:           "webhook1",
 			Path:           "/webhook1",
 			PromptTemplate: template.Must(template.New("webhook1").Option("missingkey=error").Parse("{{.Missing}}")),
+			Target:         ownerEnvelopeTarget(),
+			Mode:           inboundWebhookRouteModeTask,
+			Auth:           inboundWebhookAuthPolicy{Type: inboundWebhookAuthTypeNone},
+			Dedupe:         inboundWebhookDedupePolicy{Source: inboundWebhookDedupeSourceRequestID},
 		},
 	}
 
@@ -144,6 +235,10 @@ func TestInboundWebhookReceiver_QueueFull(t *testing.T) {
 			Name:           "webhook1",
 			Path:           "/webhook1",
 			PromptTemplate: template.Must(template.New("webhook1").Option("missingkey=error").Parse("{{.RawBody}}")),
+			Target:         ownerEnvelopeTarget(),
+			Mode:           inboundWebhookRouteModeTask,
+			Auth:           inboundWebhookAuthPolicy{Type: inboundWebhookAuthTypeNone},
+			Dedupe:         inboundWebhookDedupePolicy{Source: inboundWebhookDedupeSourceRequestID},
 		},
 	}
 
@@ -182,6 +277,10 @@ func TestInboundWebhookReceiver_AcceptsAndPublishesCommand(t *testing.T) {
 			Name:           "webhook1",
 			Path:           "/webhook1",
 			PromptTemplate: template.Must(template.New("webhook1").Option("missingkey=error").Parse("route={{.Path}} body={{.RawBody}}")),
+			Target:         ownerEnvelopeTarget(),
+			Mode:           inboundWebhookRouteModeTask,
+			Auth:           inboundWebhookAuthPolicy{Type: inboundWebhookAuthTypeNone},
+			Dedupe:         inboundWebhookDedupePolicy{Source: inboundWebhookDedupeSourceRequestID},
 		},
 	}
 
@@ -229,13 +328,106 @@ func TestInboundWebhookReceiver_AcceptsAndPublishesCommand(t *testing.T) {
 	if executor.deliver {
 		t.Fatal("executor deliver = true, want false for omitted report_to")
 	}
+	if got, want := executor.payload.DedupeKey, "webhook:webhook1:req-1"; got != want {
+		t.Fatalf("dedupe_key = %q, want %q", got, want)
+	}
+}
+
+func TestInboundWebhookReceiver_UsesRouteDedupeHeaderAndReportTo(t *testing.T) {
+	t.Parallel()
+
+	executor := &fakeInboundTurnExecutor{}
+	receiver := newInboundWebhookReceiverForTest(t)
+	receiver.balda = executor
+	receiver.routes = map[string]inboundWebhookRoute{
+		"/webhook1": {
+			Name:           "webhook1",
+			Path:           "/webhook1",
+			PromptTemplate: template.Must(template.New("webhook1").Option("missingkey=error").Parse("{{.RawBody}}")),
+			Target:         ownerEnvelopeTarget(),
+			Mode:           inboundWebhookRouteModeTask,
+			ReportTo:       &envelopeTarget{Target: envelopeTargetAlias, Key: envelopeAliasOwner},
+			Auth:           inboundWebhookAuthPolicy{Type: inboundWebhookAuthTypeNone},
+			Dedupe: inboundWebhookDedupePolicy{
+				Source: inboundWebhookDedupeSourceHeader,
+				Header: "X-Delivery-ID",
+			},
+		},
+	}
+
+	req := httptest.NewRequest(http.MethodPost, "/webhook1", bytes.NewBufferString(`{"event":"release"}`))
+	req.Header.Set("X-Request-Id", "req-1")
+	req.Header.Set("X-Delivery-ID", "delivery-123")
+	rec := httptest.NewRecorder()
+
+	receiver.handleInboundWebhook(rec, req)
+
+	if got, want := rec.Code, http.StatusAccepted; got != want {
+		t.Fatalf("status = %d, want %d", got, want)
+	}
+	if !executor.deliver {
+		t.Fatal("executor deliver = false, want true for report_to route")
+	}
+	if executor.payload.ReportTo == nil {
+		t.Fatal("report_to payload = nil, want resolved report_to locator")
+	}
+	if got, want := executor.payload.DedupeKey, "webhook:webhook1:delivery-123"; got != want {
+		t.Fatalf("dedupe_key = %q, want %q", got, want)
+	}
+}
+
+func TestInboundWebhookReceiver_SessionModePublishesSessionCommand(t *testing.T) {
+	t.Parallel()
+
+	executor := &fakeInboundTurnExecutor{}
+	receiver := newInboundWebhookReceiverForTest(t)
+	receiver.balda = executor
+	receiver.routes = map[string]inboundWebhookRoute{
+		"/webhook1": {
+			Name:           "webhook1",
+			Path:           "/webhook1",
+			PromptTemplate: template.Must(template.New("webhook1").Option("missingkey=error").Parse("{{.RawBody}}")),
+			Target:         ownerEnvelopeTarget(),
+			Mode:           inboundWebhookRouteModeSession,
+			Auth:           inboundWebhookAuthPolicy{Type: inboundWebhookAuthTypeNone},
+			Dedupe:         inboundWebhookDedupePolicy{Source: inboundWebhookDedupeSourceBodySHA},
+		},
+	}
+
+	req := httptest.NewRequest(http.MethodPost, "/webhook1", bytes.NewBufferString(`{"event":"release"}`))
+	req.Header.Set("X-Request-Id", "req-1")
+	rec := httptest.NewRecorder()
+
+	receiver.handleInboundWebhook(rec, req)
+
+	if got, want := rec.Code, http.StatusAccepted; got != want {
+		t.Fatalf("status = %d, want %d", got, want)
+	}
+	if executor.submitSessionCalls != 1 {
+		t.Fatalf("submitSessionTurn calls = %d, want 1", executor.submitSessionCalls)
+	}
+	if executor.submitWebhookCalls != 0 {
+		t.Fatalf("submitWebhookTask calls = %d, want 0", executor.submitWebhookCalls)
+	}
+	var response inboundWebhookAcceptedResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &response); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if response.TaskID != "" {
+		t.Fatalf("task_id = %q, want empty in session mode", response.TaskID)
+	}
 }
 
 type fakeInboundTurnExecutor struct {
-	calls     int
-	prompt    string
-	deliver   bool
-	submitErr error
+	calls              int
+	submitWebhookCalls int
+	submitSessionCalls int
+	prompt             string
+	deliver            bool
+	payload            sessionTurnPayload
+	lastRouteName      string
+	lastRequestID      string
+	submitErr          error
 }
 
 func (f *fakeInboundTurnExecutor) submitWebhookTask(
@@ -248,8 +440,12 @@ func (f *fakeInboundTurnExecutor) submitWebhookTask(
 		return nil, "", f.submitErr
 	}
 	f.calls++
+	f.submitWebhookCalls++
 	f.prompt = payload.Text
 	f.deliver = payload.Deliver
+	f.payload = payload
+	f.lastRouteName = routeName
+	f.lastRequestID = requestID
 	taskID := "webhook-" + routeName + "-test"
 	return &swarm.CommandPublishResult{
 		Stream:   swarm.DefaultCommandStream,
@@ -257,6 +453,23 @@ func (f *fakeInboundTurnExecutor) submitWebhookTask(
 		Subject:  swarm.SubjectCommandTask,
 		MsgID:    "webhook:" + routeName + ":" + requestID,
 	}, taskID, nil
+}
+
+func (f *fakeInboundTurnExecutor) submitSessionTurn(_ context.Context, payload sessionTurnPayload) (*swarm.CommandPublishResult, error) {
+	if f.submitErr != nil {
+		return nil, f.submitErr
+	}
+	f.calls++
+	f.submitSessionCalls++
+	f.prompt = payload.Text
+	f.deliver = payload.Deliver
+	f.payload = payload
+	return &swarm.CommandPublishResult{
+		Stream:   swarm.DefaultCommandStream,
+		Sequence: 1,
+		Subject:  swarm.SubjectCommandSession,
+		MsgID:    payload.DedupeKey,
+	}, nil
 }
 
 func (f *fakeInboundTurnExecutor) runTurnTaskWithDelivery(
@@ -288,6 +501,10 @@ func newInboundWebhookReceiverForTest(t *testing.T) *InboundWebhookReceiver {
 				Name:           "webhook1",
 				Path:           "/webhook1",
 				PromptTemplate: template.Must(template.New("webhook1").Option("missingkey=error").Parse("{{.RawBody}}")),
+				Target:         ownerEnvelopeTarget(),
+				Mode:           inboundWebhookRouteModeTask,
+				Auth:           inboundWebhookAuthPolicy{Type: inboundWebhookAuthTypeNone},
+				Dedupe:         inboundWebhookDedupePolicy{Source: inboundWebhookDedupeSourceRequestID},
 			},
 		},
 		balda:  &fakeInboundTurnExecutor{},

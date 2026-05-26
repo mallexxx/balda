@@ -20,23 +20,10 @@ type envelopeTarget struct {
 	Key    string
 }
 
-type envelope struct {
-	Target   envelopeTarget
-	Content  string
-	ReportTo *envelopeTarget
-}
-
 type resolvedEnvelopeTarget struct {
 	Locator baldasession.SessionLocator
 	UserID  string
 	TopicID int
-}
-
-func ownerEnvelope(content string) envelope {
-	return envelope{
-		Target:  ownerEnvelopeTarget(),
-		Content: strings.TrimSpace(content),
-	}
 }
 
 func ownerEnvelopeTarget() envelopeTarget {

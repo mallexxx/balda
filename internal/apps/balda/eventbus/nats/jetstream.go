@@ -36,7 +36,8 @@ func (b *Bus) RunCommandConsumer(ctx context.Context, handler swarm.CommandHandl
 	if b == nil || b.consumer == nil {
 		return fmt.Errorf("jetstream command consumer is required")
 	}
-	workers := make(chan struct{}, b.commandWorkerLimit())
+	workerLimit := b.commandWorkerLimit()
+	workers := make(chan struct{}, workerLimit)
 	var wg sync.WaitGroup
 	defer wg.Wait()
 	for {
@@ -45,7 +46,19 @@ func (b *Bus) RunCommandConsumer(ctx context.Context, handler swarm.CommandHandl
 			return ctx.Err()
 		default:
 		}
-		batch, err := b.consumer.Fetch(b.cfg.Swarm.Commands.FetchBatch, jetstream.FetchMaxWait(b.cfg.FetchWait))
+		available := workerLimit - len(workers)
+		if available <= 0 {
+			time.Sleep(10 * time.Millisecond)
+			continue
+		}
+		fetchSize := b.cfg.Swarm.Commands.FetchBatch
+		if fetchSize <= 0 {
+			fetchSize = 1
+		}
+		if fetchSize > available {
+			fetchSize = available
+		}
+		batch, err := b.consumer.Fetch(fetchSize, jetstream.FetchMaxWait(b.cfg.FetchWait))
 		if err != nil {
 			if ctx.Err() != nil {
 				return ctx.Err()
@@ -76,10 +89,12 @@ func (b *Bus) commandWorkerLimit() int {
 		return 1
 	}
 	switch {
+	case b.cfg.Swarm.Commands.FetchBatch > 0:
+		// Keep local in-memory fan-out bounded to the pull batch size.
+		// JetStream max_ack_pending stays the transport limit.
+		return b.cfg.Swarm.Commands.FetchBatch
 	case b.cfg.Swarm.Commands.MaxAckPending > 0:
 		return b.cfg.Swarm.Commands.MaxAckPending
-	case b.cfg.Swarm.Commands.FetchBatch > 0:
-		return b.cfg.Swarm.Commands.FetchBatch
 	default:
 		return 1
 	}

@@ -41,13 +41,20 @@ balda:
     enabled: false
     # Local bind address for inbound webhook endpoint.
     listen_addr: "127.0.0.1:8090"
-    # WARNING: inbound webhooks are not authenticated by balda itself.
-    # Keep this endpoint private (localhost, VPN, or trusted gateway).
     # Route table for inbound webhook events.
     # Each route binds:
     # - path: incoming webhook path
     # - prompt_template: Go text/template rendered with request data
-    # Target session is always the owner DM session.
+    # - envelope: explicit destination and mode
+    #   - target/key: destination address (default alias/owner)
+    #   - mode: task|session (default task)
+    #   - report_to: optional destination for progress/final replies
+    # - auth: route auth policy
+    #   - type: none|header
+    #   - header/value: required for type=header
+    # - dedupe: route dedupe policy
+    #   - source: request_id|header|body_sha256
+    #   - header: required for source=header
     # Available template fields: RequestID, Path, Method, RawBody, Headers
     # Example:
     # routes:
@@ -57,6 +64,17 @@ balda:
     #       Request {{.RequestID}} on {{.Path}}
     #       Body:
     #       {{.RawBody}}
+    #     envelope:
+    #       target: "alias"
+    #       key: "owner"
+    #       mode: "task"
+    #     auth:
+    #       type: "header"
+    #       header: "X-Webhook-Token"
+    #       secret_env: "BALDA_RELEASE_WEBHOOK_TOKEN"
+    #     dedupe:
+    #       source: "header"
+    #       header: "X-Delivery-ID"
     routes: {}
 
   logger:

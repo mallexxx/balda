@@ -582,9 +582,37 @@ func buildScheduledTaskSchedulerConfig(cfg BaldaConfig) handlers.ScheduledTaskSc
 func buildInboundWebhookConfig(cfg BaldaConfig) handlers.InboundWebhookConfig {
 	routes := make(map[string]handlers.InboundWebhookRouteConfig, len(cfg.Webhooks.Routes))
 	for routeName, route := range cfg.Webhooks.Routes {
+		var reportTo *handlers.InboundWebhookRouteTargetConfig
+		if route.Envelope.ReportTo != nil {
+			reportTo = &handlers.InboundWebhookRouteTargetConfig{
+				Target: strings.TrimSpace(route.Envelope.ReportTo.Target),
+				Key:    strings.TrimSpace(route.Envelope.ReportTo.Key),
+			}
+		}
+		authValue := strings.TrimSpace(route.Auth.Value)
+		if authValue == "" {
+			if envKey := strings.TrimSpace(route.Auth.SecretEnv); envKey != "" {
+				authValue = strings.TrimSpace(os.Getenv(envKey))
+			}
+		}
 		routes[strings.TrimSpace(routeName)] = handlers.InboundWebhookRouteConfig{
 			Path:           strings.TrimSpace(route.Path),
 			PromptTemplate: strings.TrimSpace(route.PromptTemplate),
+			Envelope: handlers.InboundWebhookRouteEnvelopeConfig{
+				Target:   strings.TrimSpace(route.Envelope.Target),
+				Key:      strings.TrimSpace(route.Envelope.Key),
+				Mode:     strings.TrimSpace(route.Envelope.Mode),
+				ReportTo: reportTo,
+			},
+			Auth: handlers.InboundWebhookRouteAuthConfig{
+				Type:   strings.TrimSpace(route.Auth.Type),
+				Header: strings.TrimSpace(route.Auth.Header),
+				Value:  authValue,
+			},
+			Dedupe: handlers.InboundWebhookRouteDedupeConfig{
+				Source: strings.TrimSpace(route.Dedupe.Source),
+				Header: strings.TrimSpace(route.Dedupe.Header),
+			},
 		}
 	}
 
