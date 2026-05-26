@@ -23,6 +23,7 @@ type taskControlPayload struct {
 	Locator     baldasession.SessionLocator `json:"locator"`
 	Reason      string                      `json:"reason,omitempty"`
 	RequestedBy string                      `json:"requested_by,omitempty"`
+	Notify      bool                        `json:"notify,omitempty"`
 }
 
 type taskControlActor struct {
@@ -87,11 +88,15 @@ func (a *taskControlActor) cancelTask(ctx context.Context, env swarm.Envelope, p
 		return swarm.TransientError(err)
 	}
 	if !ok {
-		a.sendControlMessage(ctx, payload.Locator, fmt.Sprintf("Task %q not found.", taskID))
+		if payload.Notify {
+			a.sendControlMessage(ctx, payload.Locator, fmt.Sprintf("Task %q not found.", taskID))
+		}
 		return nil
 	}
 	if isTerminalTaskStatus(task.Status) {
-		a.sendControlMessage(ctx, payload.Locator, fmt.Sprintf("Task %s is already %s.", task.ID, task.Status))
+		if payload.Notify {
+			a.sendControlMessage(ctx, payload.Locator, fmt.Sprintf("Task %s is already %s.", task.ID, task.Status))
+		}
 		return nil
 	}
 	runCanceled := false
@@ -109,7 +114,9 @@ func (a *taskControlActor) cancelTask(ctx context.Context, env swarm.Envelope, p
 	if err := a.tasks.CancelTask(ctx, task.ID, "command.task", reason); err != nil {
 		return swarm.TransientError(err)
 	}
-	a.sendControlMessage(ctx, payload.Locator, fmt.Sprintf("Canceled task %s. Active run canceled: %t.", task.ID, runCanceled))
+	if payload.Notify {
+		a.sendControlMessage(ctx, payload.Locator, fmt.Sprintf("Canceled task %s. Active run canceled: %t.", task.ID, runCanceled))
+	}
 	return nil
 }
 
@@ -138,7 +145,9 @@ func (a *taskControlActor) cancelSession(ctx context.Context, payload taskContro
 			}
 		}
 	}
-	a.sendControlMessage(ctx, payload.Locator, formatCancelResponse(hadInFlight, dropped, taskCanceled))
+	if payload.Notify {
+		a.sendControlMessage(ctx, payload.Locator, formatCancelResponse(hadInFlight, dropped, taskCanceled))
+	}
 	return nil
 }
 
@@ -169,6 +178,10 @@ func formatCancelResponse(hadInFlight bool, dropped int, taskCanceled int) strin
 }
 
 func controlCancelEnvelope(locator baldasession.SessionLocator, taskID string, requestedBy string, reason string) (swarm.Envelope, error) {
+	return controlCancelEnvelopeWithNotify(locator, taskID, requestedBy, reason, true)
+}
+
+func controlCancelEnvelopeWithNotify(locator baldasession.SessionLocator, taskID string, requestedBy string, reason string, notify bool) (swarm.Envelope, error) {
 	payload := taskControlPayload{
 		Action:      taskControlActionCancel,
 		TaskID:      strings.TrimSpace(taskID),
@@ -176,6 +189,7 @@ func controlCancelEnvelope(locator baldasession.SessionLocator, taskID string, r
 		Locator:     locator,
 		Reason:      strings.TrimSpace(reason),
 		RequestedBy: strings.TrimSpace(requestedBy),
+		Notify:      notify,
 	}
 	data, err := json.Marshal(payload)
 	if err != nil {

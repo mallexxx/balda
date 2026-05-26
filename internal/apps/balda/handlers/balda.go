@@ -354,7 +354,7 @@ func (h *BaldaHandler) runTurnTaskWithDelivery(
 	return err
 }
 
-func (h *BaldaHandler) onForumTopicLifecycle(_ context.Context, event *events.MessageEvent) error {
+func (h *BaldaHandler) onForumTopicLifecycle(ctx context.Context, event *events.MessageEvent) error {
 	lifecycle, ok := h.channel.TopicLifecycleFromEvent(event)
 	if !ok {
 		return nil
@@ -391,10 +391,8 @@ func (h *BaldaHandler) onForumTopicLifecycle(_ context.Context, event *events.Me
 		evt.Msg("forum topic edited")
 	case messagetype.ForumTopicClosed:
 		evt.Msg("forum topic closed")
-		if h.turnDispatcher != nil {
-			if _, _, err := h.turnDispatcher.CancelSession(lifecycle.Locator, true); err != nil {
-				h.logger.Warn().Err(err).Int64("chat_id", chatID).Int("topic_id", topicID).Msg("failed to cancel closed topic session turns")
-			}
+		if err := submitSessionCancelControl(ctx, h.swarmCoordinator, lifecycle.Locator, "system", "session canceled because forum topic was closed", false); err != nil {
+			h.logger.Warn().Err(err).Int64("chat_id", chatID).Int("topic_id", topicID).Msg("failed to publish forum-topic-close cancel control command")
 		}
 		if h.sessionManager != nil {
 			h.sessionManager.StopSession(lifecycle.Locator)

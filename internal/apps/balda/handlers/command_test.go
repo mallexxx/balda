@@ -39,8 +39,14 @@ func TestCommandHandlerOnCommand_CloseTopicAndStopSession(t *testing.T) {
 	if len(sm.resetCalls) != 1 {
 		t.Fatalf("ResetSession calls = %d, want 1", len(sm.resetCalls))
 	}
-	if len(turns.cancelCalls) != 1 {
-		t.Fatalf("CancelSession calls = %d, want 1", len(turns.cancelCalls))
+	if len(turns.cancelCalls) != 0 {
+		t.Fatalf("CancelSession calls = %d, want 0 before control actor runs", len(turns.cancelCalls))
+	}
+	if len(turns.commands) != 1 {
+		t.Fatalf("published commands = %d, want 1", len(turns.commands))
+	}
+	if turns.commands[0].Namespace != swarm.NamespaceTaskControl || turns.commands[0].Kind != swarm.KindCancel {
+		t.Fatalf("published command = %+v, want task control cancel", turns.commands[0])
 	}
 	if tgClient.closedTopicIDs[0] != topicID {
 		t.Fatalf("CloseTopic call = %d, want topic=%d", tgClient.closedTopicIDs[0], topicID)
@@ -68,8 +74,14 @@ func TestCommandHandlerOnCommand_CloseRootResetsSessionHistory(t *testing.T) {
 	if len(sm.resetCalls) != 1 {
 		t.Fatalf("ResetSession calls = %d, want 1", len(sm.resetCalls))
 	}
-	if len(turns.cancelCalls) != 1 {
-		t.Fatalf("CancelSession calls = %d, want 1", len(turns.cancelCalls))
+	if len(turns.cancelCalls) != 0 {
+		t.Fatalf("CancelSession calls = %d, want 0 before control actor runs", len(turns.cancelCalls))
+	}
+	if len(turns.commands) != 1 {
+		t.Fatalf("published commands = %d, want 1", len(turns.commands))
+	}
+	if turns.commands[0].Namespace != swarm.NamespaceTaskControl || turns.commands[0].Kind != swarm.KindCancel {
+		t.Fatalf("published command = %+v, want task control cancel", turns.commands[0])
 	}
 	if sm.resetCalls[0].SessionID != "tg-9001-0" {
 		t.Fatalf("ResetSession call = %+v, want session=tg-9001-0", sm.resetCalls[0])
@@ -143,8 +155,14 @@ func TestCommandHandlerOnCommand_CloseCollaboratorAllowed(t *testing.T) {
 	if len(sm.resetCalls) != 1 {
 		t.Fatalf("ResetSession calls = %d, want 1", len(sm.resetCalls))
 	}
-	if len(turns.cancelCalls) != 1 {
-		t.Fatalf("CancelSession calls = %d, want 1", len(turns.cancelCalls))
+	if len(turns.cancelCalls) != 0 {
+		t.Fatalf("CancelSession calls = %d, want 0 before control actor runs", len(turns.cancelCalls))
+	}
+	if len(turns.commands) != 1 {
+		t.Fatalf("published commands = %d, want 1", len(turns.commands))
+	}
+	if turns.commands[0].Namespace != swarm.NamespaceTaskControl || turns.commands[0].Kind != swarm.KindCancel {
+		t.Fatalf("published command = %+v, want task control cancel", turns.commands[0])
 	}
 	if len(sm.stopCalls) != 0 {
 		t.Fatalf("StopSession calls = %d, want 0", len(sm.stopCalls))
@@ -164,8 +182,14 @@ func TestCommandHandlerOnCommand_CloseResetFailureDoesNotCloseTopic(t *testing.T
 	if len(sm.resetCalls) != 1 {
 		t.Fatalf("ResetSession calls = %d, want 1", len(sm.resetCalls))
 	}
-	if len(turns.cancelCalls) != 1 {
-		t.Fatalf("CancelSession calls = %d, want 1", len(turns.cancelCalls))
+	if len(turns.cancelCalls) != 0 {
+		t.Fatalf("CancelSession calls = %d, want 0 before control actor runs", len(turns.cancelCalls))
+	}
+	if len(turns.commands) != 1 {
+		t.Fatalf("published commands = %d, want 1", len(turns.commands))
+	}
+	if turns.commands[0].Namespace != swarm.NamespaceTaskControl || turns.commands[0].Kind != swarm.KindCancel {
+		t.Fatalf("published command = %+v, want task control cancel", turns.commands[0])
 	}
 	if len(tgClient.closedTopicIDs) != 0 {
 		t.Fatalf("CloseTopic calls = %d, want 0", len(tgClient.closedTopicIDs))
@@ -490,8 +514,14 @@ func TestCommandHandlerOnCommand_ResetClearsSessionHistory(t *testing.T) {
 	if sm.resetCalls[0].SessionID != "tg-9001-88" {
 		t.Fatalf("ResetSession call = %+v, want session=tg-9001-88", sm.resetCalls[0])
 	}
-	if len(turns.cancelCalls) != 1 {
-		t.Fatalf("CancelSession calls = %d, want 1", len(turns.cancelCalls))
+	if len(turns.cancelCalls) != 0 {
+		t.Fatalf("CancelSession calls = %d, want 0 before control actor runs", len(turns.cancelCalls))
+	}
+	if len(turns.commands) != 1 {
+		t.Fatalf("published commands = %d, want 1", len(turns.commands))
+	}
+	if turns.commands[0].Namespace != swarm.NamespaceTaskControl || turns.commands[0].Kind != swarm.KindCancel {
+		t.Fatalf("published command = %+v, want task control cancel", turns.commands[0])
 	}
 	if len(sm.stopCalls) != 0 {
 		t.Fatalf("StopSession calls = %d, want 0", len(sm.stopCalls))

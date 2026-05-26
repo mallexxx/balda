@@ -324,8 +324,8 @@ func (h *CommandHandler) onCloseCommand(ctx context.Context, commandCtx baldatel
 	}
 
 	if commandCtx.TopicID > 0 {
-		if h.turnDispatcher != nil {
-			_, _, _ = h.turnDispatcher.CancelSession(commandCtx.Locator, true)
+		if err := submitSessionCancelControl(ctx, h.swarmCoordinator, commandCtx.Locator, baldatelegram.UserID(commandCtx.UserID), "session canceled by close command", false); err != nil {
+			log.Warn().Err(err).Str("session_id", commandCtx.Locator.SessionID).Msg("failed to publish /close cancel control command")
 		}
 		if err := h.sessionManager.ResetSession(ctx, commandCtx.Locator); err != nil {
 			log.Warn().Err(err).Str("session_id", commandCtx.Locator.SessionID).Msg("failed to reset session during /close")
@@ -343,8 +343,8 @@ func (h *CommandHandler) onCloseCommand(ctx context.Context, commandCtx baldatel
 		return nil
 	}
 
-	if h.turnDispatcher != nil {
-		_, _, _ = h.turnDispatcher.CancelSession(commandCtx.Locator, true)
+	if err := submitSessionCancelControl(ctx, h.swarmCoordinator, commandCtx.Locator, baldatelegram.UserID(commandCtx.UserID), "session canceled by close command", false); err != nil {
+		log.Warn().Err(err).Str("session_id", commandCtx.Locator.SessionID).Msg("failed to publish /close cancel control command")
 	}
 	if err := h.sessionManager.ResetSession(ctx, commandCtx.Locator); err != nil {
 		log.Warn().Err(err).Str("session_id", commandCtx.Locator.SessionID).Msg("failed to reset owner session during /close")
@@ -374,8 +374,8 @@ func (h *CommandHandler) onResetCommand(ctx context.Context, commandCtx baldatel
 		return nil
 	}
 
-	if h.turnDispatcher != nil {
-		_, _, _ = h.turnDispatcher.CancelSession(commandCtx.Locator, true)
+	if err := submitSessionCancelControl(ctx, h.swarmCoordinator, commandCtx.Locator, baldatelegram.UserID(commandCtx.UserID), "session canceled by reset command", false); err != nil {
+		log.Warn().Err(err).Str("session_id", commandCtx.Locator.SessionID).Msg("failed to publish /reset cancel control command")
 	}
 	if err := h.sessionManager.ResetSession(ctx, commandCtx.Locator); err != nil {
 		log.Warn().Err(err).Str("session_id", commandCtx.Locator.SessionID).Msg("failed to reset session")

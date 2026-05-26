@@ -23,6 +23,15 @@ func TestJetStreamArchitectureContract_Static(t *testing.T) {
 		}
 	})
 
+	t.Run("handlers do not call turn dispatcher cancellation directly", func(t *testing.T) {
+		matches := findSourceMatches(t, root, files, regexp.MustCompile(`\.CancelSession\s*\(`))
+		assertOnlyAllowedFiles(t, matches, []string{
+			"handlers/turn_dispatcher.go",
+			"handlers/swarm_control_actor.go",
+			"handlers/swarm_session_actor.go",
+		})
+	})
+
 	t.Run("actors execute from the JetStream command consumer", func(t *testing.T) {
 		matches := findSourceMatches(t, root, files, regexp.MustCompile(`RunCommandConsumer\s*\(`))
 		assertOnlyAllowedFiles(t, matches, []string{

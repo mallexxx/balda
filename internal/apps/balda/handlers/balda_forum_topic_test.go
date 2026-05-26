@@ -129,6 +129,9 @@ func TestBaldaHandlerOnForumTopicLifecycle_ClosedStopsTopicSession(t *testing.T)
 		channel:        newBaldaTestTelegramAdapter(),
 		sessionManager: sessionManager,
 		turnDispatcher: turnDispatcher,
+		swarmCoordinator: swarm.NewCoordinator(turnDispatcher, swarm.Config{
+			Enabled: true,
+		}),
 	}
 	handler.setChatID(9001)
 
@@ -149,11 +152,14 @@ func TestBaldaHandlerOnForumTopicLifecycle_ClosedStopsTopicSession(t *testing.T)
 		t.Fatalf("onForumTopicLifecycle() error = %v", err)
 	}
 
-	if len(turnDispatcher.cancelCalls) != 1 {
-		t.Fatalf("CancelSession calls = %d, want 1", len(turnDispatcher.cancelCalls))
+	if len(turnDispatcher.cancelCalls) != 0 {
+		t.Fatalf("CancelSession calls = %d, want 0 before control actor runs", len(turnDispatcher.cancelCalls))
 	}
-	if got := turnDispatcher.cancelCalls[0]; got.SessionID != locator.SessionID || !got.ClearQueued {
-		t.Fatalf("CancelSession call = %+v, want session=%s clearQueued=true", got, locator.SessionID)
+	if len(turnDispatcher.commands) != 1 {
+		t.Fatalf("published commands = %d, want 1", len(turnDispatcher.commands))
+	}
+	if turnDispatcher.commands[0].Namespace != swarm.NamespaceTaskControl || turnDispatcher.commands[0].Kind != swarm.KindCancel {
+		t.Fatalf("published command = %+v, want task control cancel", turnDispatcher.commands[0])
 	}
 	if _, err := sessionManager.GetSession(locator); err == nil {
 		t.Fatal("GetSession() error = nil, want stopped session")
