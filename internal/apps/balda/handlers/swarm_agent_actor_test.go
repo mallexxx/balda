@@ -347,6 +347,49 @@ func TestTaskAgentActorHandleUsesDerivedADKSessionID(t *testing.T) {
 	}
 }
 
+func TestTaskAgentActorHandleRejectsRoleToolPolicyBeforeRuntime(t *testing.T) {
+	ctx := context.Background()
+	provider, bus, coordinator, tasks, allocator := newTaskActorSwarmServices(t, ctx)
+	_ = provider
+	_ = bus
+	_ = allocator
+	manager := newBaldaRestoreSessionManager(
+		t,
+		&fakeBaldaRestoreAgentBuilder{},
+		&fakeBaldaRestoreRuntimeManager{providerID: "balda-provider"},
+		&fakeBaldaRestoreSessionStore{},
+	)
+	payload, env := taskAgentCommandForTest(t, "task-policy-reject", taskAgentRolePlanner, 1)
+	payload.RequestedTools = []string{swarm.AgentToolShell}
+	data, err := json.Marshal(payload)
+	if err != nil {
+		t.Fatalf("json.Marshal(payload) error = %v", err)
+	}
+	env.PayloadJSON = string(data)
+
+	runtimeBuilder := &recordingTaskAgentRuntimeBuilder{t: t}
+	actor := &taskAgentActor{
+		sessions:       manager,
+		runtimeBuilder: runtimeBuilder,
+		coordinator:    coordinator,
+		tasks:          tasks,
+	}
+
+	err = actor.Handle(ctx, env)
+	if err == nil {
+		t.Fatal("Handle() error = nil, want policy rejection")
+	}
+	if swarm.ClassifyError(err) != swarm.ErrorKindPolicy {
+		t.Fatalf("ClassifyError(%v) = %s, want policy", err, swarm.ClassifyError(err))
+	}
+	if len(runtimeBuilder.cfgs) != 0 {
+		t.Fatalf("BuildTaskAgentRuntime() calls = %d, want 0 on policy rejection", len(runtimeBuilder.cfgs))
+	}
+	if !strings.Contains(err.Error(), "not allowed") {
+		t.Fatalf("Handle() error = %v, want role tool policy marker", err)
+	}
+}
+
 func TestTaskAgentActorHandleRuntimeBootstrapFailureDoesNotReserveRunningStep(t *testing.T) {
 	ctx := context.Background()
 	_, bus, coordinator, tasks, _ := newTaskActorSwarmServices(t, ctx)

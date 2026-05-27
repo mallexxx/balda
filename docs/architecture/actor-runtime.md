@@ -12,6 +12,7 @@ Status: active
 - Task actors attach role-based shell execution policy metadata (`none`, `read_only`, `workspace_write`) to runtime status surfaces.
 - Role-level allowed tool contracts are stable and inspectable (`planner=none`, `executor=workspace,shell,mcp`, `reviewer=workspace,shell`, `memory=memory`).
 - Workspace access boundaries are role-based and inspectable (`none`, `read_only`, `read_write`).
+- Agent commands that request tools outside role policy are rejected before runtime execution.
 
 ## Related tests
 

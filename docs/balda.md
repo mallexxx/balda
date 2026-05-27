@@ -447,6 +447,7 @@ session-start snapshot. New or restored sessions read the latest file.
   - `memory`: `workspace_access=none`
   - custom agents derive shell policy from tools: `shell+workspace -> workspace_write`, `shell only -> read_only`, no shell -> `none`.
   - `/actors status` and `/swarm status` expose each configured actor role with `shell_policy=...`, `workspace_access=...`, and `allowed_tools=...`.
+  - Task/agent commands violating role tool policy are rejected as policy errors before runtime/tool execution.
 - internal durable memory uses `${balda.state_dir}/MEMORY.md` when `balda.memory.enabled=true`
   - `/memory` reads the current file in owner/collaborator direct messages.
   - `balda.memory.read` reads the file from MCP.

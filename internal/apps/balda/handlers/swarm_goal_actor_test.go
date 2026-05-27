@@ -613,6 +613,30 @@ func TestTaskActorPrepareAgentDispatchEnsuresSessionWhenWorkspaceMissing(t *test
 	}
 }
 
+func TestTaskActorPrepareAgentDispatchRejectsRoleToolPolicy(t *testing.T) {
+	ctx := context.Background()
+	exec := &taskActorExecutor{}
+	_, err := exec.prepareAgentDispatch(ctx, taskAgentCommandPayload{
+		TaskID:          "goal-tg-9001-99",
+		Role:            taskAgentRolePlanner,
+		Iteration:       1,
+		Locator:         taskActorTestLocator(),
+		Objective:       "plan only",
+		RequestedTools:  []string{swarm.AgentToolShell},
+		TransportUserID: testTelegramUserID101,
+		MaxIterations:   3,
+	})
+	if err == nil {
+		t.Fatal("prepareAgentDispatch() error = nil, want policy rejection")
+	}
+	if swarm.ClassifyError(err) != swarm.ErrorKindPolicy {
+		t.Fatalf("ClassifyError(%v) = %s, want policy", err, swarm.ClassifyError(err))
+	}
+	if !strings.Contains(err.Error(), "not allowed") {
+		t.Fatalf("prepareAgentDispatch() error = %v, want role tool policy marker", err)
+	}
+}
+
 func TestTaskActorDeliverAssignsDedupeKeyWithoutTaskID(t *testing.T) {
 	ctx := context.Background()
 	provider, bus, coordinator, tasks, allocator := newTaskActorSwarmServices(t, ctx)

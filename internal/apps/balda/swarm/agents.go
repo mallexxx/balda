@@ -25,6 +25,9 @@ const (
 	AgentWorkspaceAccessNone      = "none"
 	AgentWorkspaceAccessReadOnly  = "read_only"
 	AgentWorkspaceAccessReadWrite = "read_write"
+
+	agentRoleAliasWorker    = "worker"
+	agentRoleAliasValidator = "validator"
 )
 
 var supportedAgentTools = map[string]struct{}{
@@ -60,13 +63,8 @@ type AgentSpec struct {
 // ShellExecutionPolicy returns the actor shell policy derived from role defaults
 // and, for custom agents, from requested tool capabilities.
 func (s AgentSpec) ShellExecutionPolicy() string {
-	switch NormalizeAgentName(s.Name) {
-	case AgentNamePlanner, AgentNameMemory:
-		return AgentShellPolicyNone
-	case AgentNameReviewer:
-		return AgentShellPolicyReadOnly
-	case AgentNameExecutor:
-		return AgentShellPolicyWorkspaceWrite
+	if policy, ok := ShellExecutionPolicyForRole(s.Name); ok {
+		return policy
 	}
 	hasShell := false
 	hasWorkspace := false
@@ -85,6 +83,22 @@ func (s AgentSpec) ShellExecutionPolicy() string {
 		return AgentShellPolicyWorkspaceWrite
 	}
 	return AgentShellPolicyReadOnly
+}
+
+// ShellExecutionPolicyForRole returns role-level shell execution policy.
+// The bool result reports whether the role is known.
+func ShellExecutionPolicyForRole(role string) (string, bool) {
+	role = canonicalRoleForPolicy(role)
+	switch role {
+	case AgentNamePlanner, AgentNameMemory:
+		return AgentShellPolicyNone, true
+	case AgentNameReviewer:
+		return AgentShellPolicyReadOnly, true
+	case AgentNameExecutor:
+		return AgentShellPolicyWorkspaceWrite, true
+	default:
+		return "", false
+	}
 }
 
 type AgentRegistry struct {
@@ -196,14 +210,7 @@ func NormalizeAgentTools(raw []string) ([]string, error) {
 // AllowedToolsForRole returns the role-level allowed tool set contract.
 // The bool result reports whether the role is known.
 func AllowedToolsForRole(role string) ([]string, bool) {
-	switch NormalizeAgentName(role) {
-	case "worker":
-		role = AgentNameExecutor
-	case "validator":
-		role = AgentNameReviewer
-	default:
-		role = NormalizeAgentName(role)
-	}
+	role = canonicalRoleForPolicy(role)
 	allowed, ok := roleAllowedTools[role]
 	if !ok {
 		return nil, false
@@ -214,14 +221,7 @@ func AllowedToolsForRole(role string) ([]string, bool) {
 // WorkspaceAccessForRole returns role-level workspace boundary policy.
 // The bool result reports whether the role is known.
 func WorkspaceAccessForRole(role string) (string, bool) {
-	switch NormalizeAgentName(role) {
-	case "worker":
-		role = AgentNameExecutor
-	case "validator":
-		role = AgentNameReviewer
-	default:
-		role = NormalizeAgentName(role)
-	}
+	role = canonicalRoleForPolicy(role)
 	access, ok := roleWorkspaceAccess[role]
 	if !ok {
 		return "", false
@@ -415,6 +415,17 @@ func agentRoleText(raw string) string {
 	text := strings.ToLower(strings.TrimSpace(raw))
 	text = strings.NewReplacer("_", " ", "-", " ", ".", " ", ",", " ").Replace(text)
 	return text
+}
+
+func canonicalRoleForPolicy(role string) string {
+	switch NormalizeAgentName(role) {
+	case agentRoleAliasWorker:
+		return AgentNameExecutor
+	case agentRoleAliasValidator:
+		return AgentNameReviewer
+	default:
+		return NormalizeAgentName(role)
+	}
 }
 
 func firstNonEmpty(values ...string) string {

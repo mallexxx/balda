@@ -568,6 +568,14 @@ func (e *taskActorExecutor) prepareAgentDispatch(ctx context.Context, payload ta
 	if len(payload.RequestedTools) == 0 {
 		payload.RequestedTools = defaultTaskAgentTools(role)
 	}
+	normalizedTools, err := swarm.NormalizeAgentTools(payload.RequestedTools)
+	if err != nil {
+		return taskAgentDispatch{}, swarm.PolicyError(fmt.Errorf("requested tools: %w", err))
+	}
+	payload.RequestedTools = normalizedTools
+	if err := validateTaskAgentToolPolicy(payload); err != nil {
+		return taskAgentDispatch{}, swarm.PolicyError(err)
+	}
 	agentName := role
 	if e.agents != nil {
 		spec, err := e.agents.Allocate(ctx, swarm.AgentAllocationRequest{
