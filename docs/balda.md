@@ -609,6 +609,17 @@ runs, retries, or wakes up.
   - `BALDA_EVENT_PROJECTOR`: durable pull consumer that projects
     `BALDA_EVENTS` into SQLite read models. Permanent projection failures are
     terminated to `BALDA_DLQ`; transient failures retry with bounded delivery.
+
+#### Stream/consumer table
+
+| Name | Type | Subject filter | Retention / delivery | Key config |
+|---|---|---|---|---|
+| `BALDA_COMMANDS` | JetStream stream | `balda.v1.cmd.>` | work-queue retention | file storage, configurable limits/discard policy |
+| `BALDA_EVENTS` | JetStream stream | `balda.v1.evt.>` | limits retention | file storage, replay source for projections |
+| `BALDA_DLQ` | JetStream stream | `balda.v1.dlq.>` | limits retention | file storage, terminal failure inspection source |
+| `BALDA_WORKER_COMMANDS` | durable pull consumer (on `BALDA_COMMANDS`) | `balda.v1.cmd.>` | deliver-all + explicit ack | `ack_wait`, `max_deliver`, `max_ack_pending`, `fetch_batch`, `fetch_wait` |
+| `BALDA_EVENT_PROJECTOR` | durable pull consumer (on `BALDA_EVENTS`) | `balda.v1.evt.>` | deliver-all + explicit ack | same retry/backpressure knobs as command consumer; projector applies idempotent read-model updates |
+
 - Stable subjects:
   - Commands: `balda.v1.cmd.session`, `balda.v1.cmd.task`,
     `balda.v1.cmd.agent`, `balda.v1.cmd.memory`,
