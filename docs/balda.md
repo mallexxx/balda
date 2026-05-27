@@ -622,6 +622,26 @@ runs, retries, or wakes up.
     `balda.v1.evt.task.updated`, `balda.v1.evt.task.completed`,
     `balda.v1.evt.delivery.sent`.
   - DLQ: `balda.v1.dlq.command`.
+
+#### Command schema table
+
+All commands use the common envelope schema:
+`id`, `namespace`, `kind`, `from`, `to`, `payload_json` are required.
+`session_id`, `task_id`, `correlation_id`, `causation_id`, `dedupe_key`,
+`priority`, `meta`, and `report_to` are optional context fields.
+
+| Subject | Primary routing rule | Typical namespaces | Required contextual fields | Payload contract |
+|---|---|---|---|---|
+| `balda.v1.cmd.session` | `to.target=session` or namespace fallback | `human.inbound` | `session_id` for existing sessions | session-turn payload (prompt/content + locator/user metadata) |
+| `balda.v1.cmd.task` | `to.target=task` or namespace fallback | `webhook.inbound`, `schedule.inbound`, `agent.command` | `task_id` for existing task mutations; optional on task creation commands | task objective/target payload (goal, webhook task, scheduled task) |
+| `balda.v1.cmd.agent` | `to.target=agent` | `agent.command` | `task_id` for task-owned agent loops | planner/executor/reviewer command payload |
+| `balda.v1.cmd.memory` | `to.target=memory` | `memory.sync` | optional `task_id`/`session_id` scope | memory operation payload (`task_summary`, `session_summary`, `fact_extract`, `context_pack`) |
+| `balda.v1.cmd.delivery` | `to.target=delivery` | `agent.result` / delivery work namespaces | delivery address in `to.key`; `task_id` when task-owned | outbound delivery payload (channel message/terminal update) |
+| `balda.v1.cmd.control` | `namespace=task.control` (forced) | `task.control` | `task_id` and/or `session_id` | cancel/control payload (`reason`, actor/user origin) |
+
+Deduplication policy for all command subjects: JetStream message ID uses
+`dedupe_key` when present, otherwise `id`.
+
 - NATS identity is carried in headers: `Balda-Envelope-ID`,
   `Balda-Session-ID`, `Balda-Task-ID`, `Balda-Correlation-ID`,
   `Balda-Causation-ID`, `Balda-Dedupe-Key`, `Balda-Actor-Key`,
