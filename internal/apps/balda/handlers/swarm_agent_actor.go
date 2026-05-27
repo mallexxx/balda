@@ -181,6 +181,7 @@ func (a *taskAgentActor) recordProgress(ctx context.Context, payload taskAgentCo
 		return
 	}
 	progress := strings.TrimSpace(text)
+	progress = redactSecrets(progress)
 	if progress == "" {
 		return
 	}
@@ -332,11 +333,11 @@ func marshalTaskAgentResult(command taskAgentCommandPayload, text string, runErr
 		TransportUserID:  command.TransportUserID,
 		ExecutorOutput:   command.ExecutorOutput,
 		ReviewerFeedback: command.ReviewerFeedback,
-		Text:             strings.TrimSpace(text),
+		Text:             redactSecrets(strings.TrimSpace(text)),
 		MaxIterations:    command.MaxIterations,
 	}
 	if runErr != nil {
-		result.Error = strings.TrimSpace(runErr.Error())
+		result.Error = redactSecrets(strings.TrimSpace(runErr.Error()))
 	}
 	payload := taskEnvelopePayload{
 		Kind:        taskPayloadKindAgentResult,

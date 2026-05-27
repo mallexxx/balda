@@ -13,6 +13,7 @@ Status: active
 - Role-level allowed tool contracts are stable and inspectable (`planner=none`, `executor=workspace,shell,mcp`, `reviewer=workspace,shell`, `memory=memory`).
 - Workspace access boundaries are role-based and inspectable (`none`, `read_only`, `read_write`).
 - Agent commands that request tools outside role policy are rejected before runtime execution.
+- Task progress/results and task visibility payload summaries redact common secret/token patterns before persistence and delivery.
 
 ## Related tests
 

@@ -664,6 +664,31 @@ func TestTaskActorDeliverAssignsDedupeKeyWithoutTaskID(t *testing.T) {
 	}
 }
 
+func TestTaskResultPayloadRedactsSecrets(t *testing.T) {
+	got := taskResultPayload(taskAgentResultPayload{
+		PlannerOutput:    "api_key=raw",
+		ExecutorOutput:   "token=raw",
+		Text:             "Authorization: Bearer super-secret",
+		ReviewerFeedback: "password=raw",
+	}, true)
+
+	assertRedacted := func(key string) {
+		t.Helper()
+		value := strings.TrimSpace(got[key].(string))
+		if !strings.Contains(value, "[REDACTED]") {
+			t.Fatalf("%s = %q, want redacted marker", key, value)
+		}
+		if strings.Contains(value, "raw") || strings.Contains(value, "super-secret") {
+			t.Fatalf("%s = %q, contains unredacted secret", key, value)
+		}
+	}
+
+	assertRedacted("planner_output")
+	assertRedacted("executor_output")
+	assertRedacted("reviewer_output")
+	assertRedacted("reviewer_feedback")
+}
+
 func newTaskActorSwarmServices(t *testing.T, ctx context.Context) (baldastate.Provider, *recordingHandlerCommandBus, *swarm.Coordinator, *swarm.TaskService, *swarm.AgentAllocator) {
 	t.Helper()
 	provider, err := baldastate.NewSQLiteProvider(ctx, filepath.Join(t.TempDir(), "state.db"))

@@ -524,7 +524,7 @@ func formatTaskDetail(task baldastate.SwarmTaskRecord, events []baldastate.Swarm
 	out.WriteString(formatTaskTime(task.UpdatedAt))
 	if task.Error != "" {
 		out.WriteString("\nError: ")
-		out.WriteString(task.Error)
+		out.WriteString(redactSecrets(task.Error))
 	}
 	if isTerminalTaskStatus(task.Status) && strings.TrimSpace(task.ResultJSON) != "" {
 		out.WriteString("\n\n")
@@ -549,9 +549,11 @@ func renderReviewableOutcome(task baldastate.SwarmTaskRecord, artifacts taskArti
 	goalReached := boolFromResult(result, "goal_reached")
 	executorOutput := firstNonEmpty(stringFromResult(result, "executor_output"), stringFromResult(result, "final_text"))
 	reviewerOutput := firstNonEmpty(stringFromResult(result, "reviewer_output"), stringFromResult(result, "reviewer_feedback"))
+	executorOutput = redactSecrets(executorOutput)
+	reviewerOutput = redactSecrets(reviewerOutput)
 	whatWasDone := firstNonEmpty(executorOutput, task.Objective)
 	if !goalReached && task.Status != baldastate.SwarmTaskStatusCompleted && stringFromResult(result, "final_text") != "" {
-		whatWasDone = stringFromResult(result, "final_text")
+		whatWasDone = redactSecrets(stringFromResult(result, "final_text"))
 	}
 
 	var out strings.Builder
@@ -650,17 +652,17 @@ func summarizeTaskPayload(raw string) string {
 	}
 	var payload map[string]any
 	if err := json.Unmarshal([]byte(trimmed), &payload); err != nil {
-		return limitRunes(oneLine(trimmed), maxTaskPayloadSummary)
+		return limitRunes(oneLine(redactSecrets(trimmed)), maxTaskPayloadSummary)
 	}
 	keys := []string{"status", "reason", "role", "agent_name", "iteration", "text"}
 	parts := make([]string, 0, len(keys))
 	for _, key := range keys {
 		if value, ok := payload[key]; ok && fmt.Sprint(value) != "" {
-			parts = append(parts, key+"="+limitRunes(oneLine(fmt.Sprint(value)), maxTaskPayloadSummary))
+			parts = append(parts, key+"="+limitRunes(oneLine(redactSecrets(fmt.Sprint(value))), maxTaskPayloadSummary))
 		}
 	}
 	if len(parts) == 0 {
-		return limitRunes(oneLine(trimmed), maxTaskPayloadSummary)
+		return limitRunes(oneLine(redactSecrets(trimmed)), maxTaskPayloadSummary)
 	}
 	return strings.Join(parts, ", ")
 }

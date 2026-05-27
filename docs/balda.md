@@ -575,6 +575,9 @@ after command delivery.
   Result, Artifacts, Confidence, and Next action. Artifacts are best-effort
   workspace data from the bound session: changed files, branch, current commit,
   workspace export hint, and validation output.
+- Task progress/results and `/task` event payload summaries redact common
+  secret patterns (for example bearer tokens, `token=...`, `password=...`,
+  Telegram bot tokens, and PEM private keys) before persistence and delivery.
 - Visibility commands are read-only except `/task <id> cancel`, which only
   publishes control work. `/tasks` is scoped to the current session; `/task
   <id>` can inspect any visible task ID known to the instance.

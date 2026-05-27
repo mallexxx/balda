@@ -722,6 +722,7 @@ func (e *taskActorExecutor) handleAgentResult(ctx context.Context, env swarm.Env
 		return nil
 	}
 	if errText := strings.TrimSpace(payload.Error); errText != "" {
+		errText = redactSecrets(errText)
 		status := baldastate.SwarmTaskStatusFailed
 		if strings.Contains(strings.ToLower(errText), "cancel") {
 			status = baldastate.SwarmTaskStatusCanceled
@@ -917,6 +918,7 @@ func (e *taskActorExecutor) deliver(
 		return swarm.TransientError(fmt.Errorf("swarm coordinator is required"))
 	}
 	message := strings.TrimSpace(text)
+	message = redactSecrets(message)
 	if message == "" {
 		return nil
 	}
@@ -995,9 +997,9 @@ func taskResultPayload(payload taskAgentResultPayload, goalReached bool) map[str
 	return map[string]any{
 		"goal_reached":      goalReached,
 		"iterations":        payload.Iteration,
-		"planner_output":    strings.TrimSpace(payload.PlannerOutput),
-		"executor_output":   strings.TrimSpace(payload.ExecutorOutput),
-		"reviewer_output":   strings.TrimSpace(payload.Text),
-		"reviewer_feedback": strings.TrimSpace(payload.ReviewerFeedback),
+		"planner_output":    redactSecrets(strings.TrimSpace(payload.PlannerOutput)),
+		"executor_output":   redactSecrets(strings.TrimSpace(payload.ExecutorOutput)),
+		"reviewer_output":   redactSecrets(strings.TrimSpace(payload.Text)),
+		"reviewer_feedback": redactSecrets(strings.TrimSpace(payload.ReviewerFeedback)),
 	}
 }

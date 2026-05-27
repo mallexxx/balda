@@ -111,6 +111,48 @@ func TestCommandHandlerTaskVisibilityShowsTaskStatusWithoutProjectedEvents(t *te
 	assertLastSentContains(t, tgClient, "No events for task task-no-events.")
 }
 
+func TestCommandHandlerTaskVisibilityRedactsSecrets(t *testing.T) {
+	ctx := context.Background()
+	handler, _, _, tgClient := newCommandHandlerTestHarness(t)
+	_, bus, coordinator, tasks, registry := newTaskVisibilitySwarmServices(t, ctx)
+	handler.swarmConfig = swarm.Config{Enabled: true}
+	handler.swarmCoordinator = coordinator
+	handler.commandBus = bus
+	handler.tasks = tasks
+	handler.agentRegistry = registry
+
+	createTaskRecord(t, ctx, tasks, baldastate.SwarmTaskRecord{
+		ID:          "task-redact",
+		SessionID:   "tg-9001-0",
+		Title:       "Goal: redact",
+		Objective:   "verify redaction",
+		Status:      baldastate.SwarmTaskStatusCreated,
+		CreatedFrom: "goal",
+	})
+	if err := tasks.SetResult(
+		ctx,
+		"task-redact",
+		map[string]any{
+			"goal_reached":    true,
+			"executor_output": "token=abc123",
+			"reviewer_output": "Authorization: Bearer super-secret",
+		},
+		baldastate.SwarmTaskStatusCompleted,
+		"test",
+		"password=hidden",
+	); err != nil {
+		t.Fatalf("SetResult(redact) error = %v", err)
+	}
+
+	if err := handler.onCommand(ctx, newCommandEvent("task", "task-redact", 101, 9001, nil)); err != nil {
+		t.Fatalf("/task redact error = %v", err)
+	}
+	assertLastSentContains(t, tgClient, "[REDACTED]")
+	assertLastSentNotContains(t, tgClient, "abc123")
+	assertLastSentNotContains(t, tgClient, "super-secret")
+	assertLastSentNotContains(t, tgClient, "password=hidden")
+}
+
 func TestCommandHandlerSwarmQueueAndMailboxStatusCommands(t *testing.T) {
 	ctx := context.Background()
 	handler, _, _, tgClient := newCommandHandlerTestHarness(t)
