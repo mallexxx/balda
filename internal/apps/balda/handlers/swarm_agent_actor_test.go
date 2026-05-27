@@ -295,7 +295,7 @@ func TestTaskAgentActorHandleUsesDerivedADKSessionID(t *testing.T) {
 	locator := taskActorTestLocator()
 	if _, err := manager.EnsureSession(ctx, baldasession.SessionContext{
 		Locator: locator,
-		UserID:  "tg-101",
+		UserID:  testTelegramUserID101,
 	}, ownerSessionLabel); err != nil {
 		t.Fatalf("EnsureSession() error = %v", err)
 	}
@@ -318,8 +318,8 @@ func TestTaskAgentActorHandleUsesDerivedADKSessionID(t *testing.T) {
 	if runtimeBuilder.cfgs[0].SessionID == locator.SessionID {
 		t.Fatalf("runtime session id = %q, want derived task session (not base session id)", runtimeBuilder.cfgs[0].SessionID)
 	}
-	if runtimeBuilder.cfgs[0].UserID != "tg-101" {
-		t.Fatalf("runtime user id = %q, want tg-101", runtimeBuilder.cfgs[0].UserID)
+	if runtimeBuilder.cfgs[0].UserID != testTelegramUserID101 {
+		t.Fatalf("runtime user id = %q, want %s", runtimeBuilder.cfgs[0].UserID, testTelegramUserID101)
 	}
 	if !strings.HasPrefix(runtimeBuilder.cfgs[0].SessionID, locator.SessionID+"-a") {
 		t.Fatalf("runtime session id = %q, want derived id based on active agent session id", runtimeBuilder.cfgs[0].SessionID)
@@ -359,7 +359,7 @@ func TestTaskAgentActorHandleRuntimeBootstrapFailureDoesNotReserveRunningStep(t 
 	locator := taskActorTestLocator()
 	if _, err := manager.EnsureSession(ctx, baldasession.SessionContext{
 		Locator: locator,
-		UserID:  "tg-101",
+		UserID:  testTelegramUserID101,
 	}, ownerSessionLabel); err != nil {
 		t.Fatalf("EnsureSession() error = %v", err)
 	}
@@ -503,7 +503,7 @@ func taskAgentCommandForTest(t *testing.T, taskID string, role string, iteration
 		Iteration:       iteration,
 		Locator:         locator,
 		Objective:       "test objective",
-		TransportUserID: "tg-101",
+		TransportUserID: testTelegramUserID101,
 		MaxIterations:   3,
 	}
 	data, err := json.Marshal(payload)

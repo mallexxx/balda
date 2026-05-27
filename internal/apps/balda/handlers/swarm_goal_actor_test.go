@@ -558,6 +558,61 @@ func TestTaskAgentResolveSessionEnsuresMissingSession(t *testing.T) {
 	}
 }
 
+func TestTaskActorPrepareAgentDispatchHydratesWorkspaceFromSessionInfo(t *testing.T) {
+	ctx := context.Background()
+	locator := taskActorTestLocator()
+	ts := newBaldaTopicSession(t, locator.SessionID)
+	wantBranch := "norma/balda/" + locator.SessionID
+	wantWorkspace := "/tmp/balda-workspaces/" + locator.SessionID
+	setUnexportedField(t, ts, "branchName", wantBranch)
+	setUnexportedField(t, ts, "workspaceDir", wantWorkspace)
+	manager := newBaldaSessionManagerWithSession(t, locator, ts)
+	exec := &taskActorExecutor{sessions: manager}
+
+	dispatch, err := exec.prepareAgentDispatch(ctx, taskAgentCommandPayload{
+		TaskID:          "goal-" + locator.SessionID,
+		Role:            taskAgentRolePlanner,
+		Iteration:       1,
+		Locator:         locator,
+		Objective:       "fix failing tests",
+		TransportUserID: testTelegramUserID101,
+		MaxIterations:   3,
+	})
+	if err != nil {
+		t.Fatalf("prepareAgentDispatch() error = %v", err)
+	}
+	if dispatch.Payload.BranchName != wantBranch {
+		t.Fatalf("branch_name = %q, want %q", dispatch.Payload.BranchName, wantBranch)
+	}
+	if dispatch.Payload.WorkspaceDir != wantWorkspace {
+		t.Fatalf("workspace_dir = %q, want %q", dispatch.Payload.WorkspaceDir, wantWorkspace)
+	}
+}
+
+func TestTaskActorPrepareAgentDispatchEnsuresSessionWhenWorkspaceMissing(t *testing.T) {
+	ctx := context.Background()
+	locator := taskActorTestLocator()
+	locator.AddressJSON = `{"chat_id":9001,"topic_id":99}`
+	store := &fakeBaldaRestoreSessionStore{}
+	manager := newBaldaRestoreSessionManager(t, &fakeBaldaRestoreAgentBuilder{}, &fakeBaldaRestoreRuntimeManager{providerID: "balda-provider"}, store)
+	exec := &taskActorExecutor{sessions: manager}
+
+	if _, err := exec.prepareAgentDispatch(ctx, taskAgentCommandPayload{
+		TaskID:          "goal-" + locator.SessionID,
+		Role:            taskAgentRoleExecutor,
+		Iteration:       1,
+		Locator:         locator,
+		Objective:       "fix failing tests",
+		TransportUserID: testTelegramUserID101,
+		MaxIterations:   3,
+	}); err != nil {
+		t.Fatalf("prepareAgentDispatch() error = %v", err)
+	}
+	if store.lastUpsert.SessionID != locator.SessionID || store.lastUpsert.UserID != testTelegramUserID101 {
+		t.Fatalf("last upsert = %+v, want ensured session for tg-101", store.lastUpsert)
+	}
+}
+
 func TestTaskActorDeliverAssignsDedupeKeyWithoutTaskID(t *testing.T) {
 	ctx := context.Background()
 	provider, bus, coordinator, tasks, allocator := newTaskActorSwarmServices(t, ctx)

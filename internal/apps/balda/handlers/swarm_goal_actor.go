@@ -582,6 +582,9 @@ func (e *taskActorExecutor) prepareAgentDispatch(ctx context.Context, payload ta
 		agentName = spec.Name
 	}
 	payload.AgentName = agentName
+	if err := e.hydrateAgentWorkspace(ctx, &payload); err != nil {
+		return taskAgentDispatch{}, swarm.TransientError(fmt.Errorf("resolve task workspace: %w", err))
+	}
 	status := baldastate.SwarmTaskStatusWaitingForAgent
 	stepName := "executor"
 	switch role {
@@ -617,6 +620,44 @@ func (e *taskActorExecutor) prepareAgentDispatch(ctx context.Context, payload ta
 		StepName:  stepName,
 		Envelope:  env,
 	}, nil
+}
+
+func (e *taskActorExecutor) hydrateAgentWorkspace(ctx context.Context, payload *taskAgentCommandPayload) error {
+	if e == nil || payload == nil || e.sessions == nil {
+		return nil
+	}
+	if strings.TrimSpace(payload.BranchName) != "" && strings.TrimSpace(payload.WorkspaceDir) != "" {
+		return nil
+	}
+	if info, ok := taskSessionInfo(ctx, e.sessions, payload.Locator.SessionID); ok {
+		if strings.TrimSpace(payload.BranchName) == "" {
+			payload.BranchName = strings.TrimSpace(info.BranchName)
+		}
+		if strings.TrimSpace(payload.WorkspaceDir) == "" {
+			payload.WorkspaceDir = strings.TrimSpace(info.WorkspaceDir)
+		}
+	}
+	if strings.TrimSpace(payload.BranchName) != "" && strings.TrimSpace(payload.WorkspaceDir) != "" {
+		return nil
+	}
+	if strings.TrimSpace(payload.Locator.SessionID) == "" || strings.TrimSpace(payload.TransportUserID) == "" {
+		return nil
+	}
+	sessionCtx := baldasession.SessionContext{
+		Locator: payload.Locator,
+		UserID:  strings.TrimSpace(payload.TransportUserID),
+	}
+	ts, err := e.sessions.EnsureSession(ctx, sessionCtx, ownerSessionLabel)
+	if err != nil {
+		return err
+	}
+	if strings.TrimSpace(payload.BranchName) == "" {
+		payload.BranchName = strings.TrimSpace(ts.GetBranchName())
+	}
+	if strings.TrimSpace(payload.WorkspaceDir) == "" {
+		payload.WorkspaceDir = strings.TrimSpace(ts.GetWorkspaceDir())
+	}
+	return nil
 }
 
 func (e *taskActorExecutor) submitAgentDispatch(ctx context.Context, dispatch taskAgentDispatch) error {
