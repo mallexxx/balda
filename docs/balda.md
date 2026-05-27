@@ -45,6 +45,12 @@ For repo-local development with embedded JetStream forced on, run:
 make dev
 ```
 
+To exercise fake ingress scenarios (Telegram/webhook/scheduler paths), run:
+
+```bash
+make scenarios
+```
+
 `balda init` requires a Telegram bot token, detects supported provider CLIs
 (`codex`, `opencode`, `copilot`, `gemini`, `claude`), writes
 `.config/balda/config.yaml`, initializes `.config/balda/state.db`, and prints

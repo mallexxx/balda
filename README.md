@@ -86,6 +86,12 @@ Local repo development helper (forces embedded JetStream runtime):
 make dev
 ```
 
+Run fake ingress scenarios (Telegram/webhook/scheduler command publish paths):
+
+```bash
+make scenarios
+```
+
 Authenticate in Telegram with the printed auth URL, or send the printed command
 directly to your bot:
 
