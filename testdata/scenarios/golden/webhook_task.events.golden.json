@@ -1,0 +1,6 @@
+[
+  { "type": "command.accepted" },
+  { "type": "command.running" },
+  { "type": "task.created" },
+  { "type": "command.acked" }
+]

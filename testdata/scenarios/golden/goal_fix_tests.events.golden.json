@@ -1,0 +1,9 @@
+[
+  { "type": "command.accepted" },
+  { "type": "task.created" },
+  { "type": "agent.started" },
+  { "type": "agent.progress" },
+  { "type": "agent.completed" },
+  { "type": "task.completed" },
+  { "type": "command.acked" }
+]

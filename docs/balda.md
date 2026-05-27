@@ -918,3 +918,4 @@ Each configured task has `id`, `cron`, and an `envelope` with `target`, `key`,
 10. Final assistant response is sent with `sendMessage` using configured `balda.telegram.formatting_mode` with fallback retry without `parse_mode` on transport or parse/escaping API errors.
 11. `/close` in a topic resets history and closes that topic; `/close` in the owner DM main chat resets only the owner session.
 12. With `balda.sessions.persistence=sqlite`, restart restores ADK conversation history and `/reset` or explicit `/close` clears it for the current session.
+13. `balda eval-fixtures` validates deterministic scenario fixtures in `testdata/scenarios` and checks golden event manifests; use `--scenario` and `--actual-events` for event-type comparison.

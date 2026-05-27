@@ -1,0 +1,11 @@
+name: goal_fix_tests
+ingress: goal.inbound
+goal:
+  objective: fix failing tests in swarm runtime
+  max_iterations: 3
+expected:
+  command_subject: balda.v1.cmd.task
+  agent_flow:
+    - planner
+    - executor
+    - reviewer

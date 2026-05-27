@@ -1,0 +1,16 @@
+{
+  "name": "webhook_task",
+  "ingress": "webhook.task",
+  "request": {
+    "route": "release",
+    "request_id": "req-1",
+    "body": {
+      "event": "release",
+      "repository": "normahq/balda"
+    }
+  },
+  "expected": {
+    "command_subject": "balda.v1.cmd.task",
+    "namespace": "webhook.inbound"
+  }
+}

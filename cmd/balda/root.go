@@ -62,6 +62,7 @@ func newRootCommand() (*cobra.Command, error) {
 
 	cmd.AddCommand(startCommand())
 	cmd.AddCommand(initCommand())
+	cmd.AddCommand(evalFixturesCommand())
 	return cmd, nil
 }
 
