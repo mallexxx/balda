@@ -941,6 +941,10 @@ Each configured task has `id`, `cron`, and an `envelope` with `target`, `key`,
 - `balda.workspace.export`
   - squash-merges the session workspace branch into the configured base branch with the provided Conventional Commit message
   - also works for persisted sessions before lazy restore
+- Cleanup/export contract is explicit:
+  - `/close`, `/reset`, session stop, and process shutdown clean up the mounted worktree path when workspace mode is enabled
+  - cleanup does **not** auto-export branch changes into the base branch
+  - exporting branch changes is an explicit operator action via `balda.workspace.export`
 
 ## Acceptance/Verification Scenarios
 
