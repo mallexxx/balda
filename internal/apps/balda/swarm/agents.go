@@ -32,6 +32,13 @@ var supportedAgentTools = map[string]struct{}{
 
 var agentToolOrder = []string{AgentToolWorkspace, AgentToolShell, AgentToolMCP, AgentToolMemory}
 
+var roleAllowedTools = map[string][]string{
+	AgentNamePlanner:  {},
+	AgentNameExecutor: {AgentToolWorkspace, AgentToolShell, AgentToolMCP},
+	AgentNameReviewer: {AgentToolWorkspace, AgentToolShell},
+	AgentNameMemory:   {AgentToolMemory},
+}
+
 type AgentSpec struct {
 	Name        string
 	Role        string
@@ -173,6 +180,24 @@ func NormalizeAgentTools(raw []string) ([]string, error) {
 		}
 	}
 	return tools, nil
+}
+
+// AllowedToolsForRole returns the role-level allowed tool set contract.
+// The bool result reports whether the role is known.
+func AllowedToolsForRole(role string) ([]string, bool) {
+	switch NormalizeAgentName(role) {
+	case "worker":
+		role = AgentNameExecutor
+	case "validator":
+		role = AgentNameReviewer
+	default:
+		role = NormalizeAgentName(role)
+	}
+	allowed, ok := roleAllowedTools[role]
+	if !ok {
+		return nil, false
+	}
+	return append([]string(nil), allowed...), true
 }
 
 func (r *AgentRegistry) Get(name string) (AgentSpec, bool) {

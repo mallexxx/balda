@@ -122,6 +122,36 @@ func TestAgentSpecShellExecutionPolicy_CustomByTools(t *testing.T) {
 	}
 }
 
+func TestAllowedToolsForRole(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name   string
+		role   string
+		want   []string
+		wantOK bool
+	}{
+		{name: "planner", role: AgentNamePlanner, want: []string{}, wantOK: true},
+		{name: "executor", role: AgentNameExecutor, want: []string{AgentToolWorkspace, AgentToolShell, AgentToolMCP}, wantOK: true},
+		{name: "reviewer alias", role: "validator", want: []string{AgentToolWorkspace, AgentToolShell}, wantOK: true},
+		{name: "memory", role: AgentNameMemory, want: []string{AgentToolMemory}, wantOK: true},
+		{name: "unknown", role: "custom", want: nil, wantOK: false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			got, ok := AllowedToolsForRole(tt.role)
+			if ok != tt.wantOK {
+				t.Fatalf("AllowedToolsForRole(%q) ok = %t, want %t", tt.role, ok, tt.wantOK)
+			}
+			if !equalStrings(got, tt.want) {
+				t.Fatalf("AllowedToolsForRole(%q) = %#v, want %#v", tt.role, got, tt.want)
+			}
+		})
+	}
+}
+
 func specsByName(specs []AgentSpec) map[string]AgentSpec {
 	out := make(map[string]AgentSpec, len(specs))
 	for _, spec := range specs {

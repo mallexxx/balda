@@ -254,6 +254,11 @@ func (h *CommandHandler) onActorsCommand(ctx context.Context, commandCtx baldate
 		out.WriteString(" {shell_policy=")
 		out.WriteString(agent.ShellExecutionPolicy())
 		out.WriteString("}")
+		if allowed, ok := swarm.AllowedToolsForRole(agent.Name); ok {
+			out.WriteString(" {allowed_tools=")
+			out.WriteString(formatAllowedTools(allowed))
+			out.WriteString("}")
+		}
 	}
 	return h.channel.SendAgentReply(ctx, commandCtx.Locator, out.String())
 }
@@ -337,6 +342,11 @@ func (h *CommandHandler) formatSwarmStatus(ctx context.Context) (string, error) 
 			out.WriteString(" {shell_policy=")
 			out.WriteString(agent.ShellExecutionPolicy())
 			out.WriteString("}")
+			if allowed, ok := swarm.AllowedToolsForRole(agent.Name); ok {
+				out.WriteString(" {allowed_tools=")
+				out.WriteString(formatAllowedTools(allowed))
+				out.WriteString("}")
+			}
 		}
 	}
 
@@ -476,6 +486,13 @@ func formatTaskList(sessionID string, tasks []baldastate.SwarmTaskRecord) string
 		out.WriteString(firstNonEmpty(task.Title, task.Objective))
 	}
 	return out.String()
+}
+
+func formatAllowedTools(tools []string) string {
+	if len(tools) == 0 {
+		return "none"
+	}
+	return strings.Join(tools, ",")
 }
 
 func formatTaskDetail(task baldastate.SwarmTaskRecord, events []baldastate.SwarmTaskEventRecord, artifacts taskArtifactSnapshot) string {

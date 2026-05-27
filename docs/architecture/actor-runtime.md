@@ -10,6 +10,7 @@ Status: active
 - Command settlement happens after actor side effects complete.
 - Retry/permanent failure handling is explicit and classified.
 - Task actors attach role-based shell execution policy metadata (`none`, `read_only`, `workspace_write`) to runtime status surfaces.
+- Role-level allowed tool contracts are stable and inspectable (`planner=none`, `executor=workspace,shell,mcp`, `reviewer=workspace,shell`, `memory=memory`).
 
 ## Related tests
 
