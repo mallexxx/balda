@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"math/rand/v2"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -20,6 +21,14 @@ const commandSettlementTimeout = 5 * time.Second
 const unknownDecodeTarget = "unknown"
 const commandBackoffBaseDelay = time.Second
 const commandBackoffMaxDelay = time.Minute
+
+const (
+	dlqMetaErrorClass   = "dlq_error_class"
+	dlqMetaSourceStream = "dlq_source_stream"
+	dlqMetaSourceCns    = "dlq_source_consumer"
+	dlqMetaSourceSubj   = "dlq_source_subject"
+	dlqMetaDelivered    = "dlq_num_delivered"
+)
 
 type commandMessage struct {
 	subject       string
@@ -239,11 +248,13 @@ func (b *Bus) handleMessage(ctx context.Context, msg jetstream.Msg, handler swar
 	if isRetryable(err) {
 		if retryExhausted(numDelivered, b.cfg.Swarm.Commands.MaxDeliver) {
 			reason := "retry exhausted: " + err.Error()
+			cmd.env = decorateDLQEnvelope(cmd.env, reason, swarm.ClassifyError(err), b.cfg.Swarm.Commands.Stream, b.cfg.Swarm.Commands.Consumer, msg.Subject(), numDelivered)
 			return cmd.DeadLetter(settleCtx, reason)
 		}
 		delay := computeBackoff(env.Attempt)
 		return cmd.Retry(settleCtx, delay, err.Error())
 	}
+	cmd.env = decorateDLQEnvelope(cmd.env, err.Error(), swarm.ClassifyError(err), b.cfg.Swarm.Commands.Stream, b.cfg.Swarm.Commands.Consumer, msg.Subject(), numDelivered)
 	return cmd.DeadLetter(settleCtx, err.Error())
 }
 
@@ -303,7 +314,8 @@ func (b *Bus) handleEventMessage(ctx context.Context, msg jetstream.Msg, handler
 			return msg.NakWithDelay(computeBackoff(numDelivered - 1))
 		}
 		reason := "event projection failed: " + err.Error()
-		_ = b.publishDLQ(ctx, env, reason, false)
+		dlqEnv := decorateDLQEnvelope(env, reason, swarm.ClassifyError(err), b.cfg.Swarm.Events.Stream, swarm.DefaultEventProjectorConsumer, msg.Subject(), numDelivered)
+		_ = b.publishDLQ(ctx, dlqEnv, reason, false)
 		return msg.TermWithReason(reason)
 	}
 	return msg.DoubleAck(ctx)
@@ -360,6 +372,23 @@ func newDLQMessage(env swarm.Envelope, reason string) (*gnats.Msg, error) {
 		return nil, err
 	}
 	msg.Header.Set("Balda-DLQ-Reason", reason)
+	if env.Meta != nil {
+		if value := strings.TrimSpace(env.Meta[dlqMetaErrorClass]); value != "" {
+			msg.Header.Set("Balda-DLQ-Error-Class", value)
+		}
+		if value := strings.TrimSpace(env.Meta[dlqMetaSourceStream]); value != "" {
+			msg.Header.Set("Balda-DLQ-Source-Stream", value)
+		}
+		if value := strings.TrimSpace(env.Meta[dlqMetaSourceCns]); value != "" {
+			msg.Header.Set("Balda-DLQ-Source-Consumer", value)
+		}
+		if value := strings.TrimSpace(env.Meta[dlqMetaSourceSubj]); value != "" {
+			msg.Header.Set("Balda-DLQ-Source-Subject", value)
+		}
+		if value := strings.TrimSpace(env.Meta[dlqMetaDelivered]); value != "" {
+			msg.Header.Set("Balda-DLQ-Num-Delivered", value)
+		}
+	}
 	return msg, nil
 }
 
@@ -369,10 +398,16 @@ func (b *Bus) publishRawDLQ(ctx context.Context, source jetstream.Msg, reason st
 		headers[key] = append([]string(nil), values...)
 	}
 	payload := map[string]any{
-		"subject": source.Subject(),
-		"reason":  reason,
-		"headers": headers,
-		"payload": string(source.Data()),
+		"subject":     source.Subject(),
+		"reason":      reason,
+		"headers":     headers,
+		"payload":     string(source.Data()),
+		"error_class": swarm.ErrorKindDecode,
+	}
+	if md, err := source.Metadata(); err == nil {
+		payload["source_stream"] = strings.TrimSpace(md.Stream)
+		payload["source_consumer"] = strings.TrimSpace(md.Consumer)
+		payload["num_delivered"] = int(md.NumDelivered)
 	}
 	data, err := json.Marshal(payload)
 	if err != nil {
@@ -474,6 +509,32 @@ func commandEventEnvelope(env swarm.Envelope, result *swarm.CommandPublishResult
 	}
 	if out.To.Target == "" {
 		out.To = swarm.SystemAddress("jetstream")
+	}
+	return out
+}
+
+func decorateDLQEnvelope(env swarm.Envelope, reason string, class swarm.ErrorKind, stream string, consumer string, subject string, numDelivered int) swarm.Envelope {
+	out := env
+	if out.Meta == nil {
+		out.Meta = map[string]string{}
+	}
+	if class != "" {
+		out.Meta[dlqMetaErrorClass] = string(class)
+	}
+	if trimmed := strings.TrimSpace(stream); trimmed != "" {
+		out.Meta[dlqMetaSourceStream] = trimmed
+	}
+	if trimmed := strings.TrimSpace(consumer); trimmed != "" {
+		out.Meta[dlqMetaSourceCns] = trimmed
+	}
+	if trimmed := strings.TrimSpace(subject); trimmed != "" {
+		out.Meta[dlqMetaSourceSubj] = trimmed
+	}
+	if numDelivered > 0 {
+		out.Meta[dlqMetaDelivered] = strconv.Itoa(numDelivered)
+	}
+	if trimmed := strings.TrimSpace(reason); trimmed != "" && strings.TrimSpace(out.Meta["reason"]) == "" {
+		out.Meta["reason"] = trimmed
 	}
 	return out
 }

@@ -997,6 +997,82 @@ func TestBus_PublishDLQIncludesOriginalEnvelopeAndReason(t *testing.T) {
 	}
 }
 
+func TestBus_DLQIncludesErrorClassAndSourceMetadata(t *testing.T) {
+	busRaw, err := NewCommandBus(Params{
+		LC:     fxtest.NewLifecycle(t),
+		Config: baldaeventbus.Config{Embedded: true, JetStream: true},
+		Swarm: swarm.Config{Enabled: true, Commands: swarm.CommandConfig{
+			AckWait:    "100ms",
+			FetchWait:  "50ms",
+			MaxDeliver: 1,
+		}},
+		WorkingDir: t.TempDir(),
+		Logger:     zerolog.Nop(),
+	})
+	if err != nil {
+		t.Fatalf("NewCommandBus() error = %v", err)
+	}
+	bus := busRaw.(*Bus)
+	defer func() { _ = bus.Drain(context.Background()) }()
+
+	env := commandTestEnvelope("dlq-metadata")
+	if _, err := bus.PublishCommand(context.Background(), env); err != nil {
+		t.Fatalf("PublishCommand() error = %v", err)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	done := make(chan struct{}, 1)
+	go func() {
+		_ = bus.RunCommandConsumer(ctx, func(context.Context, swarm.CommandMessage) error {
+			done <- struct{}{}
+			return swarm.PermanentError(errors.New("policy denied"))
+		})
+	}()
+	select {
+	case <-done:
+	case <-ctx.Done():
+		t.Fatal("timed out waiting for command handler")
+	}
+	waitStreamMessages(t, bus, swarm.DefaultDLQStream, 1)
+
+	dlqConsumer, err := bus.js.CreateOrUpdateConsumer(context.Background(), swarm.DefaultDLQStream, jetstream.ConsumerConfig{
+		Durable:       "dlq-metadata-inspector",
+		AckPolicy:     jetstream.AckExplicitPolicy,
+		DeliverPolicy: jetstream.DeliverAllPolicy,
+		FilterSubject: swarm.SubjectDLQCommand,
+	})
+	if err != nil {
+		t.Fatalf("CreateOrUpdateConsumer(dlq-metadata-inspector) error = %v", err)
+	}
+	msgBatch, err := dlqConsumer.Fetch(1, jetstream.FetchMaxWait(2*time.Second))
+	if err != nil {
+		t.Fatalf("Fetch(dlq metadata message) error = %v", err)
+	}
+	msg, ok := <-msgBatch.Messages()
+	if !ok {
+		t.Fatal("dlq metadata message not found")
+	}
+	if got := msg.Headers().Get("Balda-DLQ-Error-Class"); got != string(swarm.ErrorKindPermanent) {
+		t.Fatalf("Balda-DLQ-Error-Class = %q, want %q", got, swarm.ErrorKindPermanent)
+	}
+	if got := msg.Headers().Get("Balda-DLQ-Source-Stream"); got != swarm.DefaultCommandStream {
+		t.Fatalf("Balda-DLQ-Source-Stream = %q, want %q", got, swarm.DefaultCommandStream)
+	}
+	if got := msg.Headers().Get("Balda-DLQ-Source-Consumer"); got != swarm.DefaultCommandConsumer {
+		t.Fatalf("Balda-DLQ-Source-Consumer = %q, want %q", got, swarm.DefaultCommandConsumer)
+	}
+	if got := msg.Headers().Get("Balda-DLQ-Source-Subject"); got != swarm.SubjectCommandTask {
+		t.Fatalf("Balda-DLQ-Source-Subject = %q, want %q", got, swarm.SubjectCommandTask)
+	}
+	if got := msg.Headers().Get("Balda-DLQ-Num-Delivered"); got != "1" {
+		t.Fatalf("Balda-DLQ-Num-Delivered = %q, want %q", got, "1")
+	}
+	if err := msg.DoubleAck(context.Background()); err != nil {
+		t.Fatalf("DoubleAck(dlq metadata message) error = %v", err)
+	}
+}
+
 func TestBus_GetDLQEntryBySequence(t *testing.T) {
 	busRaw, err := NewCommandBus(Params{
 		LC:         fxtest.NewLifecycle(t),
