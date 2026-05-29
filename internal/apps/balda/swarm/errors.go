@@ -3,6 +3,8 @@ package swarm
 import (
 	"errors"
 	"fmt"
+
+	actorengine "github.com/normahq/norma/actorlayer/engine"
 )
 
 type ErrorKind string
@@ -72,4 +74,20 @@ func classifyError(err error) ErrorKind {
 
 func ClassifyError(err error) ErrorKind {
 	return classifyError(err)
+}
+
+// IsRetryableError reports whether an error should be retried by runtime consumers.
+func IsRetryableError(err error) bool {
+	if err == nil {
+		return false
+	}
+	if errors.Is(err, actorengine.ErrActorNotFound) {
+		return false
+	}
+	switch ClassifyError(err) {
+	case ErrorKindDuplicate, ErrorKindAuth, ErrorKindPolicy, ErrorKindPermanent, ErrorKindDecode, ErrorKindCanceled:
+		return false
+	default:
+		return true
+	}
 }

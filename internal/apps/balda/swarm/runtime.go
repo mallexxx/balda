@@ -236,17 +236,7 @@ func (r *Runtime) deadletterTask(ctx context.Context, env Envelope, reason strin
 }
 
 func isRetryableRuntimeError(err error) bool {
-	if err != nil {
-		if errors.Is(err, actorengine.ErrActorNotFound) {
-			return false
-		}
-	}
-	switch ClassifyError(err) {
-	case ErrorKindDuplicate, ErrorKindAuth, ErrorKindPolicy, ErrorKindPermanent, ErrorKindDecode, ErrorKindCanceled:
-		return false
-	default:
-		return true
-	}
+	return IsRetryableError(err)
 }
 
 func retryExhaustedCommand(cmd CommandMessage) bool {
