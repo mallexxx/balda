@@ -43,7 +43,6 @@ func (a dispatchActor) Handle(ctx context.Context, envelope any) error {
 
 type ActorRegistry interface {
 	Register(actor Actor) error
-	Resolve(address string) (Actor, bool)
 	DispatchRegistry() dispatch.Registry
 	Shutdown(ctx context.Context) error
 }
@@ -60,33 +59,10 @@ func (r *Registry) Register(actor Actor) error {
 	if r == nil || actor == nil {
 		return nil
 	}
-	address := strings.ToLower(strings.TrimSpace(actor.Address()))
-	if address == "" {
-		return fmt.Errorf("actor address is required")
-	}
-	if err := r.actors.Register(dispatchActor{actor: actor, address: address}); err != nil {
+	if err := r.actors.Register(dispatchActor{actor: actor, address: actor.Address()}); err != nil {
 		return err
 	}
 	return nil
-}
-
-func (r *Registry) Resolve(address string) (Actor, bool) {
-	if r == nil || r.actors == nil {
-		return nil, false
-	}
-	trimmed := strings.ToLower(strings.TrimSpace(address))
-	if trimmed == "" {
-		return nil, false
-	}
-	actor, ok := r.actors.Resolve(trimmed)
-	if !ok {
-		return nil, false
-	}
-	dispatchActor, ok := actor.(dispatchActor)
-	if !ok {
-		return nil, false
-	}
-	return dispatchActor.actor, true
 }
 
 func (r *Registry) DispatchRegistry() dispatch.Registry {

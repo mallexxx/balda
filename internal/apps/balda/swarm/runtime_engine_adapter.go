@@ -26,7 +26,11 @@ func runtimeAddressOf(envelope any, registry ActorRegistry) (string, error) {
 	if to == "" {
 		return "", DecodeError(fmt.Errorf("empty actor address"))
 	}
-	if _, found := registry.Resolve(to); !found {
+	dispatchRegistry := registry.DispatchRegistry()
+	if dispatchRegistry == nil {
+		return "", DecodeError(fmt.Errorf("actor registry is not configured"))
+	}
+	if _, found := dispatchRegistry.Resolve(to); !found {
 		return "", PermanentError(fmt.Errorf("actor not found: %s", to))
 	}
 	return to, nil
