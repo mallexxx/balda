@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"time"
+
+	"github.com/normahq/norma/actorlayer/dispatch"
 )
 
 type runtimeDelivery struct {
@@ -11,7 +13,7 @@ type runtimeDelivery struct {
 	onDeadLetter func(reason string)
 }
 
-func runtimeAddressOf(envelope any, registry *Registry) (string, error) {
+func runtimeAddressOf(envelope any, registry dispatch.Registry) (string, error) {
 	if registry == nil {
 		return "", PermanentError(fmt.Errorf("actor registry is required"))
 	}
@@ -26,11 +28,10 @@ func runtimeAddressOf(envelope any, registry *Registry) (string, error) {
 	if to == "" {
 		return "", DecodeError(fmt.Errorf("empty actor address"))
 	}
-	dispatchRegistry := registry.DispatchRegistry()
-	if dispatchRegistry == nil {
+	if registry == nil {
 		return "", DecodeError(fmt.Errorf("actor registry is not configured"))
 	}
-	if _, found := dispatchRegistry.Resolve(to); !found {
+	if _, found := registry.Resolve(to); !found {
 		return "", PermanentError(fmt.Errorf("actor not found: %s", to))
 	}
 	return to, nil

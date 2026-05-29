@@ -41,35 +41,23 @@ func (a dispatchActor) Handle(ctx context.Context, envelope any) error {
 	return a.actor.Handle(ctx, typed)
 }
 
-type Registry struct {
-	actors *dispatch.MemoryRegistry
-}
-
-func NewRegistry() *Registry {
-	return &Registry{actors: dispatch.NewMemoryRegistry()}
-}
-
-func (r *Registry) Register(actor Actor) error {
-	if r == nil || actor == nil {
-		return nil
+func registerActors(actors []Actor) (dispatch.Registry, error) {
+	registry := dispatch.NewMemoryRegistry()
+	for _, actor := range actors {
+		if actor == nil {
+			continue
+		}
+		if err := registry.Register(dispatchActor{actor: actor, address: actor.Address()}); err != nil {
+			return nil, err
+		}
 	}
-	if err := r.actors.Register(dispatchActor{actor: actor, address: actor.Address()}); err != nil {
-		return err
-	}
-	return nil
-}
-
-func (r *Registry) DispatchRegistry() dispatch.Registry {
-	if r == nil {
-		return nil
-	}
-	return r.actors
+	return registry, nil
 }
 
 type Runtime struct {
 	bus      RuntimeBus
 	tasks    *TaskService
-	registry *Registry
+	registry dispatch.Registry
 	engine   *actorengine.DispatchRuntime
 	logger   zerolog.Logger
 	enabled  bool
@@ -102,11 +90,9 @@ func NewRuntime(params runtimeParams) (*Runtime, error) {
 	if params.Bus == nil {
 		return nil, fmt.Errorf("jetstream command bus is required")
 	}
-	registry := NewRegistry()
-	for _, actor := range params.Actors {
-		if err := registry.Register(actor); err != nil {
-			return nil, err
-		}
+	registry, err := registerActors(params.Actors)
+	if err != nil {
+		return nil, err
 	}
 	r := &Runtime{
 		bus:           params.Bus,
@@ -117,7 +103,7 @@ func NewRuntime(params runtimeParams) (*Runtime, error) {
 		heartbeatTick: heartbeatInterval,
 	}
 	engine, err := actorengine.NewDispatchRuntime(actorengine.RuntimeConfig{
-		Registry: registry.DispatchRegistry(),
+		Registry: registry,
 		AddressOf: func(envelope any) (string, error) {
 			return runtimeAddressOf(envelope, registry)
 		},

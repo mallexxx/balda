@@ -11,6 +11,7 @@ import (
 	"time"
 
 	baldastate "github.com/normahq/balda/internal/apps/balda/state"
+	"github.com/normahq/norma/actorlayer/dispatch"
 	actorengine "github.com/normahq/norma/actorlayer/engine"
 )
 
@@ -111,6 +112,15 @@ func (b *recordingCommandBus) eventsSnapshot() []string {
 	return append([]string(nil), b.events...)
 }
 
+func newTestRegistry(t *testing.T, actors ...Actor) dispatch.Registry {
+	t.Helper()
+	registry, err := registerActors(actors)
+	if err != nil {
+		t.Fatalf("register actors error = %v", err)
+	}
+	return registry
+}
+
 func TestRuntimeStartDisabledDoesNotRunConsumer(t *testing.T) {
 	bus := &recordingCommandBus{}
 	runtime := &Runtime{bus: bus, enabled: false}
@@ -125,10 +135,7 @@ func TestRuntimeStartDisabledDoesNotRunConsumer(t *testing.T) {
 func TestRuntime_HandleCommandDispatchesActor(t *testing.T) {
 	bus := &recordingCommandBus{}
 	actor := &testActor{address: WildcardAddress(ActorTypeSession)}
-	registry := NewRegistry()
-	if err := registry.Register(actor); err != nil {
-		t.Fatalf("Register() error = %v", err)
-	}
+	registry := newTestRegistry(t, actor)
 	runtime := newRuntimeForTest(bus, registry)
 	if err := runtime.HandleCommand(context.Background(), testCommandMessage{env: runtimeTestEnvelope("ok", ActorAddress{Target: ActorTypeSession, Key: "s-1"})}); err != nil {
 		t.Fatalf("HandleCommand() error = %v", err)
@@ -141,10 +148,7 @@ func TestRuntime_HandleCommandDispatchesActor(t *testing.T) {
 func TestRuntime_HandleCommandDispatchesActorWithNormalizedAddress(t *testing.T) {
 	bus := &recordingCommandBus{}
 	actor := &testActor{address: "  SESSION:S-1  "}
-	registry := NewRegistry()
-	if err := registry.Register(actor); err != nil {
-		t.Fatalf("Register() error = %v", err)
-	}
+	registry := newTestRegistry(t, actor)
 	runtime := newRuntimeForTest(bus, registry)
 	if err := runtime.HandleCommand(context.Background(), testCommandMessage{env: runtimeTestEnvelope("normalized", ActorAddress{Target: ActorTypeSession, Key: "s-1"})}); err != nil {
 		t.Fatalf("HandleCommand() error = %v", err)
@@ -155,18 +159,15 @@ func TestRuntime_HandleCommandDispatchesActorWithNormalizedAddress(t *testing.T)
 }
 
 func TestRuntimeAddressOf(t *testing.T) {
-	registry := NewRegistry()
 	actor := &testActor{address: WildcardAddress(ActorTypeSession)}
-	if err := registry.Register(actor); err != nil {
-		t.Fatalf("Register() error = %v", err)
-	}
+	registry := newTestRegistry(t, actor)
 
 	tests := []struct {
 		name     string
 		env      Envelope
 		haveAddr string
 		wantErr  string
-		registry *Registry
+		registry dispatch.Registry
 	}{
 		{
 			name:     "nil registry",
@@ -217,7 +218,7 @@ func TestRuntimeAddressOf(t *testing.T) {
 }
 
 func TestRuntime_UnknownActorDeadLettersMessage(t *testing.T) {
-	registry := NewRegistry()
+	registry := newTestRegistry(t)
 	runtime := newRuntimeForTest(&recordingCommandBus{}, registry)
 	var deadletterReason string
 	err := runtime.HandleCommand(context.Background(), testCommandMessage{
@@ -237,10 +238,7 @@ func TestRuntime_UnknownActorDeadLettersMessage(t *testing.T) {
 
 func TestRuntime_ActorErrorRequestsRetry(t *testing.T) {
 	actor := &testActor{address: WildcardAddress(ActorTypeSession), err: TransientError(fmt.Errorf("temporary"))}
-	registry := NewRegistry()
-	if err := registry.Register(actor); err != nil {
-		t.Fatalf("Register() error = %v", err)
-	}
+	registry := newTestRegistry(t, actor)
 	runtime := newRuntimeForTest(&recordingCommandBus{}, registry)
 	var called bool
 	err := runtime.HandleCommand(context.Background(), testCommandMessage{
@@ -279,10 +277,7 @@ func TestRuntime_RetryExhaustionMarksTaskDeadlettered(t *testing.T) {
 		t.Fatalf("Create task: %v", err)
 	}
 	actor := &testActor{address: WildcardAddress(ActorTypeSession), err: TransientError(fmt.Errorf("temporary"))}
-	registry := NewRegistry()
-	if err := registry.Register(actor); err != nil {
-		t.Fatalf("Register() error = %v", err)
-	}
+	registry := newTestRegistry(t, actor)
 	runtime := newRuntimeForTest(&recordingCommandBus{}, registry)
 	runtime.tasks = tasks
 	env := runtimeTestEnvelope("retry-exhausted", ActorAddress{Target: ActorTypeSession, Key: "s-1"})
@@ -328,10 +323,7 @@ func TestRuntime_LongRunningCommandSendsInProgressHeartbeat(t *testing.T) {
 			}
 		},
 	}
-	registry := NewRegistry()
-	if err := registry.Register(actor); err != nil {
-		t.Fatalf("Register() error = %v", err)
-	}
+	registry := newTestRegistry(t, actor)
 	runtime := newRuntimeForTest(bus, registry)
 	runtime.heartbeatTick = 2 * time.Millisecond
 	var inProgressCalls atomic.Int32
@@ -385,10 +377,7 @@ func TestRuntime_LaneStatusTracksActiveLanes(t *testing.T) {
 			}
 		},
 	}
-	registry := NewRegistry()
-	if err := registry.Register(actor); err != nil {
-		t.Fatalf("Register() error = %v", err)
-	}
+	registry := newTestRegistry(t, actor)
 	runtime := newRuntimeForTest(bus, registry)
 	env := runtimeTestEnvelope("lane-track", ActorAddress{Target: ActorTypeSession, Key: "s-1"})
 	env.TaskID = "task-1"
@@ -427,10 +416,10 @@ func TestRuntime_LaneStatusTracksActiveLanes(t *testing.T) {
 	}
 }
 
-func newRuntimeForTest(bus RuntimeBus, registry *Registry) *Runtime {
+func newRuntimeForTest(bus RuntimeBus, registry dispatch.Registry) *Runtime {
 	rt := &Runtime{bus: bus, registry: registry, heartbeatTick: heartbeatInterval}
 	engine, err := actorengine.NewDispatchRuntime(actorengine.RuntimeConfig{
-		Registry: registry.DispatchRegistry(),
+		Registry: registry,
 		AddressOf: func(envelope any) (string, error) {
 			return runtimeAddressOf(envelope, registry)
 		},
