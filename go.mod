@@ -304,3 +304,5 @@ tool (
 	github.com/metalagman/omnidist/cmd/omnidist
 	golang.org/x/vuln/cmd/govulncheck
 )
+
+replace github.com/normahq/norma => ../norma

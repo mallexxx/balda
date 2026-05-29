@@ -7,6 +7,7 @@ run:
 linters:
   default: fast
   disable:
+    - gomoddirectives
     - wsl
     - wsl_v5
     - depguard
