@@ -38,7 +38,6 @@ func TestJetStreamArchitectureContract_Static(t *testing.T) {
 			"eventbus/nats/jetstream.go",
 			"swarm/bus.go",
 			"swarm/runtime.go",
-			"swarm/runtime_engine_adapter.go",
 		})
 		runtimeSource := readSource(t, filepath.Join(root, "swarm/runtime.go"))
 		if !strings.Contains(runtimeSource, "runtimeSource{") || !strings.Contains(runtimeSource, "r.engine.Run(runCtx") {
