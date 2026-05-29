@@ -10,7 +10,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/normahq/norma/actorlayer"
 	actorengine "github.com/normahq/norma/actorlayer/engine"
 	"github.com/rs/zerolog"
 	"go.uber.org/fx"
@@ -31,23 +30,17 @@ type Actor interface {
 
 type ActorRegistry interface {
 	Register(actor Actor) error
-	Resolve(address string) (actorlayer.Ref, bool)
-	System() *actorlayer.System
+	Resolve(address string) (Actor, bool)
 	Shutdown(ctx context.Context) error
 	LaneKey(env Envelope) string
 }
 
 type Registry struct {
-	system *actorlayer.System
-	actors map[string]actorlayer.Ref
+	actors map[string]Actor
 }
 
 func NewRegistry() (*Registry, error) {
-	system, err := actorlayer.NewSystem(actorlayer.Config{})
-	if err != nil {
-		return nil, fmt.Errorf("create actorlayer system: %w", err)
-	}
-	return &Registry{system: system, actors: make(map[string]actorlayer.Ref)}, nil
+	return &Registry{actors: make(map[string]Actor)}, nil
 }
 
 func (r *Registry) Register(actor Actor) error {
@@ -58,50 +51,21 @@ func (r *Registry) Register(actor Actor) error {
 	if address == "" {
 		return fmt.Errorf("actor address is required")
 	}
-	if r.system == nil {
-		return fmt.Errorf("actorlayer system is required")
+	r.actors[address] = actor
+	wildcard := address
+	if idx := strings.Index(address, ":"); idx > 0 {
+		wildcard = address[:idx] + ":*"
 	}
-	ref, err := r.system.Spawn(
-		context.Background(),
-		"balda-swarm-actor",
-		actorlayer.Props{
-			Kind: "balda-swarm-actor",
-			NewBehavior: func(_ actorlayer.SpawnContext) (actorlayer.Behavior, error) {
-				return actorlayer.ReceiveFunc(func(ctx actorlayer.Context, env actorlayer.Envelope) error {
-					payload, ok := env.Payload.(Envelope)
-					if !ok {
-						replyErr := DecodeError(fmt.Errorf("unexpected actor payload type %T", env.Payload))
-						if env.ReplyTo != nil {
-							if err := deliverActorReply(ctx, *env.ReplyTo, replyErr); err != nil {
-								return fmt.Errorf("reply decode error: %w", err)
-							}
-						}
-						return nil
-					}
-					handleErr := actor.Handle(ctx, payload)
-					if env.ReplyTo != nil {
-						if err := deliverActorReply(ctx, *env.ReplyTo, handleErr); err != nil {
-							return fmt.Errorf("reply actor result: %w", err)
-						}
-						return nil
-					}
-					return handleErr
-				}), nil
-			},
-		},
-		actorlayer.WithActorID(address),
-	)
-	if err != nil {
-		return fmt.Errorf("spawn actor %q: %w", address, err)
+	if _, exists := r.actors[wildcard]; !exists {
+		r.actors[wildcard] = actor
 	}
-	r.actors[address] = ref
 	return nil
 }
 
-func (r *Registry) Resolve(address string) (actorlayer.Ref, bool) {
+func (r *Registry) Resolve(address string) (Actor, bool) {
 	trimmed := strings.ToLower(strings.TrimSpace(address))
 	if trimmed == "" {
-		return actorlayer.Ref{}, false
+		return nil, false
 	}
 	actor, ok := r.actors[trimmed]
 	if ok {
@@ -109,31 +73,15 @@ func (r *Registry) Resolve(address string) (actorlayer.Ref, bool) {
 	}
 	idx := strings.Index(trimmed, ":")
 	if idx <= 0 {
-		return actorlayer.Ref{}, false
+		return nil, false
 	}
 	actor, ok = r.actors[trimmed[:idx]+":*"]
 	return actor, ok
 }
 
-func (r *Registry) System() *actorlayer.System {
+func (r *Registry) Shutdown(_ context.Context) error {
 	if r == nil {
 		return nil
-	}
-	return r.system
-}
-
-func (r *Registry) Shutdown(ctx context.Context) error {
-	if r == nil || r.system == nil {
-		return nil
-	}
-	return r.system.Shutdown(ctx)
-}
-
-func deliverActorReply(ctx actorlayer.Context, replyTo actorlayer.Ref, payload any) error {
-	replyCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), time.Second)
-	defer cancel()
-	if err := ctx.Tell(replyCtx, replyTo, payload); err != nil {
-		return err
 	}
 	return nil
 }
