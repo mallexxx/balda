@@ -83,11 +83,28 @@ func (a memoryActor) Handle(ctx context.Context, env Envelope) error {
 
 func (a memoryActor) handleOperation(ctx context.Context, operation string, payload memorySyncPayload) error {
 	switch operation {
+	case memoryOpTaskSummary, memoryOpSessionSummary, memoryOpContextPack:
+		return a.handleSummaryOperation(ctx, operation, payload)
 	case memoryOpFactExtract:
 		return a.handleFactExtract(ctx, payload)
 	default:
 		return nil
 	}
+}
+
+func (a memoryActor) handleSummaryOperation(ctx context.Context, operation string, payload memorySyncPayload) error {
+	if a.memoryStore == nil || !a.memoryStore.MemoryEnabled() {
+		return nil
+	}
+	content := strings.TrimSpace(payload.Content)
+	if content == "" {
+		return nil
+	}
+	entry := formatMemorySummaryEntry(operation, payload, content)
+	if err := a.memoryStore.Remember(ctx, entry); err != nil {
+		return TransientError(fmt.Errorf("remember %s entry: %w", operation, err))
+	}
+	return nil
 }
 
 func (a memoryActor) handleFactExtract(ctx context.Context, payload memorySyncPayload) error {
@@ -101,6 +118,27 @@ func (a memoryActor) handleFactExtract(ctx context.Context, payload memorySyncPa
 		}
 	}
 	return nil
+}
+
+func formatMemorySummaryEntry(operation string, payload memorySyncPayload, content string) string {
+	meta := make([]string, 0, 3)
+	if value := strings.TrimSpace(payload.Scope); value != "" {
+		meta = append(meta, "scope="+value)
+	}
+	if value := strings.TrimSpace(payload.TaskID); value != "" {
+		meta = append(meta, "task_id="+value)
+	}
+	if value := strings.TrimSpace(payload.SessionID); value != "" {
+		meta = append(meta, "session_id="+value)
+	}
+	prefix := strings.TrimSpace(operation)
+	if prefix == "" {
+		prefix = "memory"
+	}
+	if len(meta) == 0 {
+		return prefix + ": " + content
+	}
+	return prefix + " (" + strings.Join(meta, ", ") + "): " + content
 }
 
 func extractMemoryFacts(content string) []string {

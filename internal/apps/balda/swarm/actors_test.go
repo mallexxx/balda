@@ -117,6 +117,70 @@ func TestMemoryActorFactExtractNoopsWhenMemoryDisabled(t *testing.T) {
 	}
 }
 
+func TestMemoryActorSummaryOperationsPersistStructuredEntries(t *testing.T) {
+	t.Parallel()
+
+	store := memory.NewStore(t.TempDir(), true)
+	actor := NewMemoryActorWithStore(store)
+	tests := []struct {
+		name    string
+		op      string
+		content string
+		want    string
+	}{
+		{
+			name:    "task_summary",
+			op:      memoryOpTaskSummary,
+			content: "Task finished with two follow-ups.",
+			want:    "task_summary (scope=default, task_id=task-1, session_id=session-1): Task finished with two follow-ups.",
+		},
+		{
+			name:    "session_summary",
+			op:      memoryOpSessionSummary,
+			content: "Session focused on observability tasks.",
+			want:    "session_summary (scope=default, task_id=task-1, session_id=session-1): Session focused on observability tasks.",
+		},
+		{
+			name:    "context_pack",
+			op:      memoryOpContextPack,
+			content: "Key docs: runtime-contract.md, docs/balda.md",
+			want:    "context_pack (scope=default, task_id=task-1, session_id=session-1): Key docs: runtime-contract.md, docs/balda.md",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			payload := fmt.Sprintf(`{"operation":%q,"scope":"default","task_id":"task-1","session_id":"session-1","content":%q}`, tc.op, tc.content)
+			if err := actor.Handle(context.Background(), memoryEnvelopeForTest(NamespaceMemorySync, tc.op, payload)); err != nil {
+				t.Fatalf("Handle(%s) error = %v, want nil", tc.op, err)
+			}
+		})
+	}
+
+	got, err := store.ReadMemory(context.Background())
+	if err != nil {
+		t.Fatalf("ReadMemory() error = %v", err)
+	}
+	lines := make([]string, 0, len(tests))
+	for _, line := range strings.Split(strings.TrimSpace(got), "\n") {
+		if trimmed := strings.TrimSpace(line); trimmed != "" {
+			lines = append(lines, trimmed)
+		}
+	}
+	if len(lines) != len(tests) {
+		t.Fatalf("memory lines = %#v, want %d entries", lines, len(tests))
+	}
+	wantSet := map[string]struct{}{}
+	for _, tc := range tests {
+		wantSet[tc.want] = struct{}{}
+	}
+	for _, line := range lines {
+		if _, ok := wantSet[line]; !ok {
+			t.Fatalf("unexpected memory line %q, want one of %#v", line, wantSet)
+		}
+	}
+}
+
 func memoryEnvelopeForTest(namespace, kind, payload string) Envelope {
 	return Envelope{
 		ID:          "mem-1",
