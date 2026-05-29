@@ -52,11 +52,11 @@ func (d *runtimeDelivery) DeadLetter(ctx context.Context, reason string) error {
 func (r *Runtime) handleDelivery(ctx context.Context, delivery actorengine.Delivery) error {
 	env, ok := delivery.Envelope().(Envelope)
 	if !ok {
-		return PermanentError(fmt.Errorf("unexpected delivery envelope type %T", delivery.Envelope()))
+		return DecodeError(fmt.Errorf("unexpected delivery envelope type %T", delivery.Envelope()))
 	}
 	to, err := env.To.String()
 	if err != nil {
-		return PermanentError(err)
+		return DecodeError(err)
 	}
 	actor, found := r.registry.Resolve(to)
 	if !found {

@@ -393,7 +393,7 @@ func (b *Bus) publishRawDLQ(ctx context.Context, source jetstream.Msg, reason st
 
 func isRetryable(err error) bool {
 	switch swarm.ClassifyError(err) {
-	case swarm.ErrorKindDuplicate, swarm.ErrorKindAuth, swarm.ErrorKindPolicy, swarm.ErrorKindPermanent:
+	case swarm.ErrorKindDuplicate, swarm.ErrorKindAuth, swarm.ErrorKindPolicy, swarm.ErrorKindPermanent, swarm.ErrorKindDecode, swarm.ErrorKindCanceled:
 		return false
 	default:
 		return true

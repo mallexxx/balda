@@ -107,7 +107,7 @@ func (a *taskDeliveryActor) Handle(ctx context.Context, env swarm.Envelope) erro
 				}
 			}
 		}
-		return swarm.TransientError(err)
+		return swarm.ExternalDeliveryError(err)
 	}
 	if a.tasks != nil {
 		if err := a.tasks.MarkDeliverySent(ctx, deliveryKey, providerMessageID); err != nil {

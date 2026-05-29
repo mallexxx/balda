@@ -62,7 +62,7 @@ func (memoryActor) Handle(_ context.Context, env Envelope) error {
 	}
 	var payload memorySyncPayload
 	if err := json.Unmarshal([]byte(env.PayloadJSON), &payload); err != nil {
-		return PermanentError(fmt.Errorf("decode memory sync payload: %w", err))
+		return DecodeError(fmt.Errorf("decode memory sync payload: %w", err))
 	}
 	switch normalizeMemoryOperation(payload.Operation, env.Kind) {
 	case "", memoryOpTaskSummary, memoryOpSessionSummary, memoryOpFactExtract, memoryOpContextPack:

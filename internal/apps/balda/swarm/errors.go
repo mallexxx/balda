@@ -8,12 +8,15 @@ import (
 type ErrorKind string
 
 const (
-	ErrorKindTransient ErrorKind = "transient"
-	ErrorKindQuota     ErrorKind = "quota"
-	ErrorKindAuth      ErrorKind = "auth"
-	ErrorKindPolicy    ErrorKind = "policy"
-	ErrorKindDuplicate ErrorKind = "duplicate"
-	ErrorKindPermanent ErrorKind = "permanent"
+	ErrorKindTransient        ErrorKind = "transient"
+	ErrorKindQuota            ErrorKind = "quota"
+	ErrorKindAuth             ErrorKind = "auth"
+	ErrorKindPolicy           ErrorKind = "policy"
+	ErrorKindDuplicate        ErrorKind = "duplicate"
+	ErrorKindPermanent        ErrorKind = "permanent"
+	ErrorKindCanceled         ErrorKind = "canceled"
+	ErrorKindDecode           ErrorKind = "decode"
+	ErrorKindExternalDelivery ErrorKind = "external_delivery"
 )
 
 type ActorError struct {
@@ -36,11 +39,18 @@ func (e *ActorError) Unwrap() error {
 }
 
 func TransientError(err error) error { return actorError(ErrorKindTransient, err) }
+func RetryableError(err error) error { return actorError(ErrorKindTransient, err) }
 func QuotaError(err error) error     { return actorError(ErrorKindQuota, err) }
 func AuthError(err error) error      { return actorError(ErrorKindAuth, err) }
 func PolicyError(err error) error    { return actorError(ErrorKindPolicy, err) }
 func DuplicateError(err error) error { return actorError(ErrorKindDuplicate, err) }
 func PermanentError(err error) error { return actorError(ErrorKindPermanent, err) }
+func CanceledError(err error) error  { return actorError(ErrorKindCanceled, err) }
+func DecodeError(err error) error    { return actorError(ErrorKindDecode, err) }
+
+func ExternalDeliveryError(err error) error {
+	return actorError(ErrorKindExternalDelivery, err)
+}
 
 func actorError(kind ErrorKind, err error) error {
 	if err == nil {

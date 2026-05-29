@@ -51,10 +51,10 @@ func TestMemoryActorInvalidPayloadIsPermanent(t *testing.T) {
 	actor := NewMemoryActor()
 	err := actor.Handle(context.Background(), memoryEnvelopeForTest(NamespaceMemorySync, memoryOpTaskSummary, `{`))
 	if err == nil {
-		t.Fatal("Handle() error = nil, want permanent decode error")
+		t.Fatal("Handle() error = nil, want decode error")
 	}
-	if ClassifyError(err) != ErrorKindPermanent {
-		t.Fatalf("ClassifyError() = %q, want %q", ClassifyError(err), ErrorKindPermanent)
+	if ClassifyError(err) != ErrorKindDecode {
+		t.Fatalf("ClassifyError() = %q, want %q", ClassifyError(err), ErrorKindDecode)
 	}
 	var actorErr *ActorError
 	if !errors.As(err, &actorErr) || actorErr == nil || actorErr.Err == nil {

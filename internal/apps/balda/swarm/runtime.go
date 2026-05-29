@@ -238,7 +238,7 @@ func (r *Runtime) deadletterTask(ctx context.Context, env Envelope, reason strin
 
 func isRetryableRuntimeError(err error) bool {
 	switch ClassifyError(err) {
-	case ErrorKindDuplicate, ErrorKindAuth, ErrorKindPolicy, ErrorKindPermanent:
+	case ErrorKindDuplicate, ErrorKindAuth, ErrorKindPolicy, ErrorKindPermanent, ErrorKindDecode, ErrorKindCanceled:
 		return false
 	default:
 		return true

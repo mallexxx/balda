@@ -77,8 +77,8 @@ func TestTaskDeliveryActorPublishesFailedEventOnSendError(t *testing.T) {
 	env, _ := deliveryEnvelopeForTest(t, "delivery-command-failed", "task-1:delivery:failed", "Goal failed")
 
 	err := actor.Handle(ctx, env)
-	if swarm.ClassifyError(err) != swarm.ErrorKindTransient {
-		t.Fatalf("Handle() error kind = %s, want transient: %v", swarm.ClassifyError(err), err)
+	if swarm.ClassifyError(err) != swarm.ErrorKindExternalDelivery {
+		t.Fatalf("Handle() error kind = %s, want external_delivery: %v", swarm.ClassifyError(err), err)
 	}
 
 	if len(bus.eventSubjects) != 1 {
