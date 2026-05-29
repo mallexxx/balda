@@ -95,6 +95,27 @@ func TestTaskDeliveryActorPublishesFailedEventOnSendError(t *testing.T) {
 	}
 }
 
+func TestTaskDeliveryActorStoresProviderMessageIDOnSuccess(t *testing.T) {
+	ctx := context.Background()
+	actor, tasks, _, _ := newTaskDeliveryActorForTest(t, ctx)
+	env, payload := deliveryEnvelopeForTest(t, "delivery-command-success", "task-1:delivery:success", "Goal success")
+
+	if err := actor.Handle(ctx, env); err != nil {
+		t.Fatalf("Handle() error = %v", err)
+	}
+
+	record, created, err := tasks.ReserveDelivery(ctx, deliveryRecordForTest(env, payload, baldastate.SwarmDeliveryStatusPending))
+	if err != nil {
+		t.Fatalf("ReserveDelivery() lookup error = %v", err)
+	}
+	if created {
+		t.Fatal("ReserveDelivery() created = true, want existing delivery record")
+	}
+	if got := record.ProviderMessageID; got != "1" {
+		t.Fatalf("provider_message_id = %q, want \"1\"", got)
+	}
+}
+
 func newTaskDeliveryActorForTest(t *testing.T, ctx context.Context) (*taskDeliveryActor, *swarm.TaskService, *fakeTelegramClient, *recordingHandlerCommandBus) {
 	t.Helper()
 	provider, bus, coordinator, tasks, allocator := newTaskActorSwarmServices(t, ctx)

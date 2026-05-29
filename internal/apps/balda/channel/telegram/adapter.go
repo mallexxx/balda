@@ -3,6 +3,7 @@ package telegram
 import (
 	"context"
 	"fmt"
+	"strconv"
 
 	baldachannel "github.com/normahq/balda/internal/apps/balda/channel"
 	"github.com/normahq/balda/internal/apps/balda/messenger"
@@ -210,6 +211,22 @@ func (a *Adapter) SendAgentReply(ctx context.Context, locator baldasession.Sessi
 		return err
 	}
 	return a.messenger.SendAgentReply(ctx, chatID, text, topicID)
+}
+
+// SendAgentReplyWithProviderMessageID sends final agent output and returns the provider message ID when available.
+func (a *Adapter) SendAgentReplyWithProviderMessageID(ctx context.Context, locator baldasession.SessionLocator, text string) (string, error) {
+	chatID, topicID, err := telegramTuple(locator)
+	if err != nil {
+		return "", err
+	}
+	result, err := a.messenger.SendAgentReplyWithResult(ctx, chatID, text, topicID)
+	if err != nil {
+		return "", err
+	}
+	if result.LastMessageID <= 0 {
+		return "", nil
+	}
+	return strconv.Itoa(result.LastMessageID), nil
 }
 
 // SendDraftPlain updates a draft message for the locator.

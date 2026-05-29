@@ -23,6 +23,13 @@ type Messenger struct {
 	agentReplyFormattingMode string
 }
 
+// AgentReplyResult carries provider delivery metadata for a final agent reply.
+type AgentReplyResult struct {
+	FirstMessageID int
+	LastMessageID  int
+	MessageCount   int
+}
+
 // NewMessenger creates a new Messenger.
 func NewMessenger(client client.ClientWithResponsesInterface, logger zerolog.Logger) *Messenger {
 	return &Messenger{
@@ -88,10 +95,11 @@ func (m *Messenger) SendPlain(ctx context.Context, chatID int64, text string, to
 
 // SendMarkdown converts standard Markdown to Telegram MarkdownV2 and sends.
 func (m *Messenger) SendMarkdown(ctx context.Context, chatID int64, text string, topicID int) error {
-	return m.sendMarkdown(ctx, chatID, text, topicID)
+	_, err := m.sendMarkdown(ctx, chatID, text, topicID)
+	return err
 }
 
-func (m *Messenger) sendMarkdown(ctx context.Context, chatID int64, text string, topicID int) error {
+func (m *Messenger) sendMarkdown(ctx context.Context, chatID int64, text string, topicID int) (int, error) {
 	payload, err := telegramfmt.MarkdownV2(text)
 	if err != nil {
 		m.logger.Warn().Err(err).Msg("failed to convert markdown to telegram format, falling back to escaped literal")
@@ -102,22 +110,43 @@ func (m *Messenger) sendMarkdown(ctx context.Context, chatID int64, text string,
 
 // SendAgentReply sends final model output with balda.telegram.formatting_mode.
 func (m *Messenger) SendAgentReply(ctx context.Context, chatID int64, text string, topicID int) error {
+	_, err := m.SendAgentReplyWithResult(ctx, chatID, text, topicID)
+	return err
+}
+
+// SendAgentReplyWithResult sends final model output and returns provider message metadata.
+func (m *Messenger) SendAgentReplyWithResult(ctx context.Context, chatID int64, text string, topicID int) (AgentReplyResult, error) {
+	var result AgentReplyResult
 	switch telegramfmt.NormalizeMode(m.agentReplyFormattingMode) {
 	case telegramfmt.ModeHTML:
-		return m.sendMessageWithMode(ctx, chatID, telegramfmt.HTML(text), topicID, telegramfmt.TelegramParseMode(telegramfmt.ModeHTML), "send message with HTML")
+		messageID, err := m.sendMessageWithMode(ctx, chatID, telegramfmt.HTML(text), topicID, telegramfmt.TelegramParseMode(telegramfmt.ModeHTML), "send message with HTML")
+		if err != nil {
+			return AgentReplyResult{}, err
+		}
+		return AgentReplyResult{FirstMessageID: messageID, LastMessageID: messageID, MessageCount: 1}, nil
 	case telegramfmt.ModeNone:
-		return m.sendMessageWithMode(ctx, chatID, text, topicID, telegramfmt.TelegramParseMode(telegramfmt.ModeNone), "send message without parse_mode")
+		messageID, err := m.sendMessageWithMode(ctx, chatID, text, topicID, telegramfmt.TelegramParseMode(telegramfmt.ModeNone), "send message without parse_mode")
+		if err != nil {
+			return AgentReplyResult{}, err
+		}
+		return AgentReplyResult{FirstMessageID: messageID, LastMessageID: messageID, MessageCount: 1}, nil
 	default:
 		for _, chunk := range telegramfmt.SplitMarkdownMessageChunks(text) {
-			if err := m.sendMarkdown(ctx, chatID, chunk, topicID); err != nil {
-				return err
+			messageID, err := m.sendMarkdown(ctx, chatID, chunk, topicID)
+			if err != nil {
+				return AgentReplyResult{}, err
 			}
+			if result.MessageCount == 0 {
+				result.FirstMessageID = messageID
+			}
+			result.LastMessageID = messageID
+			result.MessageCount++
 		}
-		return nil
+		return result, nil
 	}
 }
 
-func (m *Messenger) sendMessageWithMode(ctx context.Context, chatID int64, text string, topicID int, mode, logMsg string) error {
+func (m *Messenger) sendMessageWithMode(ctx context.Context, chatID int64, text string, topicID int, mode, logMsg string) (int, error) {
 	m.logger.Debug().
 		Int64("chat_id", chatID).
 		Str("mode", mode).
@@ -146,16 +175,16 @@ func (m *Messenger) sendMessageWithMode(ctx context.Context, chatID int64, text 
 		req.ParseMode = nil
 		resp, err = m.client.SendMessageWithResponse(sendCtx, req)
 		if err != nil {
-			return fmt.Errorf("%s to chat %d: %w", logMsg, chatID, err)
+			return 0, fmt.Errorf("%s to chat %d: %w", logMsg, chatID, err)
 		}
 	}
 	if resp.JSON400 != nil {
-		return fmt.Errorf("%s to chat %d: %s", logMsg, chatID, resp.JSON400.Description)
+		return 0, fmt.Errorf("%s to chat %d: %s", logMsg, chatID, resp.JSON400.Description)
 	}
 	if resp.JSON200 == nil {
-		return fmt.Errorf("%s to chat %d: no response body", logMsg, chatID)
+		return 0, fmt.Errorf("%s to chat %d: no response body", logMsg, chatID)
 	}
-	return nil
+	return resp.JSON200.Result.MessageId, nil
 }
 
 func shouldRetryWithoutParseMode(mode string, resp *client.SendMessageResponse, err error) bool {

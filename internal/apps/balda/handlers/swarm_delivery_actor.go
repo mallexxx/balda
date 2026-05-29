@@ -94,7 +94,8 @@ func (a *taskDeliveryActor) Handle(ctx context.Context, env swarm.Envelope) erro
 			return swarm.TransientError(err)
 		}
 	}
-	if err := a.channel.SendAgentReply(ctx, payload.Locator, text); err != nil {
+	providerMessageID, err := a.channel.SendAgentReplyWithProviderMessageID(ctx, payload.Locator, text)
+	if err != nil {
 		if a.tasks != nil {
 			_ = a.tasks.MarkDeliveryFailed(ctx, deliveryKey, err.Error())
 			if strings.TrimSpace(payload.TaskID) != "" {
@@ -109,7 +110,7 @@ func (a *taskDeliveryActor) Handle(ctx context.Context, env swarm.Envelope) erro
 		return swarm.TransientError(err)
 	}
 	if a.tasks != nil {
-		if err := a.tasks.MarkDeliverySent(ctx, deliveryKey, ""); err != nil {
+		if err := a.tasks.MarkDeliverySent(ctx, deliveryKey, providerMessageID); err != nil {
 			return swarm.TransientError(err)
 		}
 	}
