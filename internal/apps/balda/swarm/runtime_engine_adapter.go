@@ -14,6 +14,26 @@ type runtimeDelivery struct {
 	onDeadLetter func(reason string)
 }
 
+type envelopeContextKey struct{}
+
+func envelopeFromContext(ctx context.Context) (Envelope, bool) {
+	if ctx == nil {
+		return Envelope{}, false
+	}
+	env, ok := ctx.Value(envelopeContextKey{}).(Envelope)
+	if !ok {
+		return Envelope{}, false
+	}
+	return env, true
+}
+
+func withEnvelopeContext(ctx context.Context, env Envelope) context.Context {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	return context.WithValue(ctx, envelopeContextKey{}, env)
+}
+
 type runtimeSource struct {
 	bus       RuntimeBus
 	prepareFn func(context.Context, CommandMessage) (context.Context, func(), actorengine.Delivery)

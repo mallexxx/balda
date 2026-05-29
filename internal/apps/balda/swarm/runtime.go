@@ -160,13 +160,13 @@ func (r *Runtime) prepareCommandDelivery(ctx context.Context, cmd CommandMessage
 		return ctx, func() {}, &runtimeDelivery{cmd: cmd}
 	}
 	env := cmd.Envelope()
-	heartbeatCtx, stop := r.startHeartbeat(ctx, cmd, env)
 	delivery := &runtimeDelivery{
 		cmd: cmd,
 		onDeadLetter: func(reason string) {
 			r.deadletterTask(ctx, env, reason)
 		},
 	}
+	heartbeatCtx, stop := r.startHeartbeat(ctx, cmd, env)
 	return heartbeatCtx, stop, delivery
 }
 
@@ -182,7 +182,8 @@ func (r *Runtime) LaneStatus() RuntimeLaneStatus {
 }
 
 func (r *Runtime) startHeartbeat(ctx context.Context, cmd CommandMessage, env Envelope) (context.Context, func()) {
-	child, cancel := context.WithCancel(ctx)
+	heartbeatCtx := withEnvelopeContext(ctx, env)
+	child, cancel := context.WithCancel(heartbeatCtx)
 	r.wg.Add(1)
 	go func() {
 		defer r.wg.Done()
@@ -194,13 +195,26 @@ func (r *Runtime) startHeartbeat(ctx context.Context, cmd CommandMessage, env En
 				if err := cmd.InProgress(child); err != nil {
 					r.logger.Warn().Err(err).Str("envelope_id", env.ID).Msg("failed to send jetstream in-progress ack")
 				}
-				_ = r.bus.PublishEvent(child, SubjectEventCommandInProgress, commandNoopEvent(env))
+				r.Publish(child, actorengine.Event{Type: actorengine.EventInProgress})
 			case <-child.Done():
 				return
 			}
 		}
 	}()
 	return child, cancel
+}
+
+func (r *Runtime) Publish(ctx context.Context, event actorengine.Event) {
+	if r == nil || event.Type != actorengine.EventInProgress {
+		return
+	}
+	env, ok := envelopeFromContext(ctx)
+	if !ok {
+		return
+	}
+	if err := r.bus.PublishEvent(ctx, SubjectEventCommandInProgress, commandNoopEvent(env)); err != nil {
+		r.logger.Warn().Err(err).Str("envelope_id", env.ID).Msg("failed to publish command in-progress event")
+	}
 }
 
 func (r *Runtime) heartbeatTickInterval() time.Duration {
