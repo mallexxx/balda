@@ -103,11 +103,9 @@ func NewRuntime(params runtimeParams) (*Runtime, error) {
 		heartbeatTick: heartbeatInterval,
 	}
 	engine, err := actorengine.NewDispatchRuntime(actorengine.RuntimeConfig{
-		Registry: registry,
-		AddressOf: func(envelope any) (string, error) {
-			return runtimeAddressOf(envelope, registry)
-		},
-		LaneKey: actorLaneKeyFromEnvelope,
+		Registry:  registry,
+		AddressOf: runtimeAddressOf,
+		LaneKey:   actorLaneKeyFromEnvelope,
 		Retry: actorengine.RetryPolicy{
 			IsRetryable: isRetryableRuntimeError,
 			Backoff:     nextRetryDelay,
@@ -240,6 +238,9 @@ func (r *Runtime) deadletterTask(ctx context.Context, env Envelope, reason strin
 }
 
 func isRetryableRuntimeError(err error) bool {
+	if err != nil && strings.HasPrefix(strings.TrimSpace(err.Error()), "actor not found:") {
+		return false
+	}
 	switch ClassifyError(err) {
 	case ErrorKindDuplicate, ErrorKindAuth, ErrorKindPolicy, ErrorKindPermanent, ErrorKindDecode, ErrorKindCanceled:
 		return false

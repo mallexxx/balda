@@ -3,9 +3,8 @@ package swarm
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
-
-	"github.com/normahq/norma/actorlayer/dispatch"
 )
 
 type runtimeDelivery struct {
@@ -13,10 +12,7 @@ type runtimeDelivery struct {
 	onDeadLetter func(reason string)
 }
 
-func runtimeAddressOf(envelope any, registry dispatch.Registry) (string, error) {
-	if registry == nil {
-		return "", PermanentError(fmt.Errorf("actor registry is required"))
-	}
+func runtimeAddressOf(envelope any) (string, error) {
 	env, ok := envelope.(Envelope)
 	if !ok {
 		return "", DecodeError(fmt.Errorf("unexpected delivery envelope type %T", envelope))
@@ -25,14 +21,8 @@ func runtimeAddressOf(envelope any, registry dispatch.Registry) (string, error) 
 	if err != nil {
 		return "", DecodeError(err)
 	}
-	if to == "" {
+	if strings.TrimSpace(to) == "" {
 		return "", DecodeError(fmt.Errorf("empty actor address"))
-	}
-	if registry == nil {
-		return "", DecodeError(fmt.Errorf("actor registry is not configured"))
-	}
-	if _, found := registry.Resolve(to); !found {
-		return "", PermanentError(fmt.Errorf("actor not found: %s", to))
 	}
 	return to, nil
 }

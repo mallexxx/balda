@@ -159,45 +159,32 @@ func TestRuntime_HandleCommandDispatchesActorWithNormalizedAddress(t *testing.T)
 }
 
 func TestRuntimeAddressOf(t *testing.T) {
-	actor := &testActor{address: WildcardAddress(ActorTypeSession)}
-	registry := newTestRegistry(t, actor)
-
 	tests := []struct {
 		name     string
-		env      Envelope
+		env      any
 		haveAddr string
 		wantErr  string
-		registry dispatch.Registry
 	}{
 		{
-			name:     "nil registry",
-			env:      runtimeTestEnvelope("nil-registry", ActorAddress{Target: ActorTypeSession, Key: "s-1"}),
-			registry: nil,
-			wantErr:  "actor registry is required",
+			name:    "type error",
+			env:     struct{ v string }{v: "not-an-envelope"},
+			wantErr: "unexpected delivery envelope type",
 		},
 		{
-			name:     "empty address",
-			env:      runtimeTestEnvelope("empty-address", ActorAddress{}),
-			registry: registry,
-			wantErr:  "actor target is required",
-		},
-		{
-			name:     "unknown actor",
-			env:      runtimeTestEnvelope("unknown", ActorAddress{Target: ActorTypeTask, Key: "x-1"}),
-			registry: registry,
-			wantErr:  "actor not found",
+			name:    "empty address",
+			env:     runtimeTestEnvelope("empty-address", ActorAddress{}),
+			wantErr: "actor target is required",
 		},
 		{
 			name:     "known actor",
 			env:      runtimeTestEnvelope("known", ActorAddress{Target: ActorTypeSession, Key: "s-1"}),
-			registry: registry,
 			haveAddr: "session:s-1",
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			gotAddr, err := runtimeAddressOf(tt.env, tt.registry)
+			gotAddr, err := runtimeAddressOf(tt.env)
 			if tt.wantErr != "" {
 				if err == nil {
 					t.Fatalf("runtimeAddressOf() error = nil, want contains %q", tt.wantErr)
@@ -419,11 +406,9 @@ func TestRuntime_LaneStatusTracksActiveLanes(t *testing.T) {
 func newRuntimeForTest(bus RuntimeBus, registry dispatch.Registry) *Runtime {
 	rt := &Runtime{bus: bus, registry: registry, heartbeatTick: heartbeatInterval}
 	engine, err := actorengine.NewDispatchRuntime(actorengine.RuntimeConfig{
-		Registry: registry,
-		AddressOf: func(envelope any) (string, error) {
-			return runtimeAddressOf(envelope, registry)
-		},
-		LaneKey: actorLaneKeyFromEnvelope,
+		Registry:  registry,
+		AddressOf: runtimeAddressOf,
+		LaneKey:   actorLaneKeyFromEnvelope,
 		Retry: actorengine.RetryPolicy{
 			IsRetryable: isRetryableRuntimeError,
 			Backoff:     nextRetryDelay,
