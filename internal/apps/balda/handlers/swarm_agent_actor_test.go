@@ -582,6 +582,48 @@ func TestFormatTaskPlannerPromptHandlesEmptyObjective(t *testing.T) {
 	}
 }
 
+func TestFormatTaskReviewerPromptIncludesContractAndResponseShape(t *testing.T) {
+	payload := taskAgentCommandPayload{
+		Role:           taskAgentRoleReviewer,
+		Iteration:      2,
+		MaxIterations:  5,
+		Objective:      "Ship actorlayer runtime cutover.",
+		Plan:           "1) add adapter\n2) test",
+		PlannerOutput:  "detailed planner output",
+		ExecutorOutput: "implemented adapter and tests",
+	}
+
+	got := formatTaskReviewerPrompt(payload)
+	for _, want := range []string{
+		"Task objective:\nShip actorlayer runtime cutover.",
+		"Iteration: 2/5",
+		"Current plan:\n1) add adapter\n2) test",
+		"Planner output:\ndetailed planner output",
+		"Executor result:\nimplemented adapter and tests",
+		"Reviewer contract:",
+		"verdict: pass|fail",
+		"what_was_verified:",
+		"what_was_not_verified:",
+		"next_action:",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("formatTaskReviewerPrompt() missing %q in:\n%s", want, got)
+		}
+	}
+}
+
+func TestFormatTaskReviewerPromptMarksMissingExecutorOutput(t *testing.T) {
+	got := formatTaskReviewerPrompt(taskAgentCommandPayload{
+		Role:          taskAgentRoleReviewer,
+		Iteration:     1,
+		MaxIterations: 3,
+		Objective:     "Validate missing output handling.",
+	})
+	if !strings.Contains(got, "Executor result:\n(none)") {
+		t.Fatalf("formatTaskReviewerPrompt() = %q, want explicit missing executor marker", got)
+	}
+}
+
 type recordingTaskAgentRuntimeBuilder struct {
 	t    *testing.T
 	cfgs []baldaagent.TaskAgentRuntimeConfig

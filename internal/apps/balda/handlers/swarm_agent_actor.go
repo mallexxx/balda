@@ -509,7 +509,15 @@ func formatTaskReviewerPrompt(payload taskAgentCommandPayload) string {
 	} else {
 		out.WriteString("(none)")
 	}
-	out.WriteString("\n\nValidate the result. Start with exactly `verdict: pass` or `verdict: fail`, then provide evidence.")
+	out.WriteString("\n\nReviewer contract:")
+	out.WriteString("\n- Validate executor output against objective, plan, and repository state.")
+	out.WriteString("\n- Do not propose unverified claims as completed work.")
+	out.WriteString("\n- If evidence is missing, fail the review and explain what is missing.")
+	out.WriteString("\n- Response format (first line must match exactly):")
+	out.WriteString("\nverdict: pass|fail")
+	out.WriteString("\nwhat_was_verified: <evidence-backed checks>")
+	out.WriteString("\nwhat_was_not_verified: <missing checks or 'none'>")
+	out.WriteString("\nnext_action: <clear follow-up step>")
 	return out.String()
 }
 
