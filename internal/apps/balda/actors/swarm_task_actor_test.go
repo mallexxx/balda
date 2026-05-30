@@ -17,8 +17,8 @@ func TestTaskActorDispatchesWebhookSessionTurn(t *testing.T) {
 	t.Parallel()
 
 	ctx := context.Background()
-	_, bus, coordinator, tasks, _ := newTaskActorSwarmServices(t, ctx)
-	exec := &taskActorExecutor{tasks: tasks, coordinator: coordinator}
+	_, bus, dispatcher, tasks, _ := newTaskActorSwarmServices(t, ctx)
+	exec := &taskActorExecutor{tasks: tasks, dispatcher: dispatcher}
 	locator := session.SessionLocator{SessionID: "tg-101-202", AddressKey: "101"}
 	env, taskID, err := WebhookTaskEnvelope(SessionTurnPayload{
 		Text:    "handle webhook",
@@ -51,8 +51,8 @@ func TestScheduledTaskEnvelopeDispatchesSessionTurn(t *testing.T) {
 	t.Parallel()
 
 	ctx := context.Background()
-	_, bus, coordinator, tasks, _ := newTaskActorSwarmServices(t, ctx)
-	exec := &taskActorExecutor{tasks: tasks, coordinator: coordinator}
+	_, bus, dispatcher, tasks, _ := newTaskActorSwarmServices(t, ctx)
+	exec := &taskActorExecutor{tasks: tasks, dispatcher: dispatcher}
 	locator := session.SessionLocator{SessionID: "tg-101-202", AddressKey: "101"}
 	env, err := ScheduledTaskEnvelope("daily", "summarize", locator, nil, "101", 0, "tick-1")
 	if err != nil {
@@ -80,7 +80,7 @@ func lastPublishedCommandTo(t *testing.T, bus *recordingHandlerCommandBus, targe
 	return swarm.Envelope{}
 }
 
-func newTaskActorSwarmServices(t *testing.T, ctx context.Context) (baldastate.Provider, *recordingHandlerCommandBus, *swarm.Coordinator, *swarm.TaskService, any) {
+func newTaskActorSwarmServices(t *testing.T, ctx context.Context) (baldastate.Provider, *recordingHandlerCommandBus, swarm.ActorDispatcher, *swarm.TaskService, any) {
 	t.Helper()
 	provider, err := baldastate.NewSQLiteProvider(ctx, ":memory:")
 	if err != nil {
@@ -90,7 +90,7 @@ func newTaskActorSwarmServices(t *testing.T, ctx context.Context) (baldastate.Pr
 		_ = provider.Close()
 	})
 	bus := &recordingHandlerCommandBus{}
-	var coordinator *swarm.Coordinator
+	var dispatcher swarm.ActorDispatcher
 	var tasks *swarm.TaskService
 	app := fxtest.New(t,
 		fx.Supply(
@@ -100,10 +100,10 @@ func newTaskActorSwarmServices(t *testing.T, ctx context.Context) (baldastate.Pr
 		),
 		fx.Provide(func() swarm.ActorDispatcher { return bus }),
 		fx.Provide(func() swarm.EventPublisher { return bus }),
-		fx.Provide(swarm.NewTaskService, swarm.NewCoordinator),
-		fx.Populate(&coordinator, &tasks),
+		fx.Provide(swarm.NewTaskService),
+		fx.Populate(&dispatcher, &tasks),
 	)
 	app.RequireStart()
 	t.Cleanup(func() { app.RequireStop() })
-	return provider, bus, coordinator, tasks, nil
+	return provider, bus, dispatcher, tasks, nil
 }

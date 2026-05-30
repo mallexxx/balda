@@ -624,7 +624,7 @@ func newSchedulerForTest(
 	}
 	return &ScheduledTaskScheduler{
 		taskStore:    store,
-		coordinator:  swarm.NewCoordinator(bus, swarm.Config{Enabled: true}),
+		dispatcher:   bus,
 		channel:      channel,
 		owner:        newOwnerStoreForTest(t, 101, 9001),
 		logger:       zerolog.Nop(),

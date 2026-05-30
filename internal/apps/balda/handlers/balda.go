@@ -59,7 +59,8 @@ type BaldaHandler struct {
 	channel            *baldatelegram.Adapter
 	sessionManager     *baldasession.Manager
 	turnDispatcher     actors.TurnQueue
-	swarmCoordinator   *swarm.Coordinator
+	actorDispatcher    swarm.ActorDispatcher
+	swarmConfig        swarm.Config
 	messenger          *messenger.Messenger
 	tgClient           client.ClientWithResponsesInterface
 	authToken          string
@@ -85,7 +86,8 @@ type baldaHandlerDeps struct {
 	Channel            *baldatelegram.Adapter
 	SessionManager     *baldasession.Manager
 	TurnDispatcher     *actors.TurnDispatcher
-	SwarmCoordinator   *swarm.Coordinator
+	ActorDispatcher    swarm.ActorDispatcher
+	SwarmConfig        swarm.Config
 	Messenger          *messenger.Messenger
 	TGClient           client.ClientWithResponsesInterface
 	AuthToken          string `name:"balda_auth_token"`
@@ -102,7 +104,8 @@ func NewBaldaHandler(deps baldaHandlerDeps) (*BaldaHandler, error) {
 		channel:            deps.Channel,
 		sessionManager:     deps.SessionManager,
 		turnDispatcher:     deps.TurnDispatcher,
-		swarmCoordinator:   deps.SwarmCoordinator,
+		actorDispatcher:    deps.ActorDispatcher,
+		swarmConfig:        deps.SwarmConfig,
 		messenger:          deps.Messenger,
 		tgClient:           deps.TGClient,
 		authToken:          strings.TrimSpace(deps.AuthToken),
@@ -392,7 +395,7 @@ func (h *BaldaHandler) onForumTopicLifecycle(ctx context.Context, event *events.
 		evt.Msg("forum topic edited")
 	case messagetype.ForumTopicClosed:
 		evt.Msg("forum topic closed")
-		if err := submitSessionCancelControl(ctx, h.swarmCoordinator, lifecycle.Locator, "system", "session canceled because forum topic was closed", false); err != nil {
+		if err := submitSessionCancelControl(ctx, h.actorDispatcher, lifecycle.Locator, "system", "session canceled because forum topic was closed", false); err != nil {
 			h.logger.Warn().Err(err).Int64("chat_id", chatID).Int("topic_id", topicID).Msg("failed to publish forum-topic-close cancel control command")
 		}
 		if h.sessionManager != nil {

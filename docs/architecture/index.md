@@ -19,8 +19,12 @@ Use this map to find the authoritative runtime contracts.
 
 - JetStream is the only concrete command/event transport, exposed to Balda runtime code through actorlayer abstractions.
 - SQLite is product/read-model state, not a command queue.
-- Ingress handlers dispatch actor envelopes; actors execute commands.
+- Ingress handlers dispatch actor envelopes through `swarm.ActorDispatcher`; actors execute commands.
 - Actor execution contract is split: core actor mechanics in Norma; Balda owns product actors, the configured provider runtime, JetStream adapter policy, and all queue/retry/dead-letter policy.
+
+## Runtime Flow
+
+Telegram/webhook/scheduler ingress -> `ActorDispatcher` -> NATS adapter -> actorlayer `Source`/`Delivery` -> Norma dispatch runtime -> Balda product actor -> event projection/status.
 
 ## Related tests
 

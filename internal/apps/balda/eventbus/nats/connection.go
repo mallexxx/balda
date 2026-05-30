@@ -47,9 +47,9 @@ type Params struct {
 	Logger     zerolog.Logger
 }
 
-func NewActorRuntimeTransport(params Params) (swarm.ActorRuntimeTransport, error) {
+func NewBus(params Params) (*Bus, error) {
 	if !params.Swarm.Enabled {
-		return swarm.UnsupportedActorRuntimeTransport{}, nil
+		return nil, fmt.Errorf("balda swarm runtime must be enabled")
 	}
 	cfg, err := resolveConfig(params.Config, params.Swarm, params.WorkingDir)
 	if err != nil {
@@ -95,10 +95,6 @@ func NewActorRuntimeTransport(params Params) (swarm.ActorRuntimeTransport, error
 
 func (b *Bus) Enabled() bool {
 	return b != nil && b.js != nil
-}
-
-func (b *Bus) RuntimeEnabled() bool {
-	return b.Enabled()
 }
 
 func (b *Bus) Dispatch(ctx context.Context, env swarm.Envelope) (*swarm.DispatchReceipt, error) {

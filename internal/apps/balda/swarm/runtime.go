@@ -18,24 +18,7 @@ const heartbeatInterval = 30 * time.Second
 
 type Actor = dispatch.Actor
 
-// runtimeActorRegistry is the local in-memory actor registry abstraction used by the runtime.
-type runtimeActorRegistry interface {
-	Register(actor Actor) error
-	Resolve(address string) (Actor, bool)
-}
-
-// runtimeRuntime is the local runtime execution boundary used by Balda.
-type runtimeRuntime interface {
-	Run(runtimeCtx context.Context, source actorengine.Source, route runtimeRoute) error
-	Handle(handleCtx context.Context, delivery actorengine.Delivery, route runtimeRoute) error
-	EmitInProgress(eventCtx context.Context, delivery actorengine.Delivery)
-	LaneStatus() actorengine.LaneStatus
-}
-
-// runtimeRoute is the execution callback contract used by the in-memory runtime.
-type runtimeRoute = actorengine.Handler
-
-func registerActors(actors []Actor) (runtimeActorRegistry, error) {
+func registerActors(actors []Actor) (dispatch.Registry, error) {
 	registry := dispatch.NewMemoryRegistry()
 	for _, actor := range actors {
 		if err := registry.Register(actor); err != nil {
@@ -46,13 +29,11 @@ func registerActors(actors []Actor) (runtimeActorRegistry, error) {
 }
 
 type Runtime struct {
-	source  actorengine.Source
-	events  EventPublisher
-	actors  runtimeActorRegistry
-	tasks   *TaskService
-	engine  runtimeRuntime
-	logger  zerolog.Logger
-	enabled bool
+	source actorengine.Source
+	events EventPublisher
+	tasks  *TaskService
+	engine *actorengine.DispatchRuntime
+	logger zerolog.Logger
 	// heartbeatTick controls the in-progress ack cadence for long-running commands.
 	// Zero falls back to the package default.
 	heartbeatTick time.Duration
@@ -80,6 +61,9 @@ func NewRuntime(params runtimeParams) (*Runtime, error) {
 	if params.Source == nil {
 		return nil, fmt.Errorf("actor delivery source is required")
 	}
+	if !params.Config.Enabled {
+		return nil, fmt.Errorf("actor runtime must be enabled")
+	}
 	registry, err := registerActors(params.Actors)
 	if err != nil {
 		return nil, err
@@ -87,15 +71,15 @@ func NewRuntime(params runtimeParams) (*Runtime, error) {
 	r := &Runtime{
 		source:        params.Source,
 		events:        params.Events,
-		actors:        registry,
 		tasks:         params.Tasks,
 		logger:        params.Logger.With().Str("component", "balda.swarm.runtime").Logger(),
-		enabled:       params.Config.Enabled,
 		heartbeatTick: heartbeatInterval,
 	}
-	engine, err := actorengine.New(actorengine.Config{
-		Resolver: runtimeResolver{},
-		Sink:     r,
+	engine, err := actorengine.NewDispatchRuntime(actorengine.RuntimeConfig{
+		Registry:  registry,
+		AddressOf: runtimeAddressOf,
+		LaneKey:   actorLaneKeyFromEnvelope,
+		Sink:      r,
 		Retry: actorengine.RetryPolicy{
 			IsRetryable:    IsRetryableError,
 			Backoff:        RetryDelay,
@@ -114,7 +98,7 @@ func NewRuntime(params runtimeParams) (*Runtime, error) {
 }
 
 func (r *Runtime) Start(context.Context) error {
-	if r == nil || !r.enabled {
+	if r == nil {
 		return nil
 	}
 	if r.cancel != nil {
@@ -126,7 +110,7 @@ func (r *Runtime) Start(context.Context) error {
 	r.wg.Add(1)
 	go func() {
 		defer r.wg.Done()
-		if err := r.engine.Run(runCtx, source, r.route); err != nil && !errors.Is(err, context.Canceled) {
+		if err := r.engine.Run(runCtx, source); err != nil && !errors.Is(err, context.Canceled) {
 			r.logger.Error().Err(err).Msg("actor delivery source stopped")
 		}
 	}()
@@ -159,7 +143,7 @@ func (r *Runtime) handleDelivery(ctx context.Context, delivery actorengine.Deliv
 	if r.engine == nil {
 		return nil
 	}
-	return r.engine.Handle(executionCtx, prepared, r.route)
+	return r.engine.Handle(executionCtx, prepared)
 }
 
 func (r *Runtime) prepareDelivery(ctx context.Context, delivery actorengine.Delivery) (context.Context, func(), actorengine.Delivery) {
@@ -184,24 +168,6 @@ func (r *Runtime) LaneStatus() RuntimeLaneStatus {
 	return r.engine.LaneStatus()
 }
 
-func (r *Runtime) route(ctx context.Context, delivery actorengine.Delivery) error {
-	if r == nil {
-		return nil
-	}
-	address, err := runtimeAddressOf(delivery.Envelope())
-	if err != nil {
-		return err
-	}
-	if r.actors == nil {
-		return &actorengine.ResolveError{Address: address}
-	}
-	actor, found := r.actors.Resolve(address)
-	if !found {
-		return &actorengine.ResolveError{Address: address}
-	}
-	return actor.Handle(ctx, delivery.Envelope())
-}
-
 func (r *Runtime) startHeartbeat(ctx context.Context, env Envelope, delivery actorengine.Delivery) (context.Context, func()) {
 	if r == nil || r.engine == nil || delivery == nil {
 		return ctx, func() {}
@@ -219,7 +185,7 @@ func (r *Runtime) startHeartbeat(ctx context.Context, env Envelope, delivery act
 				if err := delivery.InProgress(child); err != nil {
 					r.logger.Warn().Err(err).Str("envelope_id", env.ID).Msg("failed to send actor delivery in-progress")
 				}
-				r.engine.EmitInProgress(child, delivery)
+				r.Publish(child, actorengine.Event{Type: actorengine.EventInProgress, Attempt: delivery.Attempt(), MaxAttempts: delivery.MaxAttempts()})
 			case <-child.Done():
 				return
 			}
@@ -311,12 +277,6 @@ func withEnvelopeContext(ctx context.Context, env Envelope) context.Context {
 type runtimeSource struct {
 	source    actorengine.Source
 	prepareFn func(context.Context, actorengine.Delivery) (context.Context, func(), actorengine.Delivery)
-}
-
-type runtimeResolver struct{}
-
-func (r runtimeResolver) LaneKey(delivery actorengine.Delivery) string {
-	return actorLaneKeyFromEnvelope(delivery.Envelope())
 }
 
 func (s runtimeSource) Run(ctx context.Context, handler actorengine.Handler) error {

@@ -18,9 +18,9 @@ import (
 func TestCommandHandlerTaskVisibilityCommands(t *testing.T) {
 	ctx := context.Background()
 	handler, sm, _, tgClient := newCommandHandlerTestHarness(t)
-	provider, bus, coordinator, tasks := newTaskVisibilitySwarmServices(t, ctx)
+	provider, bus, dispatcher, tasks := newTaskVisibilitySwarmServices(t, ctx)
 	handler.swarmConfig = swarm.Config{Enabled: true}
-	handler.swarmCoordinator = coordinator
+	handler.actorDispatcher = dispatcher
 	handler.swarmRuntime = fakeSwarmRuntimeStatusProvider{}
 	handler.commandBus = bus
 	handler.tasks = tasks
@@ -84,9 +84,9 @@ func TestCommandHandlerTaskVisibilityCommands(t *testing.T) {
 func TestCommandHandlerTaskVisibilityShowsTaskStatusWithoutProjectedEvents(t *testing.T) {
 	ctx := context.Background()
 	handler, _, _, tgClient := newCommandHandlerTestHarness(t)
-	_, bus, coordinator, tasks := newTaskVisibilitySwarmServices(t, ctx)
+	_, bus, dispatcher, tasks := newTaskVisibilitySwarmServices(t, ctx)
 	handler.swarmConfig = swarm.Config{Enabled: true}
-	handler.swarmCoordinator = coordinator
+	handler.actorDispatcher = dispatcher
 	handler.swarmRuntime = fakeSwarmRuntimeStatusProvider{}
 	handler.commandBus = bus
 	handler.tasks = tasks
@@ -117,9 +117,9 @@ func TestCommandHandlerTaskVisibilityShowsTaskStatusWithoutProjectedEvents(t *te
 func TestCommandHandlerTaskVisibilityRedactsSecrets(t *testing.T) {
 	ctx := context.Background()
 	handler, _, _, tgClient := newCommandHandlerTestHarness(t)
-	_, bus, coordinator, tasks := newTaskVisibilitySwarmServices(t, ctx)
+	_, bus, dispatcher, tasks := newTaskVisibilitySwarmServices(t, ctx)
 	handler.swarmConfig = swarm.Config{Enabled: true}
-	handler.swarmCoordinator = coordinator
+	handler.actorDispatcher = dispatcher
 	handler.swarmRuntime = fakeSwarmRuntimeStatusProvider{}
 	handler.commandBus = bus
 	handler.tasks = tasks
@@ -159,9 +159,9 @@ func TestCommandHandlerTaskVisibilityRedactsSecrets(t *testing.T) {
 func TestCommandHandlerTaskVisibilityUsesReviewableOutcomeSchema(t *testing.T) {
 	ctx := context.Background()
 	handler, _, _, tgClient := newCommandHandlerTestHarness(t)
-	_, bus, coordinator, tasks := newTaskVisibilitySwarmServices(t, ctx)
+	_, bus, dispatcher, tasks := newTaskVisibilitySwarmServices(t, ctx)
 	handler.swarmConfig = swarm.Config{Enabled: true}
-	handler.swarmCoordinator = coordinator
+	handler.actorDispatcher = dispatcher
 	handler.swarmRuntime = fakeSwarmRuntimeStatusProvider{}
 	handler.commandBus = bus
 	handler.tasks = tasks
@@ -207,9 +207,9 @@ func TestCommandHandlerTaskVisibilityUsesReviewableOutcomeSchema(t *testing.T) {
 func TestCommandHandlerSwarmQueueAndMailboxStatusCommands(t *testing.T) {
 	ctx := context.Background()
 	handler, _, _, tgClient := newCommandHandlerTestHarness(t)
-	_, bus, coordinator, tasks := newTaskVisibilitySwarmServices(t, ctx)
+	_, bus, dispatcher, tasks := newTaskVisibilitySwarmServices(t, ctx)
 	handler.swarmConfig = swarm.Config{Enabled: true}
-	handler.swarmCoordinator = coordinator
+	handler.actorDispatcher = dispatcher
 	handler.swarmRuntime = fakeSwarmRuntimeStatusProvider{
 		status: swarm.RuntimeLaneStatus{
 			Active: 2,
@@ -312,28 +312,12 @@ func TestCommandHandlerSwarmQueueAndMailboxStatusCommands(t *testing.T) {
 	assertLastSentContains(t, tgClient, "goalkeeper")
 }
 
-func TestCommandHandlerSwarmStatusShowsDisabledModeContract(t *testing.T) {
-	ctx := context.Background()
-	handler, _, _, tgClient := newCommandHandlerTestHarness(t)
-	handler.swarmConfig = swarm.Config{Enabled: false}
-	handler.swarmCoordinator = nil
-	handler.commandBus = swarm.UnsupportedActorRuntimeTransport{}
-
-	if err := handler.onCommand(ctx, newCommandEvent("swarm", "status", 101, 9001, nil)); err != nil {
-		t.Fatalf("/swarm status error = %v", err)
-	}
-	assertLastSentContains(t, tgClient, "enabled: false")
-	assertLastSentContains(t, tgClient, "runtime enabled: false")
-	assertLastSentContains(t, tgClient, "command_bus: unavailable")
-	assertLastSentContains(t, tgClient, "disabled_mode_contract: runtime_unavailable_no_fallback")
-}
-
 func TestCommandHandlerDLQEntryUsageAndNotFound(t *testing.T) {
 	ctx := context.Background()
 	handler, _, _, tgClient := newCommandHandlerTestHarness(t)
-	_, bus, coordinator, tasks := newTaskVisibilitySwarmServices(t, ctx)
+	_, bus, dispatcher, tasks := newTaskVisibilitySwarmServices(t, ctx)
 	handler.swarmConfig = swarm.Config{Enabled: true}
-	handler.swarmCoordinator = coordinator
+	handler.actorDispatcher = dispatcher
 	handler.swarmRuntime = fakeSwarmRuntimeStatusProvider{}
 	handler.commandBus = bus
 	handler.tasks = tasks
@@ -349,7 +333,7 @@ func TestCommandHandlerDLQEntryUsageAndNotFound(t *testing.T) {
 	assertLastSentContains(t, tgClient, "DLQ entry 999 not found.")
 }
 
-func newTaskVisibilitySwarmServices(t *testing.T, ctx context.Context) (baldastate.Provider, *statusTransport, *swarm.Coordinator, *swarm.TaskService) {
+func newTaskVisibilitySwarmServices(t *testing.T, ctx context.Context) (baldastate.Provider, *statusTransport, swarm.ActorDispatcher, *swarm.TaskService) {
 	t.Helper()
 	provider, err := baldastate.NewSQLiteProvider(ctx, filepath.Join(t.TempDir(), "state.db"))
 	if err != nil {
@@ -361,7 +345,7 @@ func newTaskVisibilitySwarmServices(t *testing.T, ctx context.Context) (baldasta
 	if err != nil {
 		t.Fatalf("Normalize swarm config: %v", err)
 	}
-	var coordinator *swarm.Coordinator
+	var dispatcher swarm.ActorDispatcher
 	var tasks *swarm.TaskService
 	app := fxtest.New(t,
 		fx.Supply(
@@ -372,12 +356,12 @@ func newTaskVisibilitySwarmServices(t *testing.T, ctx context.Context) (baldasta
 			func() swarm.ActorDispatcher { return bus },
 			func() swarm.EventPublisher { return bus },
 		),
-		fx.Provide(swarm.NewTaskService, swarm.NewCoordinator),
-		fx.Populate(&coordinator, &tasks),
+		fx.Provide(swarm.NewTaskService),
+		fx.Populate(&dispatcher, &tasks),
 	)
 	app.RequireStart()
 	t.Cleanup(func() { app.RequireStop() })
-	return provider, bus, coordinator, tasks
+	return provider, bus, dispatcher, tasks
 }
 
 type statusTransport struct{ recordingHandlerCommandBus }

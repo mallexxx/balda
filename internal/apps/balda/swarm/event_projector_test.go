@@ -11,44 +11,7 @@ import (
 	"go.uber.org/fx/fxtest"
 )
 
-type recordingEventConsumer struct {
-	runCalls int
-}
-
-func (c *recordingEventConsumer) RunEventConsumer(ctx context.Context, _ EventHandler) error {
-	c.runCalls++
-	<-ctx.Done()
-	return ctx.Err()
-}
-
-func TestNewEventConsumerRequiresEventConsumerWhenEnabled(t *testing.T) {
-	t.Parallel()
-
-	consumer, err := NewEventConsumer(eventConsumerParams{
-		Bus:    UnsupportedActorRuntimeTransport{},
-		Config: Config{Enabled: true},
-	})
-	if err == nil || !strings.Contains(err.Error(), "actor runtime event consumer") {
-		t.Fatalf("NewEventConsumer() = (%v, %v), want event consumer error", consumer, err)
-	}
-}
-
-func TestNewEventConsumerAllowsMissingEventConsumerWhenDisabled(t *testing.T) {
-	t.Parallel()
-
-	consumer, err := NewEventConsumer(eventConsumerParams{
-		Bus:    UnsupportedActorRuntimeTransport{},
-		Config: Config{Enabled: false},
-	})
-	if err != nil {
-		t.Fatalf("NewEventConsumer() error = %v, want nil", err)
-	}
-	if consumer == nil {
-		t.Fatal("NewEventConsumer() = nil, want disabled event consumer")
-	}
-}
-
-func TestNewEventProjectorRequiresConsumerWhenEnabled(t *testing.T) {
+func TestNewEventProjectorRequiresConsumer(t *testing.T) {
 	t.Parallel()
 
 	projector, err := NewEventProjector(eventProjectorParams{
@@ -59,34 +22,6 @@ func TestNewEventProjectorRequiresConsumerWhenEnabled(t *testing.T) {
 	})
 	if err == nil || !strings.Contains(err.Error(), "actor runtime event consumer") {
 		t.Fatalf("NewEventProjector() = (%v, %v), want consumer error", projector, err)
-	}
-}
-
-func TestNewEventProjectorAllowsMissingConsumerWhenDisabled(t *testing.T) {
-	t.Parallel()
-
-	projector, err := NewEventProjector(eventProjectorParams{
-		LC:            fxtest.NewLifecycle(t),
-		Config:        Config{Enabled: false},
-		StateProvider: newEventProjectorStateProvider(t, context.Background()),
-		Logger:        zerolog.Nop(),
-	})
-	if err != nil {
-		t.Fatalf("NewEventProjector() error = %v, want nil", err)
-	}
-	if projector == nil || projector.enabled {
-		t.Fatalf("projector = %+v, want disabled projector", projector)
-	}
-}
-
-func TestEventProjectorStartDisabledDoesNotRunConsumer(t *testing.T) {
-	consumer := &recordingEventConsumer{}
-	projector := &EventProjector{consumer: consumer, enabled: false, logger: zerolog.Nop()}
-	if err := projector.Start(context.Background()); err != nil {
-		t.Fatalf("Start() error = %v", err)
-	}
-	if consumer.runCalls != 0 {
-		t.Fatalf("RunEventConsumer calls = %d, want 0", consumer.runCalls)
 	}
 }
 

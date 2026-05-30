@@ -124,17 +124,6 @@ func newTestRegistry(t *testing.T, actors ...Actor) dispatch.Registry {
 	return registry
 }
 
-func TestRuntimeStartDisabledDoesNotRunConsumer(t *testing.T) {
-	bus := &recordingCommandBus{}
-	runtime := &Runtime{source: bus, enabled: false}
-	if err := runtime.Start(context.Background()); err != nil {
-		t.Fatalf("Start() error = %v", err)
-	}
-	if bus.runCalls != 0 {
-		t.Fatalf("Run calls = %d, want 0", bus.runCalls)
-	}
-}
-
 func TestRuntime_HandleCommandDispatchesActor(t *testing.T) {
 	bus := &recordingCommandBus{}
 	actor := &testActor{address: WildcardAddress(ActorTypeSession)}
@@ -418,10 +407,12 @@ func TestRuntime_LaneStatusTracksActiveLanes(t *testing.T) {
 }
 
 func newRuntimeForTest(bus *recordingCommandBus, registry dispatch.Registry) *Runtime {
-	rt := &Runtime{source: bus, events: bus, actors: registry, heartbeatTick: heartbeatInterval}
-	engine, err := actorengine.New(actorengine.Config{
-		Resolver: runtimeResolver{},
-		Sink:     rt,
+	rt := &Runtime{source: bus, events: bus, heartbeatTick: heartbeatInterval}
+	engine, err := actorengine.NewDispatchRuntime(actorengine.RuntimeConfig{
+		Registry:  registry,
+		AddressOf: runtimeAddressOf,
+		LaneKey:   actorLaneKeyFromEnvelope,
+		Sink:      rt,
 		Retry: actorengine.RetryPolicy{
 			IsRetryable:    IsRetryableError,
 			Backoff:        RetryDelay,

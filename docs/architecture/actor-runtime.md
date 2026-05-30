@@ -7,7 +7,7 @@ Status: active
 
 - ActorRuntime consumes commands from JetStream.
 - Actorlayer engine lanes serialize mutable state by actor key.
-- Runtime execution uses `actorlayer/engine.Runtime`; Balda adapts JetStream commands into actorlayer deliveries.
+- Runtime execution uses Norma `actorlayer/engine.DispatchRuntime`; Balda adapts JetStream commands into actorlayer deliveries and supplies only Balda-specific delivery wrapping.
 - Command settlement happens after actor side effects complete.
 - Retry/permanent failure handling is explicit and classified.
 - Product actors own Balda behavior: SessionActor handles turns, TaskActor routes webhook/scheduled work, GoalkeeperActor runs `/goal`, DeliveryActor sends updates, ControlActor cancels work, and MemoryActor syncs durable context.
@@ -41,7 +41,7 @@ Status: active
 
 ### Contract shape
 
-- Engine contract: Norma actorlayer is the fixed typed dispatch+state model Balda uses for actors. It exposes:
+- Engine contract: Norma actorlayer is the fixed typed dispatch+state model Balda uses for actors through `actorengine.NewDispatchRuntime`. It exposes:
   - actor keying and deterministic lane routing,
   - typed envelope handling,
   - dispatch result states (`acked`, `running`, `in_progress`, `retry`, `deadletter`, `noop`),
@@ -71,10 +71,11 @@ Status: active
 
 ### Balda implementation map
 
-- Actor dispatch and lane execution live in `internal/apps/balda/swarm/runtime.go`, backed by `github.com/normahq/norma/pkg/actorlayer/engine`.
+- Actor dispatch and lane execution live in `internal/apps/balda/swarm/runtime.go`, backed by `github.com/normahq/norma/pkg/actorlayer/engine.DispatchRuntime`.
 - Balda product actor definitions live in `internal/apps/balda/actors` and are registered through `actors.Module`.
-- Telegram/webhook/scheduler ingress lives in `internal/apps/balda/handlers`; handlers publish actor commands but do not own actor behavior or actor registration.
+- Telegram/webhook/scheduler ingress lives in `internal/apps/balda/handlers`; handlers inject `swarm.ActorDispatcher` directly, publish actor commands, and do not own actor behavior or actor registration.
 - ADK session/provider runtime ownership lives in `internal/apps/balda/agent` and `internal/apps/balda/session`; all sessions use the configured `balda.provider`.
 - JetStream command delivery and settlement live in `internal/apps/balda/eventbus/nats` behind actorlayer `Source`/`Delivery` and Balda `ActorDispatcher` contracts.
+- The NATS adapter is the only concrete transport owner. It exposes small interfaces from one bus instance: `ActorDispatcher`, `EventPublisher`, actorlayer `Source`, `EventConsumer`, `BusDrainer`, `ActorRuntimeStatusProvider`, and `DLQInspector`.
 - Task projection, retry classification, DLQ reporting, and user-visible status live in Balda packages (`swarm`, `handlers`, and `state`), not in Norma actorlayer.
 - Balda must not grow `internal/apps/balda/norma`, `internal/apps/balda/adapters`, or actor-runtime selector packages. Future generic actor adapters belong to Norma-owned public packages such as `github.com/normahq/norma/pkg/actoradapter/...`.

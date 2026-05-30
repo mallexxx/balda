@@ -14,7 +14,6 @@ import (
 	"github.com/normahq/balda/internal/apps/balda/messenger"
 	baldasession "github.com/normahq/balda/internal/apps/balda/session"
 	baldastate "github.com/normahq/balda/internal/apps/balda/state"
-	"github.com/normahq/balda/internal/apps/balda/swarm"
 	"github.com/rs/zerolog"
 	"github.com/tgbotkit/client"
 	"github.com/tgbotkit/runtime/events"
@@ -253,11 +252,11 @@ func TestBaldaHandlerOnMessage_PublicTopicRestoreWarnsWhenWorkspaceSyncSkipped(t
 			TGClient:  tgClient,
 			Logger:    zerolog.Nop(),
 		}),
-		sessionManager:   sessionManager,
-		turnDispatcher:   turnDispatcher,
-		swarmCoordinator: swarm.NewCoordinator(turnDispatcher, swarm.Config{Enabled: true}),
-		logger:           zerolog.Nop(),
-		authorizer:       &fakeBaldaAuthorizer{ownerID: 101},
+		sessionManager:  sessionManager,
+		turnDispatcher:  turnDispatcher,
+		actorDispatcher: turnDispatcher,
+		logger:          zerolog.Nop(),
+		authorizer:      &fakeBaldaAuthorizer{ownerID: 101},
 	}
 	handler.SetOwner(101, 9001)
 	setUnexportedField(t, handler, "baldaProviderName", "balda-provider")
@@ -322,11 +321,11 @@ func newBaldaRestoreHandlerHarness(t *testing.T, store *fakeBaldaRestoreSessionS
 			TGClient:  tgClient,
 			Logger:    zerolog.Nop(),
 		}),
-		sessionManager:   sessionManager,
-		turnDispatcher:   turnDispatcher,
-		swarmCoordinator: swarm.NewCoordinator(turnDispatcher, swarm.Config{Enabled: true}),
-		logger:           zerolog.Nop(),
-		authorizer:       &fakeBaldaAuthorizer{ownerID: 101},
+		sessionManager:  sessionManager,
+		turnDispatcher:  turnDispatcher,
+		actorDispatcher: turnDispatcher,
+		logger:          zerolog.Nop(),
+		authorizer:      &fakeBaldaAuthorizer{ownerID: 101},
 	}
 	handler.SetOwner(101, 9001)
 	setUnexportedField(t, handler, "baldaProviderName", "balda-provider")

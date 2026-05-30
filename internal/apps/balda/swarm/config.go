@@ -39,10 +39,6 @@ type DLQConfig struct {
 	Stream string
 }
 
-func (c Config) RuntimeEnabled() bool {
-	return c.Enabled
-}
-
 func (c Config) Normalized() (Config, error) {
 	c.Commands = c.Commands.Normalized()
 	c.Events = c.Events.Normalized()

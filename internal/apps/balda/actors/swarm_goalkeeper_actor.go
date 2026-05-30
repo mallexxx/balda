@@ -39,7 +39,7 @@ type goalkeeperRuntimeBuilder interface {
 
 type goalkeeperActor struct {
 	tasks          *swarm.TaskService
-	coordinator    *swarm.Coordinator
+	dispatcher     swarm.ActorDispatcher
 	sessions       *baldasession.Manager
 	runtimeBuilder goalkeeperRuntimeBuilder
 	taskRuns       *TaskRunRegistry
@@ -51,7 +51,7 @@ type goalkeeperActorParams struct {
 	fx.In
 
 	TaskService    *swarm.TaskService
-	Coordinator    *swarm.Coordinator
+	Dispatcher     swarm.ActorDispatcher
 	SessionManager *baldasession.Manager
 	RuntimeManager *baldaagent.RuntimeManager
 	TaskRuns       *TaskRunRegistry
@@ -62,7 +62,7 @@ type goalkeeperActorParams struct {
 func newGoalkeeperActor(params goalkeeperActorParams) swarm.Actor {
 	return &goalkeeperActor{
 		tasks:          params.TaskService,
-		coordinator:    params.Coordinator,
+		dispatcher:     params.Dispatcher,
 		sessions:       params.SessionManager,
 		runtimeBuilder: params.RuntimeManager,
 		taskRuns:       params.TaskRuns,
@@ -466,8 +466,8 @@ func (r goalkeeperRunResult) toTaskResult(goalReached bool) taskResultPayloadV1 
 }
 
 func (a *goalkeeperActor) enqueueTaskCompletionMemorySync(ctx context.Context, payload goalTaskPayload, result taskResultPayloadV1) error {
-	if a == nil || a.coordinator == nil || !a.coordinator.RuntimeEnabled() {
-		return swarm.TransientError(fmt.Errorf("swarm coordinator is required"))
+	if a == nil || a.dispatcher == nil {
+		return swarm.TransientError(fmt.Errorf("actor dispatcher is required"))
 	}
 	commands := []taskMemorySyncPayload{
 		{
@@ -528,7 +528,7 @@ func (a *goalkeeperActor) enqueueTaskCompletionMemorySync(ctx context.Context, p
 			DedupeKey:     dedupeKey,
 			PayloadJSON:   string(commandJSON),
 		}
-		if _, err := a.coordinator.Dispatch(ctx, env); err != nil {
+		if _, err := a.dispatcher.Dispatch(ctx, env); err != nil {
 			return swarm.TransientError(err)
 		}
 	}
@@ -569,8 +569,8 @@ func (a *goalkeeperActor) deliver(
 	text string,
 	dedupeSuffix string,
 ) error {
-	if a.coordinator == nil || !a.coordinator.RuntimeEnabled() {
-		return swarm.TransientError(fmt.Errorf("swarm coordinator is required"))
+	if a.dispatcher == nil {
+		return swarm.TransientError(fmt.Errorf("actor dispatcher is required"))
 	}
 	message := redactSecrets(strings.TrimSpace(text))
 	if message == "" {
@@ -609,7 +609,7 @@ func (a *goalkeeperActor) deliver(
 		DedupeKey:     dedupeKey,
 		PayloadJSON:   string(data),
 	}
-	if _, err := a.coordinator.Dispatch(ctx, env); err != nil {
+	if _, err := a.dispatcher.Dispatch(ctx, env); err != nil {
 		return swarm.TransientError(err)
 	}
 	return nil

@@ -21,7 +21,7 @@ func TestGoalkeeperActorCompletesPassingRun(t *testing.T) {
 	t.Parallel()
 
 	ctx := context.Background()
-	_, bus, coordinator, tasks, _ := newTaskActorSwarmServices(t, ctx)
+	_, bus, dispatcher, tasks, _ := newTaskActorSwarmServices(t, ctx)
 	locator := session.SessionLocator{SessionID: "tg-101-202", AddressKey: "101"}
 	ts := newBaldaTopicSession(t, locator.SessionID)
 	setUnexportedField(t, ts, "userID", "101")
@@ -30,7 +30,7 @@ func TestGoalkeeperActorCompletesPassingRun(t *testing.T) {
 	manager := newBaldaSessionManagerWithSession(t, locator, ts)
 	actor := &goalkeeperActor{
 		tasks:          tasks,
-		coordinator:    coordinator,
+		dispatcher:     dispatcher,
 		sessions:       manager,
 		runtimeBuilder: &fakeGoalkeeperRuntimeBuilder{t: t, finalValidatorText: "verdict: pass\nvalidated"},
 		taskRuns:       NewTaskRunRegistry(),

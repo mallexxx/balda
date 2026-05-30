@@ -104,24 +104,24 @@ func goalTaskTitle(objective string) string {
 }
 
 type taskActorExecutor struct {
-	tasks       *swarm.TaskService
-	coordinator *swarm.Coordinator
-	sessions    *baldasession.Manager
+	tasks      *swarm.TaskService
+	dispatcher swarm.ActorDispatcher
+	sessions   *baldasession.Manager
 }
 
 type taskActorExecutorParams struct {
 	fx.In
 
 	TaskService *swarm.TaskService
-	Coordinator *swarm.Coordinator
+	Dispatcher  swarm.ActorDispatcher
 	Sessions    *baldasession.Manager `optional:"true"`
 }
 
 func newTaskActorExecutor(params taskActorExecutorParams) swarm.Actor {
 	return &taskActorExecutor{
-		tasks:       params.TaskService,
-		coordinator: params.Coordinator,
-		sessions:    params.Sessions,
+		tasks:      params.TaskService,
+		dispatcher: params.Dispatcher,
+		sessions:   params.Sessions,
 	}
 }
 
@@ -305,7 +305,7 @@ func (e *taskActorExecutor) dispatchSessionTurn(ctx context.Context, env swarm.E
 	if strings.TrimSpace(sessionEnv.DedupeKey) != "" {
 		sessionEnv.ID = sessionEnv.DedupeKey
 	}
-	if _, err := e.coordinator.Dispatch(ctx, sessionEnv); err != nil {
+	if _, err := e.dispatcher.Dispatch(ctx, sessionEnv); err != nil {
 		return swarm.TransientError(err)
 	}
 	if taskID != "" && e.tasks != nil {
@@ -376,7 +376,7 @@ func (e *taskActorExecutor) startScheduledTaskTask(ctx context.Context, env swar
 	if strings.TrimSpace(sessionEnv.DedupeKey) != "" {
 		sessionEnv.ID = sessionEnv.DedupeKey
 	}
-	if _, err := e.coordinator.Dispatch(ctx, sessionEnv); err != nil {
+	if _, err := e.dispatcher.Dispatch(ctx, sessionEnv); err != nil {
 		return swarm.TransientError(err)
 	}
 	if e.tasks != nil {

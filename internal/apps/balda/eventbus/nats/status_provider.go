@@ -1,42 +1,30 @@
 package natsbus
 
 import (
-	"context"
-
 	"github.com/normahq/balda/internal/apps/balda/swarm"
 	actorengine "github.com/normahq/norma/pkg/actorlayer/engine"
 )
 
-func NewActorDispatcher(transport swarm.ActorRuntimeTransport) swarm.ActorDispatcher {
-	return transport
+func NewActorDispatcher(bus *Bus) swarm.ActorDispatcher {
+	return bus
 }
 
-func NewEventPublisher(transport swarm.ActorRuntimeTransport) swarm.EventPublisher {
-	return transport
+func NewEventPublisher(bus *Bus) swarm.EventPublisher {
+	return bus
 }
 
-func NewBusDrainer(transport swarm.ActorRuntimeTransport) swarm.BusDrainer {
-	return transport
+func NewBusDrainer(bus *Bus) swarm.BusDrainer {
+	return bus
 }
 
-func NewActorDeliverySource(transport swarm.ActorRuntimeTransport) actorengine.Source {
-	if source, ok := transport.(actorengine.Source); ok {
-		return source
-	}
-	return disabledActorDeliverySource{}
+func NewActorDeliverySource(bus *Bus) actorengine.Source {
+	return bus
 }
 
-type disabledActorDeliverySource struct{}
-
-func (disabledActorDeliverySource) Run(ctx context.Context, _ actorengine.Handler) error {
-	<-ctx.Done()
-	return ctx.Err()
+func NewActorRuntimeStatusProvider(bus *Bus) swarm.ActorRuntimeStatusProvider {
+	return bus
 }
 
-func NewActorRuntimeStatusProvider(transport swarm.ActorRuntimeTransport) swarm.ActorRuntimeStatusProvider {
-	bus := transport
-	if status, ok := bus.(swarm.ActorRuntimeStatusProvider); ok {
-		return status
-	}
-	return swarm.UnsupportedActorRuntimeTransport{}
-}
+func NewEventConsumer(bus *Bus) swarm.EventConsumer { return bus }
+
+func NewDLQInspector(bus *Bus) swarm.DLQInspector { return bus }

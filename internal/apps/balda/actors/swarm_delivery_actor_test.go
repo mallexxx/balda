@@ -118,10 +118,10 @@ func TestTaskDeliveryActorStoresProviderMessageIDOnSuccess(t *testing.T) {
 
 func newTaskDeliveryActorForTest(t *testing.T, ctx context.Context) (*taskDeliveryActor, *swarm.TaskService, *fakeTelegramClient, *recordingHandlerCommandBus) {
 	t.Helper()
-	provider, bus, coordinator, tasks, allocator := newTaskActorSwarmServices(t, ctx)
+	provider, bus, dispatcher, tasks, allocator := newTaskActorSwarmServices(t, ctx)
 	_ = provider
 	_ = bus
-	_ = coordinator
+	_ = dispatcher
 	_ = allocator
 	tgClient := &fakeTelegramClient{}
 	msg := messenger.NewMessenger(tgClient, zerolog.Nop())

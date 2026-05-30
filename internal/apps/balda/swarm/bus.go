@@ -3,7 +3,6 @@ package swarm
 import (
 	"context"
 	"errors"
-	"fmt"
 	"math/rand/v2"
 	"time"
 )
@@ -17,8 +16,6 @@ var ErrDLQEntryNotFound = errors.New("dlq entry not found")
 const (
 	// CommandLifecycleEventPublishingMode documents that command lifecycle events are visibility telemetry.
 	CommandLifecycleEventPublishingMode = "best_effort_visibility"
-	// SwarmDisabledModeContract documents supported behavior when balda.swarm.enabled=false.
-	SwarmDisabledModeContract = "runtime_unavailable_no_fallback"
 )
 
 // IsCommandQueueFull reports whether an error came from command stream pressure.
@@ -50,14 +47,6 @@ type BusDrainer interface {
 	Drain(ctx context.Context) error
 }
 
-// ActorRuntimeTransport is the full private transport surface implemented by the
-// concrete actorlayer adapter.
-type ActorRuntimeTransport interface {
-	ActorDispatcher
-	EventPublisher
-	BusDrainer
-}
-
 // RuntimeStatus describes JetStream stream and consumer state for /swarm status.
 type RuntimeStatus struct {
 	Transport                 string
@@ -65,7 +54,6 @@ type RuntimeStatus struct {
 	Running                   bool
 	JetStream                 bool
 	ClientURL                 string
-	DisabledMode              string
 	Commands                  StreamStatus
 	Events                    StreamStatus
 	DLQ                       StreamStatus
@@ -121,26 +109,6 @@ type DLQEntry struct {
 // DLQInspector provides targeted inspection for /dlq <id>.
 type DLQInspector interface {
 	GetDLQEntry(ctx context.Context, sequence uint64) (DLQEntry, error)
-}
-
-// UnsupportedActorRuntimeTransport is installed when the swarm runtime is disabled.
-type UnsupportedActorRuntimeTransport struct{}
-
-func (UnsupportedActorRuntimeTransport) Dispatch(context.Context, Envelope) (*DispatchReceipt, error) {
-	return nil, fmt.Errorf("actor runtime transport is unavailable")
-}
-
-func (UnsupportedActorRuntimeTransport) PublishEvent(context.Context, string, Envelope) error {
-	return nil
-}
-
-func (UnsupportedActorRuntimeTransport) Drain(context.Context) error { return nil }
-
-func (UnsupportedActorRuntimeTransport) Status(context.Context) (RuntimeStatus, error) {
-	return RuntimeStatus{
-		Transport:    "unavailable",
-		DisabledMode: SwarmDisabledModeContract,
-	}, nil
 }
 
 // EventHandler is kept for event projector code that consumes decoded events.

@@ -16,10 +16,10 @@ type TestJetStreamHarness struct {
 }
 
 // StartTestJetStream creates an embedded JetStream bus backed by a temp store dir.
-// It ensures required streams/consumers are available through NewActorRuntimeTransport startup.
+// It ensures required streams/consumers are available through NewBus startup.
 func StartTestJetStream(t *testing.T, swarmCfg swarm.Config) *TestJetStreamHarness {
 	t.Helper()
-	busRaw, err := NewActorRuntimeTransport(Params{
+	bus, err := NewBus(Params{
 		LC:         fxtest.NewLifecycle(t),
 		Config:     baldaeventbus.Config{Embedded: true, JetStream: true},
 		Swarm:      swarmCfg,
@@ -27,11 +27,7 @@ func StartTestJetStream(t *testing.T, swarmCfg swarm.Config) *TestJetStreamHarne
 		Logger:     zerolog.Nop(),
 	})
 	if err != nil {
-		t.Fatalf("StartTestJetStream() NewActorRuntimeTransport error = %v", err)
-	}
-	bus, ok := busRaw.(*Bus)
-	if !ok {
-		t.Fatalf("StartTestJetStream() bus type = %T, want *Bus", busRaw)
+		t.Fatalf("StartTestJetStream() NewBus error = %v", err)
 	}
 	t.Cleanup(func() { _ = bus.Drain(context.Background()) })
 	return &TestJetStreamHarness{Bus: bus}

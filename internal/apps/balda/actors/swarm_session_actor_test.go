@@ -64,10 +64,10 @@ func TestSessionActorSettleSessionTurnResultMarksTaskFailedWithoutRetry(t *testi
 	t.Parallel()
 
 	ctx := context.Background()
-	provider, bus, coordinator, tasks, allocator := newTaskActorSwarmServices(t, ctx)
+	provider, bus, dispatcher, tasks, allocator := newTaskActorSwarmServices(t, ctx)
 	_ = provider
 	_ = bus
-	_ = coordinator
+	_ = dispatcher
 	_ = allocator
 	created, err := tasks.Create(ctx, baldastate.SwarmTaskRecord{
 		ID:        "task-session-failed",
@@ -119,10 +119,10 @@ func TestSessionActorEnqueueTurnSkipsDeadLetteredTask(t *testing.T) {
 	t.Parallel()
 
 	ctx := context.Background()
-	provider, bus, coordinator, tasks, allocator := newTaskActorSwarmServices(t, ctx)
+	provider, bus, dispatcher, tasks, allocator := newTaskActorSwarmServices(t, ctx)
 	_ = provider
 	_ = bus
-	_ = coordinator
+	_ = dispatcher
 	_ = allocator
 	if _, err := tasks.Create(ctx, baldastate.SwarmTaskRecord{
 		ID:        "task-session-deadlettered",

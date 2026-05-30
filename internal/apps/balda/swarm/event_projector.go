@@ -16,7 +16,6 @@ type EventProjector struct {
 	consumer EventConsumer
 	store    baldastate.SwarmStore
 	logger   zerolog.Logger
-	enabled  bool
 
 	cancel context.CancelFunc
 	wg     sync.WaitGroup
@@ -26,56 +25,33 @@ type eventProjectorParams struct {
 	fx.In
 
 	LC            fx.Lifecycle
-	Consumer      EventConsumer `optional:"true"`
+	Consumer      EventConsumer
 	Config        Config
 	StateProvider baldastate.Provider
 	Logger        zerolog.Logger
-}
-
-type eventConsumerParams struct {
-	fx.In
-
-	Bus    ActorRuntimeTransport
-	Config Config
-}
-
-type disabledEventConsumer struct{}
-
-func (disabledEventConsumer) RunEventConsumer(ctx context.Context, _ EventHandler) error {
-	<-ctx.Done()
-	return ctx.Err()
-}
-
-func NewEventConsumer(params eventConsumerParams) (EventConsumer, error) {
-	if !params.Config.Enabled {
-		return disabledEventConsumer{}, nil
-	}
-	consumer, ok := params.Bus.(EventConsumer)
-	if !ok {
-		return nil, fmt.Errorf("event projector requires an actor runtime event consumer")
-	}
-	return consumer, nil
 }
 
 func NewEventProjector(params eventProjectorParams) (*EventProjector, error) {
 	if params.StateProvider == nil {
 		return nil, fmt.Errorf("balda state provider is required")
 	}
-	if params.Config.Enabled && params.Consumer == nil {
+	if !params.Config.Enabled {
+		return nil, fmt.Errorf("actor runtime must be enabled")
+	}
+	if params.Consumer == nil {
 		return nil, fmt.Errorf("event projector requires an actor runtime event consumer")
 	}
 	p := &EventProjector{
 		consumer: params.Consumer,
 		store:    params.StateProvider.Swarm(),
 		logger:   params.Logger.With().Str("component", "balda.swarm.event_projector").Logger(),
-		enabled:  params.Config.Enabled,
 	}
 	params.LC.Append(fx.Hook{OnStart: p.Start, OnStop: p.Stop})
 	return p, nil
 }
 
 func (p *EventProjector) Start(context.Context) error {
-	if p == nil || !p.enabled || p.consumer == nil {
+	if p == nil || p.consumer == nil {
 		return nil
 	}
 	runCtx, cancel := context.WithCancel(context.Background())

@@ -16,25 +16,25 @@ func (h *BaldaHandler) submitSessionTurn(ctx context.Context, payload actors.Ses
 }
 
 func (h *BaldaHandler) submitSessionTurnToSwarm(ctx context.Context, payload actors.SessionTurnPayload) (*swarm.DispatchReceipt, error) {
-	if h.swarmCoordinator == nil || !h.swarmCoordinator.RuntimeEnabled() {
+	if h.actorDispatcher == nil {
 		return nil, fmt.Errorf("jetstream swarm runtime is unavailable")
 	}
 	env, err := actors.SessionTurnEnvelope(payload)
 	if err != nil {
 		return nil, err
 	}
-	return h.swarmCoordinator.Dispatch(ctx, env)
+	return h.actorDispatcher.Dispatch(ctx, env)
 }
 
 func (h *BaldaHandler) submitWebhookTask(ctx context.Context, payload actors.SessionTurnPayload, routeName string, requestID string) (*swarm.DispatchReceipt, string, error) {
-	if h.swarmCoordinator == nil || !h.swarmCoordinator.RuntimeEnabled() {
+	if h.actorDispatcher == nil {
 		return nil, "", fmt.Errorf("jetstream swarm runtime is unavailable")
 	}
 	env, taskID, err := actors.WebhookTaskEnvelope(payload, routeName, requestID)
 	if err != nil {
 		return nil, "", err
 	}
-	result, err := h.swarmCoordinator.Dispatch(ctx, env)
+	result, err := h.actorDispatcher.Dispatch(ctx, env)
 	if err != nil {
 		return nil, "", err
 	}
@@ -102,10 +102,10 @@ func (h *CommandHandler) submitGoalTask(ctx context.Context, locator baldasessio
 	if err != nil {
 		return false, err
 	}
-	if h.swarmCoordinator == nil || !h.swarmCoordinator.Enabled() {
+	if h.actorDispatcher == nil {
 		return false, fmt.Errorf("jetstream swarm runtime is unavailable")
 	}
-	_, err = h.swarmCoordinator.Dispatch(ctx, env)
+	_, err = h.actorDispatcher.Dispatch(ctx, env)
 	if err != nil {
 		return false, err
 	}

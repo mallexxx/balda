@@ -103,14 +103,14 @@ func (h *CommandHandler) cancelTaskCommand(ctx context.Context, commandCtx balda
 	if isTerminalTaskStatus(task.Status) {
 		return h.channel.SendPlain(ctx, commandCtx.Locator, fmt.Sprintf("Task %s is already %s.", task.ID, task.Status))
 	}
-	if h.swarmCoordinator == nil || !h.swarmCoordinator.RuntimeEnabled() {
+	if h.actorDispatcher == nil {
 		return h.channel.SendPlain(ctx, commandCtx.Locator, "Cancel is unavailable right now. Please try again.")
 	}
 	env, err := actors.ControlCancelEnvelope(commandCtx.Locator, task.ID, baldatelegram.UserID(commandCtx.UserID), "task canceled by user")
 	if err != nil {
 		return h.channel.SendPlain(ctx, commandCtx.Locator, fmt.Sprintf("Failed to build cancel request: %v", err))
 	}
-	if _, err := h.swarmCoordinator.Dispatch(ctx, env); err != nil {
+	if _, err := h.actorDispatcher.Dispatch(ctx, env); err != nil {
 		log.Warn().Err(err).Str("task_id", task.ID).Msg("failed to publish task cancel command")
 		return h.channel.SendPlain(ctx, commandCtx.Locator, fmt.Sprintf("Failed to request task cancel: %v", err))
 	}
@@ -314,7 +314,7 @@ func (h *CommandHandler) formatSwarmStatus(ctx context.Context) (string, error) 
 	out.WriteString("- enabled: ")
 	fmt.Fprintf(&out, "%t", h.swarmConfig.Enabled)
 	out.WriteString("\n- runtime enabled: ")
-	fmt.Fprintf(&out, "%t", h.swarmCoordinator != nil && h.swarmCoordinator.RuntimeEnabled())
+	fmt.Fprintf(&out, "%t", h.actorDispatcher != nil)
 	out.WriteString("\n\nCommand bus")
 	if h.commandBus != nil {
 		status, err := h.commandBus.Status(ctx)
@@ -323,10 +323,6 @@ func (h *CommandHandler) formatSwarmStatus(ctx context.Context) (string, error) 
 		}
 		out.WriteString("\n- command_bus: ")
 		out.WriteString(firstNonEmpty(status.Transport, "unknown"))
-		if contract := strings.TrimSpace(status.DisabledMode); contract != "" {
-			out.WriteString("\n- disabled_mode_contract: ")
-			out.WriteString(contract)
-		}
 		out.WriteString("\n- command_event_publishing_mode: ")
 		out.WriteString(swarm.CommandLifecycleEventPublishingMode)
 		out.WriteString("\n- embedded_nats: ")

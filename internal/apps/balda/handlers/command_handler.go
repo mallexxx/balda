@@ -34,7 +34,7 @@ type CommandHandler struct {
 	channel           *baldatelegram.Adapter
 	sessionManager    commandSessionManager
 	turnDispatcher    actors.TurnQueue
-	swarmCoordinator  *swarm.Coordinator
+	actorDispatcher   swarm.ActorDispatcher
 	swarmRuntime      swarmRuntimeStatusProvider
 	swarmConfig       swarm.Config
 	commandBus        swarm.ActorRuntimeStatusProvider
@@ -62,7 +62,7 @@ type commandHandlerParams struct {
 	Channel           *baldatelegram.Adapter
 	SessionManager    *session.Manager
 	TurnDispatcher    *actors.TurnDispatcher
-	SwarmCoordinator  *swarm.Coordinator
+	ActorDispatcher   swarm.ActorDispatcher
 	SwarmRuntime      *swarm.Runtime
 	SwarmConfig       swarm.Config
 	Transport         swarm.ActorRuntimeStatusProvider
@@ -82,7 +82,7 @@ func NewCommandHandler(params commandHandlerParams) *CommandHandler {
 		channel:           params.Channel,
 		sessionManager:    params.SessionManager,
 		turnDispatcher:    params.TurnDispatcher,
-		swarmCoordinator:  params.SwarmCoordinator,
+		actorDispatcher:   params.ActorDispatcher,
 		swarmRuntime:      params.SwarmRuntime,
 		swarmConfig:       params.SwarmConfig,
 		commandBus:        params.Transport,
@@ -360,7 +360,7 @@ func (h *CommandHandler) onCloseCommand(ctx context.Context, commandCtx baldatel
 	}
 
 	if commandCtx.TopicID > 0 {
-		if err := submitSessionCancelControl(ctx, h.swarmCoordinator, commandCtx.Locator, baldatelegram.UserID(commandCtx.UserID), "session canceled by close command", false); err != nil {
+		if err := submitSessionCancelControl(ctx, h.actorDispatcher, commandCtx.Locator, baldatelegram.UserID(commandCtx.UserID), "session canceled by close command", false); err != nil {
 			log.Warn().Err(err).Str("session_id", commandCtx.Locator.SessionID).Msg("failed to publish /close cancel control command")
 		}
 		if err := h.sessionManager.ResetSession(ctx, commandCtx.Locator); err != nil {
@@ -379,7 +379,7 @@ func (h *CommandHandler) onCloseCommand(ctx context.Context, commandCtx baldatel
 		return nil
 	}
 
-	if err := submitSessionCancelControl(ctx, h.swarmCoordinator, commandCtx.Locator, baldatelegram.UserID(commandCtx.UserID), "session canceled by close command", false); err != nil {
+	if err := submitSessionCancelControl(ctx, h.actorDispatcher, commandCtx.Locator, baldatelegram.UserID(commandCtx.UserID), "session canceled by close command", false); err != nil {
 		log.Warn().Err(err).Str("session_id", commandCtx.Locator.SessionID).Msg("failed to publish /close cancel control command")
 	}
 	if err := h.sessionManager.ResetSession(ctx, commandCtx.Locator); err != nil {
@@ -410,7 +410,7 @@ func (h *CommandHandler) onResetCommand(ctx context.Context, commandCtx baldatel
 		return nil
 	}
 
-	if err := submitSessionCancelControl(ctx, h.swarmCoordinator, commandCtx.Locator, baldatelegram.UserID(commandCtx.UserID), "session canceled by reset command", false); err != nil {
+	if err := submitSessionCancelControl(ctx, h.actorDispatcher, commandCtx.Locator, baldatelegram.UserID(commandCtx.UserID), "session canceled by reset command", false); err != nil {
 		log.Warn().Err(err).Str("session_id", commandCtx.Locator.SessionID).Msg("failed to publish /reset cancel control command")
 	}
 	if err := h.sessionManager.ResetSession(ctx, commandCtx.Locator); err != nil {
@@ -441,7 +441,7 @@ func (h *CommandHandler) onCancelCommand(ctx context.Context, commandCtx baldate
 		return nil
 	}
 
-	if h.swarmCoordinator == nil || !h.swarmCoordinator.RuntimeEnabled() {
+	if h.actorDispatcher == nil {
 		if err := h.channel.SendPlain(ctx, commandCtx.Locator, "Cancel is unavailable right now. Please try again."); err != nil {
 			return err
 		}
@@ -454,7 +454,7 @@ func (h *CommandHandler) onCancelCommand(ctx context.Context, commandCtx baldate
 		}
 		return nil
 	}
-	if _, err := h.swarmCoordinator.Dispatch(ctx, env); err != nil {
+	if _, err := h.actorDispatcher.Dispatch(ctx, env); err != nil {
 		log.Warn().Err(err).Str("session_id", commandCtx.Locator.SessionID).Msg("failed to publish cancel command")
 		if sendErr := h.channel.SendPlain(ctx, commandCtx.Locator, fmt.Sprintf("Failed to request cancel: %v", err)); sendErr != nil {
 			return sendErr

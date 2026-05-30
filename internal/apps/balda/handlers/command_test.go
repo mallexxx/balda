@@ -342,7 +342,7 @@ func TestCommandHandlerOnCommand_NewIsIgnored(t *testing.T) {
 func TestCommandHandlerOnCommand_GoalStartsRun(t *testing.T) {
 	handler, _, _, tgClient := newCommandHandlerTestHarness(t)
 	bus := &recordingHandlerCommandBus{}
-	handler.swarmCoordinator = swarm.NewCoordinator(bus, swarm.Config{Enabled: true})
+	handler.actorDispatcher = bus
 
 	topicID := 99
 	err := handler.onCommand(context.Background(), newCommandEvent("goal", "deploy release", 101, 9001, &topicID))
@@ -371,7 +371,7 @@ func TestCommandHandlerSubmitGoalTask_PublishesJetStreamCommandOnly(t *testing.T
 	}
 
 	bus := &recordingHandlerCommandBus{}
-	handler := &CommandHandler{swarmCoordinator: swarm.NewCoordinator(bus, swarm.Config{Enabled: true}), goalMaxIterations: 7}
+	handler := &CommandHandler{actorDispatcher: bus, goalMaxIterations: 7}
 
 	started, err := handler.submitGoalTask(ctx, locator, "deploy release", testTelegramUserID101)
 	if err != nil {
@@ -763,7 +763,7 @@ func newCommandHandlerTestHarness(t *testing.T) (*CommandHandler, *fakeCommandSe
 		}),
 		sessionManager:    sessionManager,
 		turnDispatcher:    turnDispatcher,
-		swarmCoordinator:  swarm.NewCoordinator(turnDispatcher, swarm.Config{Enabled: true}),
+		actorDispatcher:   turnDispatcher,
 		goalMaxIterations: normalizeGoalMaxIterations(0),
 		messenger:         msg,
 		memoryStore:       memory.NewStore(t.TempDir(), true),

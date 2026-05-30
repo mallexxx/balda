@@ -55,8 +55,18 @@ func TestJetStreamArchitectureContractStatic(t *testing.T) {
 		if !strings.Contains(runtimeSource, "Source actorengine.Source") {
 			t.Fatal("swarm runtime must depend on actorlayer Source, not a direct transport consumer")
 		}
+		if !strings.Contains(runtimeSource, "actorengine.NewDispatchRuntime") {
+			t.Fatal("swarm runtime must use Norma actorengine.NewDispatchRuntime")
+		}
 		if !strings.Contains(runtimeSource, "runtimeSource{") || !strings.Contains(runtimeSource, "r.engine.Run(runCtx") {
-			t.Fatal("swarm runtime must dispatch actor deliveries through actorlayer runtime")
+			t.Fatal("swarm runtime must dispatch actor deliveries through actorlayer dispatch runtime")
+		}
+	})
+
+	t.Run("balda coordinator layer is removed", func(t *testing.T) {
+		matches := findSourceMatches(t, root, files, regexp.MustCompile(`swarm\.Coordinator|NewCoordinator|type Coordinator\b`))
+		if len(matches) > 0 {
+			t.Fatalf("Balda must inject ActorDispatcher directly instead of swarm.Coordinator:\n%s", formatSourceMatches(matches))
 		}
 	})
 
@@ -153,8 +163,8 @@ func TestJetStreamArchitectureContractStatic(t *testing.T) {
 
 	t.Run("ingress publishes commands before local state is advanced", func(t *testing.T) {
 		schedulerSource := readSource(t, filepath.Join(root, "handlers/scheduled_task_scheduler.go"))
-		if !strings.Contains(schedulerSource, "s.coordinator.Dispatch(ctx, env)") {
-			t.Fatal("scheduler ingress must dispatch durable actor work through SwarmCoordinator")
+		if !strings.Contains(schedulerSource, "s.dispatcher.Dispatch(ctx, env)") {
+			t.Fatal("scheduler ingress must dispatch durable actor work through ActorDispatcher")
 		}
 		if !strings.Contains(schedulerSource, "Mark the slot only after JetStream accepts the command.") {
 			t.Fatal("scheduler must document and preserve publish-before-dispatch-state ordering")

@@ -12,10 +12,10 @@ import (
 
 func TestTaskControlActorCancelsSessionWork(t *testing.T) {
 	ctx := context.Background()
-	provider, bus, coordinator, tasks, allocator := newTaskActorSwarmServices(t, ctx)
+	provider, bus, dispatcher, tasks, allocator := newTaskActorSwarmServices(t, ctx)
 	_ = provider
 	_ = bus
-	_ = coordinator
+	_ = dispatcher
 	_ = allocator
 	locator := baldatelegram.NewLocator(9001, 0)
 	_, err := tasks.Create(ctx, baldastate.SwarmTaskRecord{
@@ -55,10 +55,10 @@ func TestTaskControlActorCancelsSessionWork(t *testing.T) {
 
 func TestTaskControlActorCancelsTaskWork(t *testing.T) {
 	ctx := context.Background()
-	provider, bus, coordinator, tasks, allocator := newTaskActorSwarmServices(t, ctx)
+	provider, bus, dispatcher, tasks, allocator := newTaskActorSwarmServices(t, ctx)
 	_ = provider
 	_ = bus
-	_ = coordinator
+	_ = dispatcher
 	_ = allocator
 	locator := baldatelegram.NewLocator(9001, 0)
 	_, err := tasks.Create(ctx, baldastate.SwarmTaskRecord{
@@ -97,10 +97,10 @@ func TestTaskControlActorCancelsTaskWork(t *testing.T) {
 
 func TestTaskControlActorCancelsAllRegisteredTaskRuns(t *testing.T) {
 	ctx := context.Background()
-	provider, bus, coordinator, tasks, allocator := newTaskActorSwarmServices(t, ctx)
+	provider, bus, dispatcher, tasks, allocator := newTaskActorSwarmServices(t, ctx)
 	_ = provider
 	_ = bus
-	_ = coordinator
+	_ = dispatcher
 	_ = allocator
 
 	locator := baldatelegram.NewLocator(9001, 0)

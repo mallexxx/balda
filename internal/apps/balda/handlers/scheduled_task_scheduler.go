@@ -57,7 +57,7 @@ type scheduledTaskSchedulerParams struct {
 
 	LC            fx.Lifecycle
 	StateProvider baldastate.Provider
-	Coordinator   *swarm.Coordinator
+	Dispatcher    swarm.ActorDispatcher
 	Channel       *baldatelegram.Adapter
 	OwnerStore    *auth.OwnerStore
 	Logger        zerolog.Logger
@@ -66,12 +66,12 @@ type scheduledTaskSchedulerParams struct {
 
 // ScheduledTaskScheduler publishes due locator-bound recurring tasks as durable task commands.
 type ScheduledTaskScheduler struct {
-	taskStore   baldastate.ScheduledTaskStore
-	coordinator *swarm.Coordinator
-	channel     schedulerChannel
-	owner       *auth.OwnerStore
-	logger      zerolog.Logger
-	config      ScheduledTaskSchedulerConfig
+	taskStore  baldastate.ScheduledTaskStore
+	dispatcher swarm.ActorDispatcher
+	channel    schedulerChannel
+	owner      *auth.OwnerStore
+	logger     zerolog.Logger
+	config     ScheduledTaskSchedulerConfig
 
 	pollInterval time.Duration
 	dueBatchSize int
@@ -88,8 +88,8 @@ func NewScheduledTaskScheduler(params scheduledTaskSchedulerParams) (*ScheduledT
 	if params.Channel == nil {
 		return nil, fmt.Errorf("balda channel adapter is required")
 	}
-	if params.Coordinator == nil {
-		return nil, fmt.Errorf("balda swarm coordinator is required for scheduler")
+	if params.Dispatcher == nil {
+		return nil, fmt.Errorf("balda actor dispatcher is required for scheduler")
 	}
 	config, err := normalizeScheduledTaskSchedulerConfig(params.Config)
 	if err != nil {
@@ -101,7 +101,7 @@ func NewScheduledTaskScheduler(params scheduledTaskSchedulerParams) (*ScheduledT
 
 	scheduler := &ScheduledTaskScheduler{
 		taskStore:    params.StateProvider.ScheduledTasks(),
-		coordinator:  params.Coordinator,
+		dispatcher:   params.Dispatcher,
 		channel:      params.Channel,
 		owner:        params.OwnerStore,
 		logger:       params.Logger.With().Str("component", "balda.scheduled_task_scheduler").Logger(),
@@ -343,7 +343,7 @@ func (s *ScheduledTaskScheduler) dispatchScheduledTaskTask(
 	if err != nil {
 		return s.markFailure(ctx, task.TaskID, err)
 	}
-	if _, err := s.coordinator.Dispatch(ctx, env); err != nil {
+	if _, err := s.dispatcher.Dispatch(ctx, env); err != nil {
 		return s.markFailure(ctx, task.TaskID, fmt.Errorf("publish scheduled task command: %w", err))
 	}
 	return nil

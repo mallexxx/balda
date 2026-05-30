@@ -126,13 +126,11 @@ func TestBaldaHandlerOnForumTopicLifecycle_ClosedStopsTopicSession(t *testing.T)
 	sessionManager := newBaldaSessionManagerWithSession(t, locator, newBaldaTopicSession(t, locator.SessionID))
 	turnDispatcher := &fakeTurnDispatcher{}
 	handler := &BaldaHandler{
-		logger:         zerolog.Nop(),
-		channel:        newBaldaTestTelegramAdapter(),
-		sessionManager: sessionManager,
-		turnDispatcher: turnDispatcher,
-		swarmCoordinator: swarm.NewCoordinator(turnDispatcher, swarm.Config{
-			Enabled: true,
-		}),
+		logger:          zerolog.Nop(),
+		channel:         newBaldaTestTelegramAdapter(),
+		sessionManager:  sessionManager,
+		turnDispatcher:  turnDispatcher,
+		actorDispatcher: turnDispatcher,
 	}
 	handler.setChatID(9001)
 
@@ -556,13 +554,13 @@ func newBaldaMessageHandlerHarness(t *testing.T, topicID int) (*BaldaHandler, *f
 	sessionManager := newBaldaSessionManagerWithSession(t, locator, newBaldaTopicSession(t, locator.SessionID))
 	turnDispatcher := &fakeTurnDispatcher{}
 	handler := &BaldaHandler{
-		ownerStore:       ownerStore,
-		channel:          newBaldaTestTelegramAdapter(),
-		sessionManager:   sessionManager,
-		turnDispatcher:   turnDispatcher,
-		swarmCoordinator: swarm.NewCoordinator(turnDispatcher, swarm.Config{Enabled: true}),
-		logger:           zerolog.Nop(),
-		authorizer:       &fakeBaldaAuthorizer{ownerID: 101},
+		ownerStore:      ownerStore,
+		channel:         newBaldaTestTelegramAdapter(),
+		sessionManager:  sessionManager,
+		turnDispatcher:  turnDispatcher,
+		actorDispatcher: turnDispatcher,
+		logger:          zerolog.Nop(),
+		authorizer:      &fakeBaldaAuthorizer{ownerID: 101},
 	}
 	handler.SetOwner(101, 9001)
 	setUnexportedField(t, handler, "baldaProviderName", "alpha")
