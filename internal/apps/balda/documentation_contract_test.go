@@ -154,6 +154,51 @@ func TestDocumentationContract(t *testing.T) {
 			}
 		}
 	})
+
+	t.Run("session close docs match current behavior", func(t *testing.T) {
+		paths := []string{
+			filepath.Join(repoRoot, "README.md"),
+			filepath.Join(repoRoot, "docs/balda.md"),
+			filepath.Join(repoRoot, "AGENTS.md"),
+		}
+		forbidden := []*regexp.Regexp{
+			regexp.MustCompile(`restart the owner session`),
+			regexp.MustCompile(`stop(?:s)? the owner session`),
+		}
+		for _, path := range paths {
+			body := readFile(t, path)
+			for _, pattern := range forbidden {
+				if pattern.FindStringIndex(body) != nil {
+					t.Fatalf("%s contains stale /close behavior text %q", filepath.ToSlash(path), pattern.String())
+				}
+			}
+		}
+	})
+
+	t.Run("agent docs use merge pull workflow", func(t *testing.T) {
+		path := filepath.Join(repoRoot, "AGENTS.md")
+		body := readFile(t, path)
+		if strings.Contains(body, "git pull --rebase") {
+			t.Fatalf("%s contains stale rebase workflow", filepath.ToSlash(path))
+		}
+		if !strings.Contains(body, "git pull --no-rebase") {
+			t.Fatalf("%s must document merge-based pull workflow", filepath.ToSlash(path))
+		}
+	})
+
+	t.Run("user-facing config samples do not expose swarm.enabled", func(t *testing.T) {
+		paths := []string{
+			filepath.Join(repoRoot, "README.md"),
+			filepath.Join(repoRoot, "docs/balda.md"),
+			filepath.Join(repoRoot, "cmd/balda/balda.yaml"),
+		}
+		for _, path := range paths {
+			body := readFile(t, path)
+			if hasNestedConfigKey(body, "swarm", "enabled") {
+				t.Fatalf("%s still exposes swarm.enabled in a config sample", filepath.ToSlash(path))
+			}
+		}
+	})
 }
 
 func repositoryRoot(t *testing.T) string {
@@ -184,6 +229,38 @@ func readFile(t *testing.T, path string) string {
 		t.Fatalf("read %s: %v", path, err)
 	}
 	return string(data)
+}
+
+func hasNestedConfigKey(body string, parent string, child string) bool {
+	lines := strings.Split(body, "\n")
+	inParent := false
+	parentIndent := 0
+	for _, raw := range lines {
+		trimmed := strings.TrimSpace(raw)
+		if trimmed == "" {
+			continue
+		}
+		indent := len(raw) - len(strings.TrimLeft(raw, " \t"))
+		if !inParent {
+			if trimmed == parent+":" {
+				inParent = true
+				parentIndent = indent
+			}
+			continue
+		}
+		if indent <= parentIndent {
+			inParent = false
+			if trimmed == parent+":" {
+				inParent = true
+				parentIndent = indent
+			}
+			continue
+		}
+		if trimmed == child+":" || strings.HasPrefix(trimmed, child+": ") {
+			return true
+		}
+	}
+	return false
 }
 
 func subjectConstantsFromFile(t *testing.T, path string) []string {

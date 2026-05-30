@@ -38,7 +38,7 @@ go tool golangci-lint run
 - `/start invite=<invite_token>`: direct message only; collaborator invite onboarding entrypoint.
 - `/topic <name>`: owner/collaborator, direct message only; creates a topic session labeled `<name>` using the configured balda provider.
 - `/goal <objective>`: owner/collaborator; starts a Goalkeeper worker -> validator loop in the current session context/workspace with started/validation/final updates and terminal Result/Artifacts/Confidence/Next action outcome.
-- `/close`: owner/collaborator, direct message only; closes a topic session or stops the owner session.
+- `/close`: owner/collaborator, direct message only; resets the current session history and closes the topic when used from a topic session.
 - `/cancel`: owner/collaborator; publishes durable session-control work; ControlActor cancels in-flight turn processing, drops queued turns, cancels active tasks, and aborts active `/goal` work when processed.
 - `/user add|list|remove <user_id>`: owner only; collaborator invite and management commands.
 - Recurring tasks are config-managed via `balda.scheduler.tasks` envelope targets and reconciled on startup.
@@ -166,7 +166,7 @@ For more details, see README.md and docs/QUICKSTART.md.
 3. **Update issue status** - Close finished work, update in-progress items
 4. **PUSH TO REMOTE** - This is MANDATORY:
    ```bash
-   git pull --rebase
+   git pull --no-rebase
    bd dolt push
    git push
    git status  # MUST show "up to date with origin"

@@ -174,7 +174,7 @@ Built-in provider types:
 - `/start invite=<invite_token>`: onboard a collaborator in direct messages.
 - `/topic <name>`: create a named topic session.
 - `/goal <objective>`: publish a durable JetStream command to the Goalkeeper actor and work toward the goal in the current session context/workspace with Norma's ADK worker -> validator loop. Goal updates use `balda.telegram.formatting_mode`; terminal updates include Result, Artifacts, Confidence, and Next action sections. See [`docs/goalkeeper.md`](docs/goalkeeper.md).
-- `/close`: reset history, then close the current topic or restart the owner session on the next message.
+- `/close`: direct messages only; reset the current session history. In a topic, it also closes that topic.
 - `/cancel`: publish a durable session-control command; ControlActor cancels in-flight work, drops queued session work, and aborts active `/goal` work when processed.
 - `/user add|list|remove`: manage collaborators; owner only.
 
@@ -232,7 +232,6 @@ balda:
     sync_always: false
     expose_monitoring: false
   swarm:
-    enabled: true
     commands:
       stream: "BALDA_COMMANDS"
       consumer: "BALDA_WORKER_COMMANDS"

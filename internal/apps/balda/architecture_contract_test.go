@@ -76,7 +76,6 @@ func TestJetStreamArchitectureContractStatic(t *testing.T) {
 			"eventbus/nats/connection.go",
 			"eventbus/nats/embedded_server.go",
 			"eventbus/nats/jetstream.go",
-			"eventbus/nats/status.go",
 			"eventbus/nats/subjects.go",
 		})
 	})
