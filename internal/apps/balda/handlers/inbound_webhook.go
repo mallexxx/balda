@@ -224,9 +224,13 @@ type normalizedInboundWebhookConfig struct {
 }
 
 func normalizeInboundWebhookConfig(cfg InboundWebhookConfig) (normalizedInboundWebhookConfig, error) {
+	listenAddr := strings.TrimSpace(cfg.ListenAddr)
+	if listenAddr == "" {
+		listenAddr = defaultInboundWebhookListenAddr
+	}
 	normalized := normalizedInboundWebhookConfig{
 		Enabled:    cfg.Enabled,
-		ListenAddr: normalizeInboundWebhookListenAddr(cfg.ListenAddr),
+		ListenAddr: listenAddr,
 		Routes:     make(map[string]inboundWebhookRoute),
 	}
 	if !cfg.Enabled {
@@ -313,14 +317,6 @@ func normalizeInboundWebhookConfig(cfg InboundWebhookConfig) (normalizedInboundW
 	}
 
 	return normalized, nil
-}
-
-func normalizeInboundWebhookListenAddr(raw string) string {
-	trimmed := strings.TrimSpace(raw)
-	if trimmed == "" {
-		return defaultInboundWebhookListenAddr
-	}
-	return trimmed
 }
 
 func normalizeInboundWebhookPath(raw string) (string, error) {
