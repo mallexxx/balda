@@ -10,9 +10,6 @@ import (
 const (
 	configDirName  = ".config/balda"
 	configFileName = "config.yaml"
-
-	// StateDBFileName is the canonical Balda SQLite state database filename.
-	StateDBFileName = "state.db"
 )
 
 // ConfigPath returns the balda config file path for the given working dir.
@@ -26,7 +23,7 @@ func ConfigPath(workingDir string) string {
 
 // StateDBPath returns the canonical Balda SQLite state database path.
 func StateDBPath(stateDir string) string {
-	return filepath.Join(stateDir, StateDBFileName)
+	return filepath.Join(stateDir, "state.db")
 }
 
 // ResolveWorkingDir returns an absolute clean working directory path.
