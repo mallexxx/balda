@@ -618,7 +618,7 @@ func TestDocumentationContract(t *testing.T) {
 		}
 	})
 
-	t.Run("jetstream adapter invariants stay behavior-oriented at the top level", func(t *testing.T) {
+	t.Run("command runtime adapter invariants stay behavior-oriented at the top level", func(t *testing.T) {
 		path := filepath.Join(repoRoot, "docs/architecture/jetstream-command-bus.md")
 		sections := []string{
 			markdownSection(readFile(t, path), "## Invariants"),

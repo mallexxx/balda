@@ -11,7 +11,7 @@ import (
 	"testing"
 )
 
-func TestJetStreamArchitectureContractStatic(t *testing.T) {
+func TestRuntimeArchitectureContractStatic(t *testing.T) {
 	root := baldaPackageRoot(t)
 	files := productionGoFiles(t, root)
 
