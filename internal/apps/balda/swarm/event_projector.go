@@ -56,7 +56,7 @@ func (p *EventProjector) Start(context.Context) error {
 	go func() {
 		defer p.wg.Done()
 		if err := p.consumer.RunEventConsumer(runCtx, p.Project); err != nil && !errors.Is(err, context.Canceled) {
-			p.logger.Error().Err(err).Msg("jetstream event projector stopped")
+			p.logger.Error().Err(err).Msg("event projector stopped")
 		}
 	}()
 	return nil

@@ -409,7 +409,7 @@ func (b *Bus) publishRawDLQ(ctx context.Context, source jetstream.Msg, reason st
 	msg.Header.Set("Balda-DLQ-Reason", reason)
 	_, err = b.js.PublishMsg(ctx, msg, jetstream.WithExpectStream(b.cfg.Swarm.DLQ.Stream), jetstream.WithMsgID(env.ID))
 	if err != nil {
-		return fmt.Errorf("publish raw jetstream dlq: %w", err)
+		return fmt.Errorf("publish raw dlq: %w", err)
 	}
 	return nil
 }
