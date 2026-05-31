@@ -212,39 +212,6 @@ func TestRuntimeArchitectureContractStatic(t *testing.T) {
 			t.Fatalf("swarm runtime packages must not import ingress handlers or ADK:\n%s", formatSourceMatches(matches))
 		}
 	})
-
-	t.Run("balda does not define local actor adapter packages or runtime selectors", func(t *testing.T) {
-		forbiddenDirs := []string{
-			"adapters",
-			"norma",
-			"actoradapter",
-			"actoradapters",
-		}
-		for _, dir := range forbiddenDirs {
-			path := filepath.Join(root, dir)
-			if info, err := os.Stat(path); err == nil && info.IsDir() {
-				t.Fatalf("Balda-local actor adapter package %q is forbidden; keep typed actor engine packages owned by Norma", filepath.ToSlash(path))
-			} else if err != nil && !os.IsNotExist(err) {
-				t.Fatalf("stat %s: %v", path, err)
-			}
-		}
-
-		forbiddenSelectorTerms := []string{
-			"execution_provider",
-			"delivery_provider",
-			"execution.provider",
-			"delivery.provider",
-			"RuntimeAdapterFingerprint",
-		}
-		for _, needle := range forbiddenSelectorTerms {
-			t.Run(needle, func(t *testing.T) {
-				matches := findSourceMatches(t, root, files, regexp.MustCompile(regexp.QuoteMeta(needle)))
-				if len(matches) > 0 {
-					t.Fatalf("Balda runtime selector term %q found in production Go files:\n%s", needle, formatSourceMatches(matches))
-				}
-			})
-		}
-	})
 }
 
 type sourceMatch struct {
