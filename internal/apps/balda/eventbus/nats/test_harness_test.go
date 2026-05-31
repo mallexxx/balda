@@ -10,12 +10,12 @@ import (
 	"go.uber.org/fx/fxtest"
 )
 
-// TestJetStreamHarness provides a reusable embedded JetStream command bus for tests.
+// TestJetStreamHarness provides a reusable built-in runtime command bus for tests.
 type TestJetStreamHarness struct {
 	Bus *Bus
 }
 
-// StartTestJetStream creates an embedded JetStream bus backed by a temp store dir.
+// StartTestJetStream creates a built-in runtime bus backed by a temp store dir.
 // It ensures required streams/consumers are available through NewBus startup.
 func StartTestJetStream(t *testing.T, swarmCfg swarm.Config) *TestJetStreamHarness {
 	t.Helper()

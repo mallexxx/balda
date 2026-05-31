@@ -38,7 +38,7 @@ func TestIsJetStreamQueuePressure(t *testing.T) {
 	}
 }
 
-func TestBus_DispatchAndConsumeEmbeddedJetStream(t *testing.T) {
+func TestBus_DispatchAndConsumeBuiltInRuntime(t *testing.T) {
 	h := StartTestJetStream(t, swarm.Config{})
 	bus := h.Bus
 
