@@ -91,7 +91,37 @@ func NewUpdateSource(
 	l zerolog.Logger,
 ) (runtime.UpdateSource, error) {
 	if cfg.Webhook.Enabled {
-		return newWebhookUpdateSource(cfg, client, l)
+		if strings.TrimSpace(cfg.Webhook.URL) == "" {
+			return nil, fmt.Errorf("balda.telegram.webhook.enabled=true requires balda.telegram.webhook.url")
+		}
+		if strings.TrimSpace(cfg.Webhook.AuthToken) == "" {
+			return nil, fmt.Errorf("balda.telegram.webhook.enabled=true requires balda.telegram.webhook.auth_token")
+		}
+
+		wh, err := webhook.New(
+			webhook.NewOptions(
+				webhook.WithToken(strings.TrimSpace(cfg.Webhook.AuthToken)),
+				webhook.WithUrl(strings.TrimSpace(cfg.Webhook.URL)),
+				webhook.WithClient(client),
+			),
+		)
+		if err != nil {
+			return nil, err
+		}
+
+		listenAddr := strings.TrimSpace(cfg.Webhook.ListenAddr)
+		if listenAddr == "" {
+			listenAddr = defaultWebhookListenAddr
+		}
+		path := normalizeWebhookPath(cfg.Webhook.Path)
+
+		return &webhookUpdateSource{
+			webhookSource: wh,
+			listenAddr:    listenAddr,
+			path:          path,
+			logger:        l,
+			secretEnabled: strings.TrimSpace(cfg.Webhook.AuthToken) != "",
+		}, nil
 	}
 	offsetStore := persistedOffsetStore
 	if offsetStore == nil {
@@ -103,44 +133,6 @@ func NewUpdateSource(
 		updatepoller.WithLogger(logger.NewZerolog(l)),
 	)
 	return updatepoller.NewPoller(opts)
-}
-
-func newWebhookUpdateSource(
-	cfg Config,
-	client client.ClientWithResponsesInterface,
-	l zerolog.Logger,
-) (runtime.UpdateSource, error) {
-	if strings.TrimSpace(cfg.Webhook.URL) == "" {
-		return nil, fmt.Errorf("balda.telegram.webhook.enabled=true requires balda.telegram.webhook.url")
-	}
-	if strings.TrimSpace(cfg.Webhook.AuthToken) == "" {
-		return nil, fmt.Errorf("balda.telegram.webhook.enabled=true requires balda.telegram.webhook.auth_token")
-	}
-
-	wh, err := webhook.New(
-		webhook.NewOptions(
-			webhook.WithToken(strings.TrimSpace(cfg.Webhook.AuthToken)),
-			webhook.WithUrl(strings.TrimSpace(cfg.Webhook.URL)),
-			webhook.WithClient(client),
-		),
-	)
-	if err != nil {
-		return nil, err
-	}
-
-	listenAddr := strings.TrimSpace(cfg.Webhook.ListenAddr)
-	if listenAddr == "" {
-		listenAddr = defaultWebhookListenAddr
-	}
-	path := normalizeWebhookPath(cfg.Webhook.Path)
-
-	return &webhookUpdateSource{
-		webhookSource: wh,
-		listenAddr:    listenAddr,
-		path:          path,
-		logger:        l,
-		secretEnabled: strings.TrimSpace(cfg.Webhook.AuthToken) != "",
-	}, nil
 }
 
 func normalizeWebhookPath(raw string) string {

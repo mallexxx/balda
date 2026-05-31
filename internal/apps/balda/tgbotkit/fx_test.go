@@ -133,7 +133,7 @@ func TestNewUpdateSource_WebhookModeReturnsWebhookSource(t *testing.T) {
 func TestWebhookUpdateSource_StartServesConfiguredPathAndToken(t *testing.T) {
 	t.Parallel()
 
-	srcAny, err := newWebhookUpdateSource(
+	srcAny, err := NewUpdateSource(
 		Config{
 			Webhook: WebhookConfig{
 				Enabled:    true,
@@ -144,10 +144,11 @@ func TestWebhookUpdateSource_StartServesConfiguredPathAndToken(t *testing.T) {
 			},
 		},
 		newTestTelegramClient(t),
+		nil,
 		zerolog.Nop(),
 	)
 	if err != nil {
-		t.Fatalf("newWebhookUpdateSource() error = %v", err)
+		t.Fatalf("NewUpdateSource() error = %v", err)
 	}
 	src := srcAny.(*webhookUpdateSource)
 
