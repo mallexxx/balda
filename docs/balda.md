@@ -14,7 +14,7 @@ Architecture contracts are maintained in:
 - Subagents: one session per Telegram topic (`message_thread_id`) with dedicated git worktree.
 - Balda startup prompt includes workspace settings for each session; in git workspace mode it also includes session/base/current-branch context and workspace MCP guidance.
 - Output streaming:
-  - Progress updates: non-terminal ADK events emit channel progress. Telegram maps this to throttled Bot API `sendChatAction` with `typing` for all chats, plus throttled DM-only `sendMessageDraft` thinking placeholders.
+  - Progress updates: non-terminal ADK events emit channel progress. Telegram maps this to throttled typing indicators for all chats, plus DM-only thinking placeholders.
   - Final assistant response: Telegram Bot API `sendMessage` with `balda.telegram.formatting_mode` (`markdownv2|html|none`; default `markdownv2`).
 - Auth model: one-time owner authorization with startup-generated token.
 
@@ -543,7 +543,7 @@ By default, Balda also persists ADK session events and state in `state.db` until
 
 Per model turn:
 
-1. Non-terminal ADK events send throttled `sendChatAction` with `typing` for the same chat/topic; DM chats also emit throttled plain `sendMessageDraft` thinking placeholders using a stable `draft_id`.
+1. Non-terminal ADK events send throttled typing indicators for the same chat/topic; DM chats also emit throttled thinking placeholders.
    When `balda.telegram.plan_updates=true`, ACP plan snapshots replace generic DM thinking drafts and are sent as plain-text progress messages in public chats/topics.
 2. Final assistant text is sent with `sendMessage` using `balda.telegram.formatting_mode`:
    - `markdownv2`: model writes Markdown/plain text; Balda converts it to Telegram MarkdownV2 and sends with `parse_mode=MarkdownV2`.
@@ -980,7 +980,7 @@ Each configured task has `id`, `cron`, and an `envelope` with `target`, `key`,
 6. `/topic` without name returns usage error.
 7. Restart clears active process sessions, but topic sessions are lazy-restored from persisted metadata.
 8. Polling mode resumes from persisted Telegram offset in balda state DB.
-9. Non-terminal ADK event progress sends throttled `typing` chat actions in DM and public chats; throttled `sendMessageDraft` thinking placeholders are DM-only.
+9. Non-terminal ADK event progress sends throttled typing indicators in DM and public chats; thinking placeholders are DM-only.
 10. Final assistant response is sent with `sendMessage` using configured `balda.telegram.formatting_mode` with fallback retry without `parse_mode` on transport or parse/escaping API errors.
 11. `/close` in a topic resets history and closes that topic; `/close` in the owner DM main chat resets only the owner session.
 12. With `balda.sessions.persistence=sqlite`, restart restores ADK conversation history and explicit `/close` clears it for the current session.
