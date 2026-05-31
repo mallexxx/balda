@@ -111,7 +111,32 @@ func WebhookTaskEnvelope(payload SessionTurnPayload, routeName string, requestID
 	if dedupeBase == "" {
 		dedupeBase = strings.Join([]string{"webhook", strings.TrimSpace(routeName), strings.TrimSpace(requestID)}, ":")
 	}
-	taskID := "webhook-" + safeTaskIDPart(routeName) + "-" + shortTaskHash(dedupeBase)
+	trimmedRoute := strings.ToLower(strings.TrimSpace(routeName))
+	var routePart strings.Builder
+	lastDash := false
+	for _, r := range trimmedRoute {
+		switch {
+		case r >= 'a' && r <= 'z', r >= '0' && r <= '9':
+			routePart.WriteRune(r)
+			lastDash = false
+		case r == '-' || r == '_':
+			routePart.WriteRune(r)
+			lastDash = false
+		default:
+			if routePart.Len() > 0 && !lastDash {
+				routePart.WriteByte('-')
+				lastDash = true
+			}
+		}
+		if routePart.Len() >= 48 {
+			break
+		}
+	}
+	part := strings.Trim(routePart.String(), "-_")
+	if part == "" {
+		part = "inbound"
+	}
+	taskID := "webhook-" + part + "-" + shortTaskHash(dedupeBase)
 	payload.DedupeKey = dedupeBase + ":session"
 	data, err := json.Marshal(taskEnvelopePayload{
 		Kind:        taskPayloadKindSessionTurn,
@@ -170,35 +195,6 @@ func ScheduledTaskEnvelope(
 		DedupeKey:   strings.TrimSpace(dispatchKey),
 		PayloadJSON: string(data),
 	}, nil
-}
-
-func safeTaskIDPart(raw string) string {
-	trimmed := strings.ToLower(strings.TrimSpace(raw))
-	var out strings.Builder
-	lastDash := false
-	for _, r := range trimmed {
-		switch {
-		case r >= 'a' && r <= 'z', r >= '0' && r <= '9':
-			out.WriteRune(r)
-			lastDash = false
-		case r == '-' || r == '_':
-			out.WriteRune(r)
-			lastDash = false
-		default:
-			if out.Len() > 0 && !lastDash {
-				out.WriteByte('-')
-				lastDash = true
-			}
-		}
-		if out.Len() >= 48 {
-			break
-		}
-	}
-	part := strings.Trim(out.String(), "-_")
-	if part == "" {
-		return "inbound"
-	}
-	return part
 }
 
 func shortTaskHash(value string) string {

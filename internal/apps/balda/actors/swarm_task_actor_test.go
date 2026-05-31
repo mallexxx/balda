@@ -3,6 +3,7 @@ package actors
 import (
 	"context"
 	"encoding/json"
+	"strings"
 	"testing"
 
 	"github.com/normahq/balda/internal/apps/balda/session"
@@ -28,6 +29,9 @@ func TestTaskActorDispatchesWebhookSessionTurn(t *testing.T) {
 	}, "github", "delivery-1")
 	if err != nil {
 		t.Fatalf("WebhookTaskEnvelope() error = %v", err)
+	}
+	if !strings.HasPrefix(taskID, "webhook-github-") {
+		t.Fatalf("task id = %q, want webhook-github-*", taskID)
 	}
 	if err := exec.Handle(ctx, env); err != nil {
 		t.Fatalf("Handle() error = %v", err)
