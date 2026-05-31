@@ -79,7 +79,24 @@ func (a memoryActor) handleSummaryOperation(ctx context.Context, operation strin
 	if content == "" {
 		return nil
 	}
-	entry := formatMemorySummaryEntry(operation, payload, content)
+	meta := make([]string, 0, 3)
+	if value := strings.TrimSpace(payload.Scope); value != "" {
+		meta = append(meta, "scope="+value)
+	}
+	if value := strings.TrimSpace(payload.TaskID); value != "" {
+		meta = append(meta, "task_id="+value)
+	}
+	if value := strings.TrimSpace(payload.SessionID); value != "" {
+		meta = append(meta, "session_id="+value)
+	}
+	prefix := strings.TrimSpace(operation)
+	if prefix == "" {
+		prefix = "memory"
+	}
+	entry := prefix + ": " + content
+	if len(meta) > 0 {
+		entry = prefix + " (" + strings.Join(meta, ", ") + "): " + content
+	}
 	if err := a.memoryStore.Remember(ctx, entry); err != nil {
 		return TransientError(fmt.Errorf("remember %s entry: %w", operation, err))
 	}
@@ -97,27 +114,6 @@ func (a memoryActor) handleFactExtract(ctx context.Context, payload memorySyncPa
 		}
 	}
 	return nil
-}
-
-func formatMemorySummaryEntry(operation string, payload memorySyncPayload, content string) string {
-	meta := make([]string, 0, 3)
-	if value := strings.TrimSpace(payload.Scope); value != "" {
-		meta = append(meta, "scope="+value)
-	}
-	if value := strings.TrimSpace(payload.TaskID); value != "" {
-		meta = append(meta, "task_id="+value)
-	}
-	if value := strings.TrimSpace(payload.SessionID); value != "" {
-		meta = append(meta, "session_id="+value)
-	}
-	prefix := strings.TrimSpace(operation)
-	if prefix == "" {
-		prefix = "memory"
-	}
-	if len(meta) == 0 {
-		return prefix + ": " + content
-	}
-	return prefix + " (" + strings.Join(meta, ", ") + "): " + content
 }
 
 func extractMemoryFacts(content string) []string {
