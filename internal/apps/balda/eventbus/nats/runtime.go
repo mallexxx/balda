@@ -10,7 +10,6 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	gnats "github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/jetstream"
 	"github.com/normahq/balda/internal/apps/balda/swarm"
 	actorengine "github.com/normahq/norma/pkg/actorlayer/engine"
@@ -342,32 +341,6 @@ func streamConfig(name string, subjects []string, retention jetstream.RetentionP
 		Discard:    discard,
 		Replicas:   1,
 	}
-}
-
-func newDLQMessage(env swarm.Envelope, reason string) (*gnats.Msg, error) {
-	msg, err := messageFromEnvelope(swarm.SubjectDLQCommand, env)
-	if err != nil {
-		return nil, err
-	}
-	msg.Header.Set("Balda-DLQ-Reason", reason)
-	if env.Meta != nil {
-		if value := strings.TrimSpace(env.Meta[dlqMetaErrorClass]); value != "" {
-			msg.Header.Set("Balda-DLQ-Error-Class", value)
-		}
-		if value := strings.TrimSpace(env.Meta[dlqMetaSourceStream]); value != "" {
-			msg.Header.Set("Balda-DLQ-Source-Stream", value)
-		}
-		if value := strings.TrimSpace(env.Meta[dlqMetaSourceCns]); value != "" {
-			msg.Header.Set("Balda-DLQ-Source-Consumer", value)
-		}
-		if value := strings.TrimSpace(env.Meta[dlqMetaSourceSubj]); value != "" {
-			msg.Header.Set("Balda-DLQ-Source-Subject", value)
-		}
-		if value := strings.TrimSpace(env.Meta[dlqMetaDelivered]); value != "" {
-			msg.Header.Set("Balda-DLQ-Num-Delivered", value)
-		}
-	}
-	return msg, nil
 }
 
 func (b *Bus) publishRawDLQ(ctx context.Context, source jetstream.Msg, reason string) error {

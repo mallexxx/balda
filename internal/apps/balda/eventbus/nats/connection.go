@@ -190,9 +190,27 @@ func (b *Bus) PublishEvent(ctx context.Context, subject string, env swarm.Envelo
 }
 
 func (b *Bus) publishDLQ(ctx context.Context, env swarm.Envelope, reason string, emitEvent bool) error {
-	msg, err := newDLQMessage(env, reason)
+	msg, err := messageFromEnvelope(swarm.SubjectDLQCommand, env)
 	if err != nil {
 		return err
+	}
+	msg.Header.Set("Balda-DLQ-Reason", reason)
+	if env.Meta != nil {
+		if value := strings.TrimSpace(env.Meta[dlqMetaErrorClass]); value != "" {
+			msg.Header.Set("Balda-DLQ-Error-Class", value)
+		}
+		if value := strings.TrimSpace(env.Meta[dlqMetaSourceStream]); value != "" {
+			msg.Header.Set("Balda-DLQ-Source-Stream", value)
+		}
+		if value := strings.TrimSpace(env.Meta[dlqMetaSourceCns]); value != "" {
+			msg.Header.Set("Balda-DLQ-Source-Consumer", value)
+		}
+		if value := strings.TrimSpace(env.Meta[dlqMetaSourceSubj]); value != "" {
+			msg.Header.Set("Balda-DLQ-Source-Subject", value)
+		}
+		if value := strings.TrimSpace(env.Meta[dlqMetaDelivered]); value != "" {
+			msg.Header.Set("Balda-DLQ-Num-Delivered", value)
+		}
 	}
 	_, err = b.js.PublishMsg(ctx, msg, jetstream.WithExpectStream(b.cfg.Swarm.DLQ.Stream), jetstream.WithMsgID(swarm.DedupeKeyOrID(env)+":dlq"))
 	if err != nil {
