@@ -695,14 +695,10 @@ func dedupeKeyForInboundWebhook(route inboundWebhookRoute, req *http.Request, re
 			base = header
 		}
 	case inboundWebhookDedupeSourceBodySHA:
-		base = webhookBodySHA256(body)
+		sum := sha256.Sum256([]byte(body))
+		base = fmt.Sprintf("%x", sum[:])
 	}
 	return strings.Join([]string{"webhook", strings.TrimSpace(route.Name), base}, ":")
-}
-
-func webhookBodySHA256(body string) string {
-	sum := sha256.Sum256([]byte(body))
-	return fmt.Sprintf("%x", sum[:])
 }
 
 func readInboundWebhookBody(body io.ReadCloser) (string, error) {
