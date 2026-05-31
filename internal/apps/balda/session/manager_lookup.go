@@ -90,19 +90,15 @@ func (m *Manager) RestoreSession(ctx context.Context, sessionCtx SessionContext)
 
 	restoredCtx := SessionContext{
 		Locator: recordLocator,
-		UserID:  restoredSessionUserID(record, sessionCtx.UserID),
+		UserID:  sessionCtx.UserID,
+	}
+	if userID := strings.TrimSpace(record.UserID); userID != "" {
+		restoredCtx.UserID = userID
 	}
 	if err := m.createSession(ctx, restoredCtx, sessionLabel, &record); err != nil {
 		return nil, err
 	}
 	return m.GetSession(recordLocator)
-}
-
-func restoredSessionUserID(record baldastate.SessionRecord, fallback string) string {
-	if userID := strings.TrimSpace(record.UserID); userID != "" {
-		return userID
-	}
-	return fallback
 }
 
 type TopicSessionInfo struct {

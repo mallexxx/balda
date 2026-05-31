@@ -79,24 +79,13 @@ type reviewableOutcomePayload struct {
 	NextAction    string
 }
 
-func taskSessionInfo(ctx context.Context, rawProvider any, sessionID string) (baldasession.TopicSessionInfo, bool) {
-	provider, ok := rawProvider.(taskSessionInfoProvider)
-	if !ok || strings.TrimSpace(sessionID) == "" {
-		return baldasession.TopicSessionInfo{}, false
-	}
-	info, err := provider.GetSessionInfo(ctx, sessionID)
-	if err != nil {
-		return baldasession.TopicSessionInfo{}, false
-	}
-	return info, true
-}
-
 func taskArtifactsFromSessionProvider(ctx context.Context, provider any, task baldastate.SwarmTaskRecord) taskArtifactSnapshot {
-	info, ok := taskSessionInfo(ctx, provider, task.SessionID)
 	artifacts := taskArtifactSnapshot{}
-	if ok {
-		artifacts.WorkspaceDir = strings.TrimSpace(info.WorkspaceDir)
-		artifacts.BranchName = strings.TrimSpace(info.BranchName)
+	if sessionProvider, ok := provider.(taskSessionInfoProvider); ok && strings.TrimSpace(task.SessionID) != "" {
+		if info, err := sessionProvider.GetSessionInfo(ctx, task.SessionID); err == nil {
+			artifacts.WorkspaceDir = strings.TrimSpace(info.WorkspaceDir)
+			artifacts.BranchName = strings.TrimSpace(info.BranchName)
+		}
 	}
 	if artifacts.BranchName == "" {
 		artifacts.BranchName = strings.TrimSpace(task.AssignedActor)
