@@ -59,7 +59,7 @@ func normalizeMCPServers(mcpServers []string) []string {
 	seen := make(map[string]struct{}, len(mcpServers))
 	out := make([]string, 0, len(mcpServers))
 	for _, serverID := range mcpServers {
-		trimmed := canonicalMCPServerID(strings.TrimSpace(serverID))
+		trimmed := strings.TrimSpace(serverID)
 		if trimmed == "" {
 			continue
 		}
@@ -70,13 +70,4 @@ func normalizeMCPServers(mcpServers []string) []string {
 		out = append(out, trimmed)
 	}
 	return out
-}
-
-func canonicalMCPServerID(serverID string) string {
-	switch serverID {
-	case "balda", "runtime.balda", "runtime.state", "runtime.workspace", "balda.state", "balda.workspace":
-		return "balda"
-	default:
-		return serverID
-	}
 }
