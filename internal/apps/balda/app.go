@@ -230,7 +230,7 @@ func Module(
 					if err != nil {
 						return false, err
 					}
-					warnLegacyWorkspaceDir(logger, workingDir, stateDir, workspaceSessionsDir, enabled)
+					warnOldWorkspaceDir(logger, workingDir, stateDir, workspaceSessionsDir, enabled)
 					logger.Info().
 						Str("workspace_mode", string(mode)).
 						Bool("workspace_enabled", enabled).
@@ -456,7 +456,7 @@ func openBaldaStateProvider(ctx context.Context, stateDir string) (baldastate.Pr
 	return provider, nil
 }
 
-func warnLegacyWorkspaceDir(logger zerolog.Logger, workingDir, stateDir, sessionsDir string, workspaceEnabled bool) {
+func warnOldWorkspaceDir(logger zerolog.Logger, workingDir, stateDir, sessionsDir string, workspaceEnabled bool) {
 	if !workspaceEnabled {
 		return
 	}
