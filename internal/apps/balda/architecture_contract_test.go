@@ -144,6 +144,9 @@ func TestRuntimeArchitectureContractStatic(t *testing.T) {
 			"embedded JetStream defaults",
 			"durable JetStream events for read-model projection",
 			"required JetStream command/event bus",
+			"Goalkeeper workflow",
+			"Goalkeeper worker -> validator loop",
+			"per-run Goalkeeper workflow",
 		}
 		for _, needle := range forbidden {
 			t.Run(needle, func(t *testing.T) {

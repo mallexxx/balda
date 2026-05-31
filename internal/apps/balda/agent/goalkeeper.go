@@ -22,7 +22,7 @@ const (
 	goalkeeperWorkerOutputStateKey = "goalkeeper_worker_output"
 )
 
-// GoalkeeperBuildConfig configures the Balda Goalkeeper workflow agent.
+// GoalkeeperBuildConfig configures Balda's /goal work-validation agent.
 type GoalkeeperBuildConfig struct {
 	ProviderID          string
 	SessionID           string
@@ -33,8 +33,8 @@ type GoalkeeperBuildConfig struct {
 	ExtraMCPServerIDs   []string
 }
 
-// BuildGoalkeeperWorkflow builds Norma's Goalkeeper worker -> validator loop
-// using Balda's configured provider for both child agents.
+// BuildGoalkeeperWorkflow builds Norma's goal work-validation loop using
+// Balda's configured provider for both child agents.
 func (b *Builder) BuildGoalkeeperWorkflow(ctx context.Context, cfg GoalkeeperBuildConfig) (adkagent.Agent, error) {
 	if b == nil || b.factory == nil {
 		return nil, fmt.Errorf("agent builder is required")

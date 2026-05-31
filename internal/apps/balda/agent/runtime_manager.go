@@ -39,7 +39,7 @@ type RuntimeManagerParams struct {
 	Logger            zerolog.Logger
 }
 
-// GoalkeeperRuntimeConfig configures a per-run Goalkeeper workflow runtime.
+// GoalkeeperRuntimeConfig configures a per-run /goal work-validation runtime.
 type GoalkeeperRuntimeConfig struct {
 	SessionID     string
 	UserID        string
@@ -48,7 +48,7 @@ type GoalkeeperRuntimeConfig struct {
 	MaxIterations uint
 }
 
-// GoalkeeperRuntime owns the per-run Goalkeeper workflow runner and agents.
+// GoalkeeperRuntime owns the per-run /goal work-validation runner and agents.
 type GoalkeeperRuntime struct {
 	Agent  adkagent.Agent
 	Runner *runner.Runner
@@ -150,8 +150,8 @@ func (m *RuntimeManager) Runtime(ctx context.Context) (*BuiltRuntime, error) {
 	return runtime, nil
 }
 
-// BuildGoalkeeperRuntime creates a per-run Goalkeeper workflow using the
-// app-scoped session service so the workflow runs in the current Balda session.
+// BuildGoalkeeperRuntime creates a per-run /goal work-validation runtime using
+// the app-scoped session service so the workflow runs in the current Balda session.
 func (m *RuntimeManager) BuildGoalkeeperRuntime(
 	ctx context.Context,
 	cfg GoalkeeperRuntimeConfig,
