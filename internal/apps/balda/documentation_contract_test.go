@@ -685,6 +685,14 @@ func TestDocumentationContract(t *testing.T) {
 					"Embedded JetStream integration coverage remains first-class.",
 				},
 			},
+			{
+				path:    filepath.Join(repoRoot, "docs/architecture/index.md"),
+				section: "## Invariants",
+				needles: []string{
+					"JetStream is the only concrete command/event transport, exposed to Balda runtime code through actorlayer abstractions.",
+					"JetStream adapter policy",
+				},
+			},
 		}
 		for _, check := range checks {
 			section := markdownSection(readFile(t, check.path), check.section)
