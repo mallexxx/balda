@@ -54,7 +54,7 @@ Recurring scheduling is config-managed via `balda.scheduler.tasks`. It is not a 
 
 - Architecture navigation map for agents is in `docs/architecture/index.md`.
 - Runtime contract and invariants are in `docs/architecture/runtime-contract.md`.
-- Active migration execution plans are in `docs/exec-plans/active/`.
+- Track migration execution plans with `bd`.
 - Track migration debt and follow-up work with `bd`.
 - Product installation/usage docs are in `README.md`.
 - Development/contribution workflow is in `CONTRIBUTING.md`.
