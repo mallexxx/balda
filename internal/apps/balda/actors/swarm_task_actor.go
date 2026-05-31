@@ -111,7 +111,7 @@ func WebhookTaskEnvelope(payload SessionTurnPayload, routeName string, requestID
 	if dedupeBase == "" {
 		dedupeBase = strings.Join([]string{"webhook", strings.TrimSpace(routeName), strings.TrimSpace(requestID)}, ":")
 	}
-	taskID := webhookTaskID(routeName, dedupeBase)
+	taskID := "webhook-" + safeTaskIDPart(routeName) + "-" + shortTaskHash(dedupeBase)
 	payload.DedupeKey = dedupeBase + ":session"
 	data, err := json.Marshal(taskEnvelopePayload{
 		Kind:        taskPayloadKindSessionTurn,
@@ -170,10 +170,6 @@ func ScheduledTaskEnvelope(
 		DedupeKey:   strings.TrimSpace(dispatchKey),
 		PayloadJSON: string(data),
 	}, nil
-}
-
-func webhookTaskID(routeName string, dedupeBase string) string {
-	return "webhook-" + safeTaskIDPart(routeName) + "-" + shortTaskHash(dedupeBase)
 }
 
 func safeTaskIDPart(raw string) string {
