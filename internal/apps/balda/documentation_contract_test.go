@@ -594,6 +594,7 @@ func TestDocumentationContract(t *testing.T) {
 			markdownSection(body, "## Norma actorlayer contract boundaries"),
 		}
 		forbidden := []string{
+			"ActorRuntime consumes commands from JetStream.",
 			"SessionActor handles turns",
 			"TaskActor routes webhook/scheduled work",
 			"GoalkeeperActor runs `/goal`",
@@ -605,6 +606,8 @@ func TestDocumentationContract(t *testing.T) {
 			"Task/goalkeeper/delivery actor lifecycle changes",
 			"Goalkeeper workflow",
 			"Goalkeeper worker/validator runs",
+			"Balda adapts JetStream commands into actorlayer deliveries",
+			"The execution core does not depend on ADK, Balda, JetStream, Telegram, MCP, or provider SDK APIs.",
 		}
 		for _, section := range sections {
 			for _, needle := range forbidden {

@@ -5,15 +5,15 @@ Status: active
 
 ## Invariants
 
-- ActorRuntime consumes commands from JetStream.
+- ActorRuntime consumes durable command deliveries.
 - Actorlayer engine lanes serialize mutable state by actor key.
-- Runtime execution uses Norma `actorlayer/engine.DispatchRuntime`; Balda adapts JetStream commands into actorlayer deliveries and supplies only Balda-specific delivery wrapping.
+- Runtime execution uses Norma `actorlayer/engine.DispatchRuntime`; Balda adapts durable command transport into actorlayer deliveries and supplies only Balda-specific delivery wrapping.
 - Command settlement happens after actor side effects complete.
 - Retry/permanent failure handling is explicit and classified.
 - Product actors own Balda behavior: session turns, webhook/scheduled work routing, `/goal` execution, outbound delivery, cancellation, and durable memory sync.
 - `/goal` uses Norma's reusable ADK goal workflow runtime.
 - Task progress/results and projected task-event payload summaries redact common secret/token patterns before persistence and delivery.
-- The execution core does not depend on ADK, Balda, JetStream, Telegram, MCP, or provider SDK APIs.
+- The execution core does not depend on ADK, Balda, Telegram, MCP, transport, or provider SDK APIs.
 
 ## Related tests
 
