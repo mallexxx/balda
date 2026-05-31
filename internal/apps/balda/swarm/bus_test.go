@@ -49,7 +49,7 @@ func TestCommandSubjects_UseCommandNamespacePrefix(t *testing.T) {
 	}
 }
 
-func TestEnvelopeHeaders_UseJetStreamIdentityHeaders(t *testing.T) {
+func TestEnvelopeHeaders_UseEnvelopeIdentityHeaders(t *testing.T) {
 	env := subjectTestEnvelope(ActorAddress{Target: ActorTypeTask, Key: subjectTestTaskID})
 	env.TaskID = subjectTestTaskID
 	env.CorrelationID = "corr-1"
