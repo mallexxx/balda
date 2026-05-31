@@ -795,7 +795,7 @@ All events are published as the same envelope shape. For event envelopes,
   - projector writes use stable event IDs and `INSERT OR IGNORE` semantics in SQLite.
   - replaying the same event stream must not duplicate projected task events.
 - Delivery idempotency:
-  - DeliveryActor reserves `delivery_key` in `swarm_delivery_outbox` before provider send.
+  - delivery work reserves `delivery_key` in `swarm_delivery_outbox` before provider send.
   - duplicate delivery reservations become noop, preventing duplicate user-visible messages.
 - Task lifecycle idempotency:
   - task status transitions are guarded and terminal states are immutable.
@@ -828,8 +828,8 @@ All events are published as the same envelope shape. For event envelopes,
 | Retry exhaustion (`max_deliver` reached) | command consumer | publish `BALDA_DLQ`, `TermWithReason`, emit `command.deadlettered` | task may end `deadlettered`; no further retries | inspect DLQ entries and logs, replay/fix or cancel |
 | Permanent actor/runtime error | handler/runtime classification | publish `BALDA_DLQ`, `TermWithReason` | task fails/deadletters without retry loop | inspect reason, patch code/config, replay if safe |
 | Projection apply/decode failure | event projector consumer | retry for transient; terminal to DLQ for permanent | command flow continues; read models stale/lagging | inspect projector logs and replay state, fix the bug, replay events |
-| Delivery redelivery after partial send | DeliveryActor/outbox reserve | duplicate suppressed by delivery key (noop path) | final user message not duplicated | inspect outbox row/status if delivery appears missing |
-| Cancellation races with queued/running work | ControlActor + task/session actors | control command applied; canceled/terminal commands settle noop/ack | task/session stops promptly, later duplicates ignored | verify task state/events; no queue surgery needed |
+| Delivery redelivery after partial send | delivery outbox reserve | duplicate suppressed by delivery key (noop path) | final user message not duplicated | inspect outbox row/status if delivery appears missing |
+| Cancellation races with queued/running work | control command handling | control command applied; canceled/terminal commands settle noop/ack | task/session stops promptly, later duplicates ignored | verify task state/events; no queue surgery needed |
 
 - NATS identity is carried in headers: `Balda-Envelope-ID`,
   `Balda-Session-ID`, `Balda-Task-ID`, `Balda-Correlation-ID`,

@@ -355,11 +355,15 @@ func TestDocumentationContract(t *testing.T) {
 			markdownSection(body, "### Task actor runtime semantics (internal)"),
 			markdownSection(body, "### Scheduled task runtime semantics (internal)"),
 			markdownSection(body, "### Inbound webhook contract (internal)"),
+			markdownSection(body, "#### Idempotency rules"),
+			markdownSection(body, "#### Failure-mode matrix"),
 		}
 		forbidden := []string{
 			"TaskActor emits session command",
 			"TaskActor/SessionActor",
 			"SessionActor lazily restores",
+			"DeliveryActor/outbox reserve",
+			"ControlActor + task/session actors",
 		}
 		for _, section := range sections {
 			for _, needle := range forbidden {
