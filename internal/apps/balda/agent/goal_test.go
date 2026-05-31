@@ -113,7 +113,7 @@ func TestGoalValidatorWrapperUsesLatestWorkerOutputEachInvocation(t *testing.T) 
 		t.Fatalf("final validator text = %q, want latest worker output", got)
 	}
 	if strings.Contains(got, "Worker result:\nfirst output") {
-		t.Fatalf("final validator text = %q, contains stale worker output", got)
+		t.Fatalf("final validator text = %q, contains earlier worker output", got)
 	}
 	if workerRuns != 2 || validatorRuns != 2 {
 		t.Fatalf("workerRuns, validatorRuns = %d, %d; want 2, 2", workerRuns, validatorRuns)
