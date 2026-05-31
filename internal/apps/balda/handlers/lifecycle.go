@@ -11,10 +11,7 @@ import (
 	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
-	"github.com/normahq/balda/internal/apps/balda/auth"
-	baldatelegram "github.com/normahq/balda/internal/apps/balda/channel/telegram"
 	"github.com/normahq/balda/internal/apps/balda/memory"
-	"github.com/normahq/balda/internal/apps/balda/messenger"
 	"github.com/normahq/balda/internal/apps/balda/session"
 	"github.com/normahq/balda/internal/apps/sessionmcp"
 	"github.com/normahq/balda/internal/apps/workspacemcp"
@@ -32,11 +29,7 @@ type InternalMCPManager struct {
 	startMu          sync.Mutex
 	logger           zerolog.Logger
 	registry         mcpregistry.Registry
-	workingDir       string
 	sessionManager   *session.Manager
-	channel          *baldatelegram.Adapter
-	messenger        *messenger.Messenger
-	ownerStore       *auth.OwnerStore
 	stateStore       sessionmcp.Store
 	memoryStore      *memory.Store
 	cleanups         []func() error
@@ -72,11 +65,7 @@ type internalMCPParams struct {
 	WorkspaceEnabled bool `name:"balda_workspace_enabled"`
 	Logger           zerolog.Logger
 	Registry         *mcpregistry.MapRegistry
-	WorkingDir       string
 	SessionManager   *session.Manager
-	Channel          *baldatelegram.Adapter
-	Messenger        *messenger.Messenger
-	OwnerStore       *auth.OwnerStore
 	StateStore       sessionmcp.Store
 	MemoryStore      *memory.Store
 }
@@ -87,11 +76,7 @@ func NewInternalMCPManager(params internalMCPParams) *InternalMCPManager {
 		workspaceEnabled: params.WorkspaceEnabled,
 		logger:           params.Logger.With().Str("component", "balda.internal_mcp").Logger(),
 		registry:         params.Registry,
-		workingDir:       params.WorkingDir,
 		sessionManager:   params.SessionManager,
-		channel:          params.Channel,
-		messenger:        params.Messenger,
-		ownerStore:       params.OwnerStore,
 		stateStore:       params.StateStore,
 		memoryStore:      params.MemoryStore,
 	}

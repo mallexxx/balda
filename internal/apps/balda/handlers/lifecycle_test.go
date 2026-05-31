@@ -243,12 +243,10 @@ func TestEnsureBundledServers_RegistersSharedListenerURLs(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	workDir := t.TempDir()
 	manager := &InternalMCPManager{
 		workspaceEnabled: true,
 		logger:           zerolog.Nop(),
 		registry:         mcpregistry.New(nil),
-		workingDir:       workDir,
 		sessionManager:   &session.Manager{},
 		stateStore:       newTestSessionStore(),
 	}
@@ -289,7 +287,6 @@ func TestInternalMCPManagerEnsureStarted_IsIdempotent(t *testing.T) {
 		workspaceEnabled: false,
 		logger:           zerolog.Nop(),
 		registry:         mcpregistry.New(nil),
-		workingDir:       t.TempDir(),
 		sessionManager:   &session.Manager{},
 		stateStore:       newTestSessionStore(),
 	}
