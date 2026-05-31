@@ -174,7 +174,7 @@ func TestBundledBaldaServerInstructionsReflectWorkspaceMode(t *testing.T) {
 		t.Fatalf("bundledBaldaServerInstructions(true, true) = %q, want memory guidance", enabled)
 	}
 	if strings.Contains(enabled, "balda.agents.") {
-		t.Fatalf("bundledBaldaServerInstructions(true, true) = %q, want balda.agents removed", enabled)
+		t.Fatalf("bundledBaldaServerInstructions(true, true) = %q, want balda.agents absent", enabled)
 	}
 
 	disabled := bundledBaldaServerInstructions(false, false)

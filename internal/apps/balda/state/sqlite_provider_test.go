@@ -431,7 +431,7 @@ func TestSQLiteProvider_AdoptsExistingLegacySchema(t *testing.T) {
 		t.Fatalf("address_json after migration = %q, want telegram address json", record.AddressJSON)
 	}
 	if record.UserID != "" {
-		t.Fatalf("user_id after migration = %q, want empty for legacy rows", record.UserID)
+		t.Fatalf("user_id after migration = %q, want empty for old rows", record.UserID)
 	}
 
 	db, err := sql.Open("sqlite", dbPath)

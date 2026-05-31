@@ -568,7 +568,7 @@ func TestRestoreSession_FailsWhenPersistedWorkspaceBranchMissing(t *testing.T) {
 	}
 }
 
-func TestRestoreSession_RehomesLegacyWorkspacePathToCanonicalPath(t *testing.T) {
+func TestRestoreSession_RehomesOldWorkspacePathToCanonicalPath(t *testing.T) {
 	ctx := context.Background()
 	workingDir := t.TempDir()
 	initGitRepo(t, ctx, workingDir)
