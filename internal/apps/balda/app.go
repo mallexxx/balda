@@ -359,7 +359,7 @@ func Module(
 		fx.Provide(
 			handlers.NewInternalMCPManager,
 		),
-		// Start Balda provider runtime and Telegram runtime only after bundled internal MCP is started.
+		// Start Balda provider runtime and bot runtime only after bundled internal MCP is started.
 		fx.Invoke(func(lc fx.Lifecycle, bot *runtime.Bot, runtimeManager *baldaagent.RuntimeManager, mcpManager *handlers.InternalMCPManager) {
 			runCtx, cancel := context.WithCancel(context.Background())
 			lc.Append(fx.Hook{
