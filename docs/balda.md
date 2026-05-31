@@ -870,7 +870,7 @@ All events are published as the same envelope shape. For event envelopes,
   - capacity: 1 active handler per actor key (`task:<id>`, session/goalkeeper fallbacks)
   - behavior: serializes mutable task/session state transitions
 - Session turn queue:
-  - owner: process-local `TurnDispatcher` inside SessionActor
+  - owner: process-local session turn dispatcher
   - capacity: bounded by turn-dispatcher queue size
   - behavior: per-session ordering/cancel semantics for provider turn execution
 

@@ -358,11 +358,13 @@ func TestDocumentationContract(t *testing.T) {
 			markdownSection(body, "### Event contract"),
 			markdownSection(body, "#### Idempotency rules"),
 			markdownSection(body, "#### Failure-mode matrix"),
+			markdownSection(body, "### Queue and concurrency semantics (internal)"),
 		}
 		forbidden := []string{
 			"TaskActor emits session command",
 			"TaskActor/SessionActor",
 			"SessionActor lazily restores",
+			"`TurnDispatcher` inside SessionActor",
 			"TaskActor/TaskService",
 			"DeliveryActor",
 			"DeliveryActor/outbox reserve",
