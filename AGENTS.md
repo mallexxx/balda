@@ -29,7 +29,7 @@ go tool golangci-lint run
 - Keep Balda startup order strict: config load -> bundled MCP lifecycle -> balda provider -> channel runtime.
 - Keep channel/session boundaries stable (`chat_id`, `topic_id`) and preserve lazy restore semantics.
 - Keep workspace mode behavior stable (`on|off|auto`) with safe defaults and explicit failures.
-- Keep Balda MCP/server contracts backward compatible (`balda.workspace.*` and alias tools).
+- Keep Balda MCP/server contracts stable (`balda.workspace.*`).
 - Keep config loading via app-specific `.config/balda/config.yaml` with `BALDA_*` env overrides.
 
 ## Bot Commands (Current Contract)

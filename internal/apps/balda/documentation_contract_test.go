@@ -192,6 +192,14 @@ func TestDocumentationContract(t *testing.T) {
 		}
 	})
 
+	t.Run("agents guardrails avoid stale alias-tool wording", func(t *testing.T) {
+		path := filepath.Join(repoRoot, "AGENTS.md")
+		body := readFile(t, path)
+		if strings.Contains(body, "alias tools") {
+			t.Fatalf("%s still mentions stale alias-tool wording", filepath.ToSlash(path))
+		}
+	})
+
 	t.Run("user-facing command docs avoid actor and transport implementation terms", func(t *testing.T) {
 		checks := []struct {
 			path    string
