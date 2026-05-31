@@ -169,7 +169,7 @@ balda:
 	if err != nil {
 		t.Fatalf("LoadConfigDocument: %v", err)
 	}
-	if doc.Balda.Scheduler.RemovedJobs == nil {
+	if doc.Balda.Scheduler.UnsupportedJobs == nil {
 		t.Fatal("unsupported balda.scheduler.jobs key was ignored; want captured for validation")
 	}
 }

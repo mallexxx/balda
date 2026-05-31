@@ -232,10 +232,10 @@ func TestValidateUnsupportedRuntimeConfig(t *testing.T) {
 	t.Parallel()
 
 	err := validateUnsupportedRuntimeConfig(BaldaConfig{
-		RemovedEventBus: map[string]any{"mode": "sqlite"},
-		Swarm:           SwarmConfig{RemovedMode: "shadow"},
-		Webhooks:        WebhooksConfig{RemovedMode: "mailbox"},
-		Scheduler:       SchedulerConfig{RemovedMode: "mailbox"},
+		UnsupportedEventBus: map[string]any{"mode": "sqlite"},
+		Swarm:               SwarmConfig{UnsupportedMode: "shadow"},
+		Webhooks:            WebhooksConfig{UnsupportedMode: "mailbox"},
+		Scheduler:           SchedulerConfig{UnsupportedMode: "mailbox"},
 	})
 	if err == nil {
 		t.Fatal("validateUnsupportedRuntimeConfig() error = nil, want unsupported-config error")
@@ -328,7 +328,7 @@ func TestValidateSchedulerConfigRejectsUnsupportedJobsKey(t *testing.T) {
 	t.Parallel()
 
 	err := validateSchedulerConfig(SchedulerConfig{
-		RemovedJobs: []any{map[string]any{"id": "legacy"}},
+		UnsupportedJobs: []any{map[string]any{"id": "legacy"}},
 	})
 	if err == nil {
 		t.Fatal("validateSchedulerConfig() error = nil, want unsupported jobs key error")
@@ -357,8 +357,8 @@ func TestValidateUnsupportedRuntimeConfig_AvoidsTransportSpecificModeGuidance(t 
 	t.Parallel()
 
 	err := validateUnsupportedRuntimeConfig(BaldaConfig{
-		Webhooks:  WebhooksConfig{RemovedMode: true},
-		Scheduler: SchedulerConfig{RemovedMode: true},
+		Webhooks:  WebhooksConfig{UnsupportedMode: true},
+		Scheduler: SchedulerConfig{UnsupportedMode: true},
 	})
 	if err == nil {
 		t.Fatal("validateUnsupportedRuntimeConfig() error = nil, want unsupported mode guidance")

@@ -588,7 +588,7 @@ func validateSessionPersistence(raw string) (string, error) {
 }
 
 func validateSchedulerConfig(cfg SchedulerConfig) error {
-	if cfg.RemovedJobs != nil {
+	if cfg.UnsupportedJobs != nil {
 		return fmt.Errorf("balda.scheduler.jobs is no longer supported; use balda.scheduler.tasks with envelope.target, envelope.key, and envelope.content")
 	}
 	return nil
@@ -596,16 +596,16 @@ func validateSchedulerConfig(cfg SchedulerConfig) error {
 
 func validateUnsupportedRuntimeConfig(cfg BaldaConfig) error {
 	var errs []string
-	if cfg.RemovedEventBus != nil {
+	if cfg.UnsupportedEventBus != nil {
 		errs = append(errs, "balda.event_bus is no longer supported; use balda.nats built-in runtime settings")
 	}
-	if cfg.Swarm.RemovedMode != nil {
+	if cfg.Swarm.UnsupportedMode != nil {
 		errs = append(errs, "balda.swarm.mode is no longer supported; actor runtime is always on")
 	}
-	if cfg.Webhooks.RemovedMode != nil {
+	if cfg.Webhooks.UnsupportedMode != nil {
 		errs = append(errs, "balda.webhooks.mode is no longer supported; webhooks use the always-on runtime")
 	}
-	if cfg.Scheduler.RemovedMode != nil {
+	if cfg.Scheduler.UnsupportedMode != nil {
 		errs = append(errs, "balda.scheduler.mode is no longer supported; scheduling uses the always-on runtime")
 	}
 	if len(errs) == 0 {
