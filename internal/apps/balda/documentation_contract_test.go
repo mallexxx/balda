@@ -528,6 +528,28 @@ func TestDocumentationContract(t *testing.T) {
 			}
 		}
 	})
+
+	t.Run("jetstream adapter invariants stay behavior-oriented at the top level", func(t *testing.T) {
+		path := filepath.Join(repoRoot, "docs/architecture/jetstream-command-bus.md")
+		sections := []string{
+			markdownSection(readFile(t, path), "## Invariants"),
+			markdownSection(readFile(t, path), "## Update triggers"),
+		}
+		forbidden := []string{
+			"`BALDA_COMMANDS` is the only durable command queue.",
+			"`BALDA_EVENTS` is the durable lifecycle and domain event stream.",
+			"`BALDA_DLQ` stores terminal command failures.",
+			"Worker and projector use durable pull consumers with explicit settlement.",
+			"Stream or consumer config changes.",
+		}
+		for _, section := range sections {
+			for _, needle := range forbidden {
+				if strings.Contains(section, needle) {
+					t.Fatalf("%s still contains overly specific transport-summary wording %q", filepath.ToSlash(path), needle)
+				}
+			}
+		}
+	})
 }
 
 func repositoryRoot(t *testing.T) string {

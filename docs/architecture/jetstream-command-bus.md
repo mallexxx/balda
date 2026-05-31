@@ -5,10 +5,10 @@ Status: active
 
 ## Invariants
 
-- `BALDA_COMMANDS` is the only durable command queue.
-- `BALDA_EVENTS` is the durable lifecycle and domain event stream.
-- `BALDA_DLQ` stores terminal command failures.
-- Worker and projector use durable pull consumers with explicit settlement.
+- Command delivery uses one durable command transport.
+- Event projection and lifecycle history use dedicated durable event streams.
+- Terminal command failures are retained for inspection and replay decisions.
+- Command and event processing use explicit settlement.
 - Command subjects stay under `balda.v1.cmd.*`; events under `balda.v1.evt.*`.
 - Product/runtime packages consume actorlayer `Source`/`Delivery` and Balda
   `ActorDispatcher` abstractions, not NATS/JetStream APIs.
@@ -28,6 +28,6 @@ Status: active
 
 ## Update triggers
 
-- Stream or consumer config changes.
+- Transport config changes.
 - Subject taxonomy or envelope/header changes.
 - Publish/consume settlement behavior changes.
