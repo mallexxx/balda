@@ -465,13 +465,13 @@ func warnLegacyWorkspaceDir(logger zerolog.Logger, workingDir, stateDir, session
 		dirName = defaultWorkspaceSessionsDirName
 	}
 
-	legacyDir := filepath.Join(workingDir, ".norma", "balda-sessions")
+	oldWorkspaceDir := filepath.Join(workingDir, ".norma", "balda-sessions")
 	newDir := filepath.Join(stateDir, dirName)
-	if filepath.Clean(legacyDir) == filepath.Clean(newDir) {
+	if filepath.Clean(oldWorkspaceDir) == filepath.Clean(newDir) {
 		return
 	}
 
-	fi, err := os.Stat(legacyDir)
+	fi, err := os.Stat(oldWorkspaceDir)
 	if err != nil {
 		return
 	}
@@ -480,7 +480,7 @@ func warnLegacyWorkspaceDir(logger zerolog.Logger, workingDir, stateDir, session
 	}
 
 	logger.Warn().
-		Str("legacy_workspace_dir", legacyDir).
+		Str("old_workspace_dir", oldWorkspaceDir).
 		Str("workspace_dir", newDir).
 		Msg("old balda workspace directory detected and ignored")
 }
