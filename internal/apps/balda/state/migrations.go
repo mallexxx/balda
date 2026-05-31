@@ -63,7 +63,7 @@ func reconcileRuntimeSessionTables(ctx context.Context, db *sql.DB) error {
 	}
 	oldExists, err := sqliteTableExists(ctx, db, "balda_adk_app_state")
 	if err != nil {
-		return fmt.Errorf("inspect adk app state table: %w", err)
+		return fmt.Errorf("inspect runtime app state table: %w", err)
 	}
 	if !oldExists {
 		return fmt.Errorf("runtime session tables are missing")

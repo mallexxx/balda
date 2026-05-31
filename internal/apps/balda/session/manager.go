@@ -396,7 +396,7 @@ func (m *Manager) ResetSession(ctx context.Context, locator SessionLocator) erro
 		UserID:    userID,
 		SessionID: sessionID,
 	}); err != nil {
-		return fmt.Errorf("delete adk session: %w", err)
+		return fmt.Errorf("delete runtime session: %w", err)
 	}
 	return nil
 }
@@ -487,7 +487,7 @@ func (m *Manager) cleanupTopicSession(ctx context.Context, ts *TopicSession, opt
 				UserID:    userID,
 				SessionID: sessionID,
 			}); err != nil {
-				firstErr = fmt.Errorf("delete adk session: %w", err)
+				firstErr = fmt.Errorf("delete runtime session: %w", err)
 			}
 		}
 	}
