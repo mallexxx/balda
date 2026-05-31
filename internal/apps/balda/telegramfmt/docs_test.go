@@ -49,6 +49,17 @@ func TestUserDocsLinkTelegramFormattingGuide(t *testing.T) {
 	}
 }
 
+func TestUserDocsDocumentRuntimeStateHelper(t *testing.T) {
+	t.Parallel()
+
+	for _, path := range []string{"README.md", "docs/balda.md"} {
+		doc := readRepoDoc(t, path)
+		if !strings.Contains(doc, "make runtime-state") {
+			t.Fatalf("%s does not document make runtime-state", path)
+		}
+	}
+}
+
 func TestReadmeDocumentsBaldaConfigShapeAndMCPServers(t *testing.T) {
 	t.Parallel()
 

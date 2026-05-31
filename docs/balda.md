@@ -49,6 +49,12 @@ To exercise fake ingress scenarios (Telegram/webhook/scheduler paths), run:
 make scenarios
 ```
 
+To inspect the runtime streams and consumers, run:
+
+```bash
+make runtime-state
+```
+
 To replay projection events through the deterministic projector replay suite,
 run:
 
