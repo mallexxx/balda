@@ -584,10 +584,10 @@ Balda runs with a single provider per process (`balda.provider`).
 - `/topic <name>` (DM only, owner/collaborator): creates a new Telegram topic and a topic-bound session.
   - `<name>` is required.
   - `<name>` is a session label, not a provider selector.
-- `/goal <objective>` (owner/collaborator): publishes a durable JetStream command to GoalkeeperActor and starts Norma's ADK worker -> validator workflow in the current session context/workspace. Started/validation/final updates use `balda.telegram.formatting_mode`; terminal updates include Result, Artifacts, Confidence, and Next action sections. See [`docs/goalkeeper.md`](goalkeeper.md).
+- `/goal <objective>` (owner/collaborator): starts goal work in the current session context/workspace. Started/validation/final updates use `balda.telegram.formatting_mode`; terminal updates include Result, Artifacts, Confidence, and Next action sections. See [`docs/goalkeeper.md`](goalkeeper.md).
   - concurrent `/goal` runs in the same session are rejected.
 - `/close` (DM only, owner/collaborator): resets the current session history. In topic contexts, it also closes that topic.
-- `/cancel` (owner/collaborator): publishes a durable session-control command; ControlActor cancels active session work, drops queued session work, marks active session tasks canceled, and aborts active `/goal` work when the command is processed.
+- `/cancel` (owner/collaborator): requests cancellation of active session work, including active `/goal` runs.
 - `balda.memory.*` MCP tools are internal capabilities, not chat commands.
 
 ### Task actor runtime semantics (internal)

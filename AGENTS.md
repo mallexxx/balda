@@ -37,9 +37,9 @@ go tool golangci-lint run
 - `/start owner=<owner_token>`: direct message only; owner authentication/bootstrap entrypoint.
 - `/start invite=<invite_token>`: direct message only; collaborator invite onboarding entrypoint.
 - `/topic <name>`: owner/collaborator, direct message only; creates a topic session labeled `<name>` using the configured balda provider.
-- `/goal <objective>`: owner/collaborator; starts a Goalkeeper worker -> validator loop in the current session context/workspace with started/validation/final updates and terminal Result/Artifacts/Confidence/Next action outcome.
+- `/goal <objective>`: owner/collaborator; starts goal work in the current session context/workspace with started/validation/final updates and terminal Result/Artifacts/Confidence/Next action outcome.
 - `/close`: owner/collaborator, direct message only; resets the current session history and closes the topic when used from a topic session.
-- `/cancel`: owner/collaborator; publishes durable session-control work; ControlActor cancels in-flight turn processing, drops queued turns, cancels active tasks, and aborts active `/goal` work when processed.
+- `/cancel`: owner/collaborator; requests cancellation of in-flight work in the current session, including active `/goal` runs.
 - `/user add|list|remove <user_id>`: owner only; collaborator invite and management commands.
 - Keep command behavior and access expectations backward compatible; when changing commands, update `README.md` and `docs/balda.md` as part of the same change.
 

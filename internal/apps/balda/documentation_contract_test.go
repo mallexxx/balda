@@ -1,6 +1,7 @@
 package balda
 
 import (
+	"fmt"
 	"go/ast"
 	"go/parser"
 	"go/token"
@@ -191,6 +192,32 @@ func TestDocumentationContract(t *testing.T) {
 		}
 	})
 
+	t.Run("user-facing command docs avoid actor and transport implementation terms", func(t *testing.T) {
+		checks := []struct {
+			path    string
+			heading string
+		}{
+			{path: filepath.Join(repoRoot, "README.md"), heading: "## Bot Commands"},
+			{path: filepath.Join(repoRoot, "docs/balda.md"), heading: "### Manual session control"},
+			{path: filepath.Join(repoRoot, "AGENTS.md"), heading: "## Bot Commands (Current Contract)"},
+		}
+		forbidden := []*regexp.Regexp{
+			regexp.MustCompile(`JetStream`),
+			regexp.MustCompile(`GoalkeeperActor`),
+			regexp.MustCompile(`ControlActor`),
+			regexp.MustCompile(`durable session-control command`),
+			regexp.MustCompile(`durable JetStream command`),
+		}
+		for _, check := range checks {
+			section := markdownSection(readFile(t, check.path), check.heading)
+			for _, pattern := range forbidden {
+				if pattern.FindStringIndex(section) != nil {
+					t.Fatalf("%s section %q still exposes implementation term %q", filepath.ToSlash(check.path), check.heading, pattern.String())
+				}
+			}
+		}
+	})
+
 	t.Run("agent docs use merge pull workflow", func(t *testing.T) {
 		path := filepath.Join(repoRoot, "AGENTS.md")
 		body := readFile(t, path)
@@ -274,8 +301,13 @@ func markdownSection(body string, heading string) string {
 	if start < 0 {
 		return body
 	}
+	level := 0
+	for level < len(heading) && heading[level] == '#' {
+		level++
+	}
 	rest := body[start+len(heading):]
-	if next := regexp.MustCompile(`\n## `).FindStringIndex(rest); next != nil {
+	pattern := fmt.Sprintf(`\n#{1,%d} `, level)
+	if next := regexp.MustCompile(pattern).FindStringIndex(rest); next != nil {
 		return rest[:next[0]]
 	}
 	return rest
