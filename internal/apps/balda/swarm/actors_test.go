@@ -16,7 +16,7 @@ import (
 func TestMemoryActorRejectsUnsupportedNamespace(t *testing.T) {
 	t.Parallel()
 
-	actor := newMemoryActorWithStore(nil)
+	actor := memoryActor{memoryStore: nil}
 	err := actor.Handle(context.Background(), memoryEnvelopeForTest(NamespaceHumanInbound, KindMessage, `{"operation":"task_summary"}`))
 	if err == nil {
 		t.Fatal("Handle() error = nil, want policy error")
@@ -29,7 +29,7 @@ func TestMemoryActorRejectsUnsupportedNamespace(t *testing.T) {
 func TestMemoryActorSupportsV1Operations(t *testing.T) {
 	t.Parallel()
 
-	actor := newMemoryActorWithStore(nil)
+	actor := memoryActor{memoryStore: nil}
 	for _, op := range []string{memoryOpTaskSummary, memoryOpSessionSummary, memoryOpFactExtract, memoryOpContextPack} {
 		t.Run(op, func(t *testing.T) {
 			t.Parallel()
@@ -44,7 +44,7 @@ func TestMemoryActorSupportsV1Operations(t *testing.T) {
 func TestMemoryActorUnknownOperationNoops(t *testing.T) {
 	t.Parallel()
 
-	actor := newMemoryActorWithStore(nil)
+	actor := memoryActor{memoryStore: nil}
 	err := actor.Handle(context.Background(), memoryEnvelopeForTest(NamespaceMemorySync, "memory_tick", `{"operation":"future_op"}`))
 	if err != nil {
 		t.Fatalf("Handle() error = %v, want nil noop", err)
@@ -54,7 +54,7 @@ func TestMemoryActorUnknownOperationNoops(t *testing.T) {
 func TestMemoryActorInvalidPayloadIsPermanent(t *testing.T) {
 	t.Parallel()
 
-	actor := newMemoryActorWithStore(nil)
+	actor := memoryActor{memoryStore: nil}
 	err := actor.Handle(context.Background(), memoryEnvelopeForTest(NamespaceMemorySync, memoryOpTaskSummary, `{`))
 	if err == nil {
 		t.Fatal("Handle() error = nil, want decode error")
@@ -73,7 +73,7 @@ func TestMemoryActorFactExtractWritesFacts(t *testing.T) {
 
 	stateDir := t.TempDir()
 	store := memory.NewStore(stateDir, true)
-	actor := newMemoryActorWithStore(store)
+	actor := memoryActor{memoryStore: store}
 	payload := `{"operation":"fact_extract","scope":"default","task_id":"task-1","session_id":"session-1","content":"fact: Balda uses durable command runtime\n- actor lanes are serialized\n\nKeep docs updated"}`
 	if err := actor.Handle(context.Background(), memoryEnvelopeForTest(NamespaceMemorySync, memoryOpFactExtract, payload)); err != nil {
 		t.Fatalf("Handle(fact_extract) error = %v, want nil", err)
@@ -106,7 +106,7 @@ func TestMemoryActorFactExtractNoopsWhenMemoryDisabled(t *testing.T) {
 	t.Parallel()
 
 	store := memory.NewStore(t.TempDir(), false)
-	actor := newMemoryActorWithStore(store)
+	actor := memoryActor{memoryStore: store}
 	payload := `{"operation":"fact_extract","content":"fact: noop"}`
 	if err := actor.Handle(context.Background(), memoryEnvelopeForTest(NamespaceMemorySync, memoryOpFactExtract, payload)); err != nil {
 		t.Fatalf("Handle(fact_extract disabled) error = %v, want nil", err)
@@ -124,7 +124,7 @@ func TestMemoryActorSummaryOperationsPersistStructuredEntries(t *testing.T) {
 	t.Parallel()
 
 	store := memory.NewStore(t.TempDir(), true)
-	actor := newMemoryActorWithStore(store)
+	actor := memoryActor{memoryStore: store}
 	tests := []struct {
 		name    string
 		op      string

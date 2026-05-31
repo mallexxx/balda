@@ -28,10 +28,6 @@ type memorySyncPayload struct {
 	Content   string `json:"content,omitempty"`
 }
 
-func newMemoryActorWithStore(memoryStore *memory.Store) Actor {
-	return memoryActor{memoryStore: memoryStore}
-}
-
 func (memoryActor) Address() string {
 	return WildcardAddress(ActorTypeMemory)
 }
