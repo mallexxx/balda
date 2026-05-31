@@ -110,7 +110,14 @@ func (b *Builder) BuildGoalWorkflow(ctx context.Context, cfg GoalBuildConfig) (a
 		_ = closeRuntimeAgent(validator)
 		return nil, err
 	}
-	return &closableGoalWorkflow{Agent: workflow, closers: goalChildClosers(worker, validator)}, nil
+	closers := make([]io.Closer, 0, 2)
+	if closer, ok := worker.(io.Closer); ok {
+		closers = append(closers, closer)
+	}
+	if closer, ok := validator.(io.Closer); ok {
+		closers = append(closers, closer)
+	}
+	return &closableGoalWorkflow{Agent: workflow, closers: closers}, nil
 }
 
 type goalChildAgentConfig struct {
@@ -323,15 +330,4 @@ func (w *closableGoalWorkflow) Close() error {
 		w.err = errors.Join(errs...)
 	})
 	return w.err
-}
-
-func goalChildClosers(agents ...adkagent.Agent) []io.Closer {
-	closers := make([]io.Closer, 0, len(agents))
-	for _, ag := range agents {
-		closer, ok := ag.(io.Closer)
-		if ok {
-			closers = append(closers, closer)
-		}
-	}
-	return closers
 }
