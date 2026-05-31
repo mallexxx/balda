@@ -236,7 +236,7 @@ func TestBaldaHandlerOnMessage_PublicTopicRestoreWarnsWhenWorkspaceSyncSkipped(t
 	setUnexportedField(t, sessionManager, "runtimeManager", runtimeManager)
 	setUnexportedField(t, sessionManager, "baldaProviderName", "balda-provider")
 	setUnexportedField(t, sessionManager, "workingDir", workingDir)
-	setUnexportedField(t, sessionManager, "workspaces", baldaagent.NewWorkspaceManager(workingDir, stateDir, baldaRestoreCurrentBranch(t, ctx, workingDir)))
+	setUnexportedField(t, sessionManager, "workspaces", baldaagent.NewWorkspaceManagerWithSessionsDir(workingDir, stateDir, baldaRestoreCurrentBranch(t, ctx, workingDir), ""))
 	setUnexportedField(t, sessionManager, "workspaceEnabled", true)
 	setUnexportedField(t, sessionManager, "sessionStore", store)
 	setUnexportedField(t, sessionManager, "logger", zerolog.Nop())

@@ -29,7 +29,7 @@ func TestStopAllWithContext_CleansWorkspaceWhenRootContextCanceled(t *testing.T)
 	runGit(t, ctx, workingDir, "worktree", "add", "-b", "norma/balda/tg-1-1", workspaceDir, "HEAD")
 
 	m := &Manager{
-		workspaces:       baldaagent.NewWorkspaceManager(workingDir, t.TempDir(), "master"),
+		workspaces:       baldaagent.NewWorkspaceManagerWithSessionsDir(workingDir, t.TempDir(), "master", ""),
 		workspaceEnabled: true,
 		logger:           zerolog.Nop(),
 		sessions: map[string]*TopicSession{
@@ -549,7 +549,7 @@ func TestRestoreSession_FailsWhenPersistedWorkspaceBranchMissing(t *testing.T) {
 		runtimeManager:    runtimeManager,
 		agentBuilder:      builder,
 		workingDir:        workingDir,
-		workspaces:        baldaagent.NewWorkspaceManager(workingDir, t.TempDir(), currentBranch(t, ctx, workingDir)),
+		workspaces:        baldaagent.NewWorkspaceManagerWithSessionsDir(workingDir, t.TempDir(), currentBranch(t, ctx, workingDir), ""),
 		workspaceEnabled:  true,
 		logger:            zerolog.Nop(),
 		sessions:          make(map[string]*TopicSession),
@@ -611,7 +611,7 @@ func TestRestoreSession_ForceRemountsCanonicalWorkspaceAfterCollision(t *testing
 		runtimeManager:    runtimeManager,
 		agentBuilder:      builder,
 		workingDir:        workingDir,
-		workspaces:        baldaagent.NewWorkspaceManager(workingDir, stateDir, currentBranch(t, ctx, workingDir)),
+		workspaces:        baldaagent.NewWorkspaceManagerWithSessionsDir(workingDir, stateDir, currentBranch(t, ctx, workingDir), ""),
 		workspaceEnabled:  true,
 		logger:            zerolog.Nop(),
 		sessions:          make(map[string]*TopicSession),

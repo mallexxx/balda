@@ -31,11 +31,6 @@ type EnsureWorkspaceResult struct {
 	SyncSkipped bool
 }
 
-// NewWorkspaceManager creates a WorkspaceManager for the given working directory.
-func NewWorkspaceManager(workingDir, stateDir, baseBranch string) *WorkspaceManager {
-	return NewWorkspaceManagerWithSessionsDir(workingDir, stateDir, baseBranch, "")
-}
-
 // NewWorkspaceManagerWithSessionsDir creates a WorkspaceManager with a custom sessions dir name.
 func NewWorkspaceManagerWithSessionsDir(workingDir, stateDir, baseBranch, sessionsDir string) *WorkspaceManager {
 	dirName := strings.TrimSpace(sessionsDir)
