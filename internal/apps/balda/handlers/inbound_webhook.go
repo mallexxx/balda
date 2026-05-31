@@ -648,15 +648,18 @@ func (r *InboundWebhookReceiver) handleInboundWebhook(w http.ResponseWriter, req
 	}
 	dedupeKey := strings.Join([]string{"webhook", strings.TrimSpace(route.Name), dedupeBase}, ":")
 	payload := actors.SessionTurnPayload{
-		Text:           prompt,
-		Locator:        target.Locator,
-		ReportTo:       reportTo,
-		UserID:         target.UserID,
-		TopicID:        target.TopicID,
-		ProgressPolicy: inboundWebhookProgressPolicy(),
-		Deliver:        reportTo != nil,
-		Source:         "webhook",
-		DedupeKey:      dedupeKey,
+		Text:     prompt,
+		Locator:  target.Locator,
+		ReportTo: reportTo,
+		UserID:   target.UserID,
+		TopicID:  target.TopicID,
+		ProgressPolicy: baldachannel.ProgressPolicy{
+			Typing:   false,
+			Thinking: false,
+		},
+		Deliver:   reportTo != nil,
+		Source:    "webhook",
+		DedupeKey: dedupeKey,
 	}
 	var (
 		result     *swarm.DispatchReceipt
@@ -768,12 +771,5 @@ func writeInboundWebhookJSON(w http.ResponseWriter, status int, payload any) {
 	w.WriteHeader(status)
 	if err := json.NewEncoder(w).Encode(payload); err != nil {
 		return
-	}
-}
-
-func inboundWebhookProgressPolicy() baldachannel.ProgressPolicy {
-	return baldachannel.ProgressPolicy{
-		Typing:   false,
-		Thinking: false,
 	}
 }
