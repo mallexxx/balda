@@ -11,7 +11,7 @@ Status: active
 - Command settlement happens after actor side effects complete.
 - Retry/permanent failure handling is explicit and classified.
 - Product actors own Balda behavior: session turns, webhook/scheduled work routing, `/goal` execution, outbound delivery, cancellation, and durable memory sync.
-- `/goal` uses Norma's reusable ADK Goalkeeper workflow.
+- `/goal` uses Norma's reusable ADK goal workflow runtime.
 - Task progress/results and projected task-event payload summaries redact common secret/token patterns before persistence and delivery.
 - The execution core does not depend on ADK, Balda, JetStream, Telegram, MCP, or provider SDK APIs.
 
@@ -35,7 +35,7 @@ Status: active
 - Actor key mapping changes.
 - Command heartbeat or settlement behavior changes.
 - Task/goal/delivery lifecycle changes.
-- Goalkeeper workflow, session, or task-result behavior changes.
+- Goal workflow, session, or task-result behavior changes.
 
 ## Norma actorlayer contract boundaries
 
@@ -46,7 +46,7 @@ Status: active
   - typed envelope handling,
   - dispatch result states (`acked`, `running`, `in_progress`, `retry`, `deadletter`, `noop`),
   - and lifecycle events suitable for external telemetry.
-- Provider runtime: `balda.provider` selects the single app-scoped ADK provider runtime used by all Balda sessions and Goalkeeper worker/validator runs.
+- Provider runtime: `balda.provider` selects the single app-scoped ADK provider runtime used by all Balda sessions and `/goal` work-validation runs.
 - Delivery boundary: Balda maps JetStream messages inside `eventbus/nats` into actorlayer `Source`/`Delivery` contracts; runtime and product actors never consume NATS/JetStream APIs directly.
 
 ### Ownership split

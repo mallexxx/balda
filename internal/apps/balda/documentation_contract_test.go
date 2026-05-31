@@ -304,6 +304,7 @@ func TestDocumentationContract(t *testing.T) {
 			"session.Event",
 			`CustomMetadata["norma.goalkeeper.event"]`,
 			"escalation marker",
+			"Goalkeeper worker/validator",
 		}
 		for _, path := range paths {
 			body := readFile(t, path)
@@ -504,6 +505,7 @@ func TestDocumentationContract(t *testing.T) {
 		sections := []string{
 			markdownSection(body, "## Invariants"),
 			markdownSection(body, "## Update triggers"),
+			markdownSection(body, "## Norma actorlayer contract boundaries"),
 		}
 		forbidden := []string{
 			"SessionActor handles turns",
@@ -515,6 +517,8 @@ func TestDocumentationContract(t *testing.T) {
 			"through GoalkeeperActor",
 			"planner/executor/reviewer role actors",
 			"Task/goalkeeper/delivery actor lifecycle changes",
+			"Goalkeeper workflow",
+			"Goalkeeper worker/validator runs",
 		}
 		for _, section := range sections {
 			for _, needle := range forbidden {

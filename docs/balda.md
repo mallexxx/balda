@@ -158,7 +158,7 @@ flowchart TB
 
 Balda treats `actorlayer` as a pure typed actor engine and never as product policy.
 
-- `balda.provider` selects one app-scoped ADK provider runtime for all Balda sessions and Goalkeeper worker/validator runs in the process.
+- `balda.provider` selects one app-scoped ADK provider runtime for all Balda sessions and `/goal` work-validation runs in the process.
 - Actorlayer owns generic actor mechanics: registration, addressing, lane execution, lifecycle state, and delivery hooks.
 - Balda owns product actors and product behavior implemented as actors: session, task, goalkeeper, delivery, control, and memory.
 - Balda exposes JetStream to product/runtime code only as actorlayer source, delivery, and dispatch abstractions; the concrete transport stays inside the NATS adapter.
@@ -584,8 +584,8 @@ Assignable work is persisted in `swarm_tasks`; task history is published to
 JetStream command first; task records are created after command delivery.
 
 - `/goal` starts goal work for the current session. Balda restores or creates the
-  session, runs the Goalkeeper worker/validator workflow, records the task
-  result, and sends progress/final messages.
+  session, runs repeated work and validation passes, records the task result,
+  and sends progress/final messages.
 - Task statuses are `created`, `queued`, `running`, `waiting_for_agent`,
   `waiting_for_user`, `validating`, `completed`, `failed`, `canceled`, and
   `deadlettered`.
