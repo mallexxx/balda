@@ -17,7 +17,7 @@ type sqliteProvider struct {
 	db             *sql.DB
 	appKV          *sqliteKVStore
 	mcpKV          *sqliteKVStore
-	runtimeSession *sqliteADKSessionService
+	runtimeSession *sqliteRuntimeSessionService
 	session        *sqliteSessionStore
 	tasks          *sqliteScheduledTaskStore
 	swarm          *sqliteSwarmStore
@@ -146,7 +146,7 @@ func NewSQLiteProvider(ctx context.Context, path string) (Provider, error) {
 		db:             db,
 		appKV:          &sqliteKVStore{db: db, namespace: NamespaceApp},
 		mcpKV:          &sqliteKVStore{db: db, namespace: NamespaceSessionMCP},
-		runtimeSession: &sqliteADKSessionService{db: db},
+		runtimeSession: &sqliteRuntimeSessionService{db: db},
 		session:        &sqliteSessionStore{db: db},
 		tasks:          &sqliteScheduledTaskStore{db: db},
 		swarm:          &sqliteSwarmStore{db: db},
