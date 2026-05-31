@@ -113,9 +113,24 @@ func initCommand() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			storageTarget, err := storeBaldaTelegramToken(doc, workingDir, telegramToken, tokenStorageMode)
-			if err != nil {
-				return err
+			var storageTarget string
+			switch tokenStorageMode {
+			case baldaTokenStorageEnv:
+				if err := setBaldaTelegramToken(doc, ""); err != nil {
+					return err
+				}
+				dotEnvPath := filepath.Join(workingDir, baldaDotEnvFileName)
+				if err := upsertBaldaTelegramTokenEnv(dotEnvPath, telegramToken); err != nil {
+					return err
+				}
+				storageTarget = dotEnvPath
+			case baldaTokenStorageConfig:
+				if err := setBaldaTelegramToken(doc, telegramToken); err != nil {
+					return err
+				}
+				storageTarget = filepath.Join(workingDir, baldaConfigRelDir, baldaConfigFileName)
+			default:
+				return fmt.Errorf("unsupported telegram token storage mode %q", tokenStorageMode)
 			}
 
 			stateDirRaw := baldaRuntimeStatePath

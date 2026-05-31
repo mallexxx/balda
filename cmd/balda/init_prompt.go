@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"path/filepath"
 	"strconv"
 	"strings"
 )
@@ -130,32 +129,6 @@ func chooseBaldaTelegramTokenStorage(in io.Reader, out io.Writer, interactive bo
 		}
 		_, _ = fmt.Fprintf(out, "Invalid selection %q. Enter 1 (.env) or 2 (config file).\n", value)
 		_, _ = fmt.Fprint(out, "Enter choice [1]: ")
-	}
-}
-
-func storeBaldaTelegramToken(
-	doc map[string]any,
-	workingDir string,
-	token string,
-	mode baldaTokenStorageMode,
-) (string, error) {
-	switch mode {
-	case baldaTokenStorageEnv:
-		if err := setBaldaTelegramToken(doc, ""); err != nil {
-			return "", err
-		}
-		dotEnvPath := filepath.Join(workingDir, baldaDotEnvFileName)
-		if err := upsertBaldaTelegramTokenEnv(dotEnvPath, token); err != nil {
-			return "", err
-		}
-		return dotEnvPath, nil
-	case baldaTokenStorageConfig:
-		if err := setBaldaTelegramToken(doc, token); err != nil {
-			return "", err
-		}
-		return filepath.Join(workingDir, baldaConfigRelDir, baldaConfigFileName), nil
-	default:
-		return "", fmt.Errorf("unsupported telegram token storage mode %q", mode)
 	}
 }
 
