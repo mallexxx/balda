@@ -47,10 +47,42 @@ func StartEmbeddedNATS(ctx context.Context, cfg resolvedConfig) (*EmbeddedNATS, 
 	if ctx == nil {
 		ctx = context.Background()
 	}
-	conn, err := connectEmbeddedNATS(ctx, srv.ClientURL())
-	if err != nil {
+
+	const maxAttempts = 10
+	const connectTimeout = 500 * time.Millisecond
+
+	var (
+		conn    *gnats.Conn
+		lastErr error
+	)
+	for attempt := 1; attempt <= maxAttempts; attempt++ {
+		select {
+		case <-ctx.Done():
+			srv.Shutdown()
+			if lastErr != nil {
+				return nil, fmt.Errorf("connect embedded nats client: %w", fmt.Errorf("%w: %w", ctx.Err(), lastErr))
+			}
+			return nil, fmt.Errorf("connect embedded nats client: %w", ctx.Err())
+		default:
+		}
+
+		conn, err = gnats.Connect(
+			srv.ClientURL(),
+			gnats.Name("balda-worker"),
+			gnats.Timeout(connectTimeout),
+			gnats.NoReconnect(),
+		)
+		if err == nil {
+			break
+		}
+		lastErr = err
+		if attempt < maxAttempts {
+			time.Sleep(25 * time.Millisecond)
+		}
+	}
+	if conn == nil {
 		srv.Shutdown()
-		return nil, fmt.Errorf("connect embedded nats client: %w", err)
+		return nil, fmt.Errorf("connect embedded nats client: exceeded %d connection attempts: %w", maxAttempts, lastErr)
 	}
 	var js jetstream.JetStream
 	js, err = jetstream.New(conn)
@@ -60,39 +92,6 @@ func StartEmbeddedNATS(ctx context.Context, cfg resolvedConfig) (*EmbeddedNATS, 
 		return nil, fmt.Errorf("create runtime client: %w", err)
 	}
 	return &EmbeddedNATS{Server: srv, Conn: conn, JS: js}, nil
-}
-
-func connectEmbeddedNATS(ctx context.Context, url string) (*gnats.Conn, error) {
-	const maxAttempts = 10
-	const connectTimeout = 500 * time.Millisecond
-
-	var lastErr error
-	for attempt := 1; attempt <= maxAttempts; attempt++ {
-		select {
-		case <-ctx.Done():
-			if lastErr != nil {
-				return nil, fmt.Errorf("%w: %w", ctx.Err(), lastErr)
-			}
-			return nil, ctx.Err()
-		default:
-		}
-
-		conn, err := gnats.Connect(
-			url,
-			gnats.Name("balda-worker"),
-			gnats.Timeout(connectTimeout),
-			gnats.NoReconnect(),
-		)
-		if err == nil {
-			return conn, nil
-		}
-		lastErr = err
-		if attempt < maxAttempts {
-			time.Sleep(25 * time.Millisecond)
-		}
-	}
-
-	return nil, fmt.Errorf("exceeded %d connection attempts: %w", maxAttempts, lastErr)
 }
 
 func (n *EmbeddedNATS) Drain(ctx context.Context) error {
