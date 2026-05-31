@@ -953,8 +953,8 @@ Each configured task has `id`, `cron`, and an `envelope` with `target`, `key`,
 
 ## Troubleshooting
 
-- Startup fails with `jetstream is required` or `create or update stream`: keep the default `balda.nats` settings unless you have a specific local runtime need, ensure `balda.nats.store_dir` is writable, and verify local disk limits.
-- Startup fails with `create jetstream command consumer`/`event projector consumer`: verify `balda.swarm.commands.consumer` uniqueness and avoid concurrent writers against the same embedded NATS store dir.
+- Startup fails while initializing built-in runtime streams: keep the default `balda.nats` settings unless you have a specific local runtime need, ensure `balda.nats.store_dir` is writable, and verify local disk limits.
+- Startup fails while initializing built-in runtime consumers: verify `balda.swarm.commands.consumer` uniqueness and avoid concurrent writers against the same embedded NATS store dir.
 - Rising command backlog or redelivery counts in JetStream metadata usually means retrying or deadlettering work; inspect lifecycle events, DLQ stream contents, and logs before increasing `max_ack_pending` or `fetch_batch`.
 - Webhook ingress returns `503 dispatch_failed`: confirm JetStream startup succeeded and command publish acknowledgements are being returned.
 

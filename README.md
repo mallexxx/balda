@@ -293,8 +293,8 @@ Do not define `runtime.mcp_servers.balda`; Balda owns that bundled server.
 - Memory facts are not visible in an active session: memory is snapshotted when a session starts or restores; close and reopen the session to refresh it.
 - Workspace import/export issues: check `balda.workspace.mode`, `balda.workspace.base_branch`, and that Balda is running in the expected git checkout.
 - Progress updates are too noisy: set `balda.telegram.plan_updates=false`.
-- Startup fails with `jetstream is required` or `create or update stream`: keep the default `balda.nats` settings unless you have a specific local runtime need, ensure `balda.nats.store_dir` is writable, and verify disk space.
-- Startup fails with command/event consumer creation errors: stop any other Balda process sharing the same embedded store and restart.
+- Startup fails while initializing the built-in runtime streams: keep the default `balda.nats` settings unless you have a specific local runtime need, ensure `balda.nats.store_dir` is writable, and verify disk space.
+- Startup fails while initializing built-in runtime consumers: stop any other Balda process sharing the same embedded store and restart.
 - Runtime issues show up in structured logs; check recent command failures and retry pressure before increasing transport limits.
 
 ## Documentation
