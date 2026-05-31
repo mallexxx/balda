@@ -48,8 +48,10 @@ func promptBaldaProvider(agentIDs []string, in io.Reader, out io.Writer) (string
 			return agentIDs[idx-1], nil
 		}
 
-		if contains(agentIDs, value) {
-			return value, nil
+		for _, id := range agentIDs {
+			if id == value {
+				return value, nil
+			}
 		}
 
 		if err == io.EOF {
@@ -218,13 +220,4 @@ func asBufferedReader(in io.Reader) *bufio.Reader {
 		return reader
 	}
 	return bufio.NewReader(in)
-}
-
-func contains(items []string, target string) bool {
-	for _, item := range items {
-		if item == target {
-			return true
-		}
-	}
-	return false
 }
