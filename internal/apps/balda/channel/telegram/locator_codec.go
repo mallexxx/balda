@@ -52,7 +52,7 @@ func DecodeLocator(locator baldasession.SessionLocator) (LocatorAddress, bool, e
 	return address, true, nil
 }
 
-// UserID returns a Telegram-backed ADK transport user identifier.
+// UserID returns a Telegram transport user identifier.
 func UserID(userID int64) string {
 	return fmt.Sprintf("%s-%d", telegramSessionIDPrefix, userID)
 }
