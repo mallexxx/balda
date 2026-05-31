@@ -850,7 +850,7 @@ All events are published as the same envelope shape. For event envelopes,
   - behavior: no persistence, no retry policy; settlement remains JetStream-owned
 - Actor lanes:
   - owner: process-local actorlayer runtime engine
-  - capacity: 1 active handler per actor key (`task:<id>`, session/goalkeeper fallbacks)
+  - capacity: 1 active handler per actor key (`task:<id>`, session/goal fallbacks)
   - behavior: serializes mutable task/session state transitions
 - Session turn queue:
   - owner: process-local session turn dispatcher

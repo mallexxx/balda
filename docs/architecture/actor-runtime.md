@@ -19,7 +19,7 @@ Status: active
 
 - `internal/apps/balda/swarm/runtime_test.go`
 - `internal/apps/balda/actors/swarm_session_actor_test.go`
-- `internal/apps/balda/actors/swarm_goalkeeper_actor_test.go`
+- `internal/apps/balda/actors/swarm_goal_actor_test.go`
 - `internal/apps/balda/actors/swarm_control_actor_test.go`
 - `internal/apps/balda/actors/swarm_delivery_actor_test.go`
 - `internal/apps/balda/handlers/command_test.go`
@@ -54,7 +54,7 @@ Status: active
 - Actorlayer owns:
   - generic actor mechanics: registration, addressing, deterministic lane execution, lifecycle state transitions, and delivery hooks.
 - Balda product actor code owns:
-  - product actor implementations in `internal/apps/balda/actors` for session, task, goalkeeper, delivery, control, and memory behavior,
+  - product actor implementations in `internal/apps/balda/actors` for session, task, goal, delivery, control, and memory behavior,
   - product command payloads/envelope builders consumed by ingress,
   - provider runtime invocation details (session execution, tools, model/runtime context),
   - task/session/delivery state transitions and user-visible outcomes.
