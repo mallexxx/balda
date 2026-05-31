@@ -363,6 +363,10 @@ func TestDocumentationContract(t *testing.T) {
 			`consumer: "BALDA_WORKER_COMMANDS"`,
 			`stream: "BALDA_EVENTS"`,
 			`stream: "BALDA_DLQ"`,
+			"balda.swarm.commands.*",
+			"balda.swarm.events.*",
+			"balda.swarm.dlq.*",
+			"Goalkeeper worker/validator iterations",
 		}
 		for _, needle := range forbidden {
 			if strings.Contains(section, needle) {
@@ -403,6 +407,8 @@ func TestDocumentationContract(t *testing.T) {
 			"balda.swarm.commands.consumer",
 			"balda.swarm.events.stream",
 			"balda.swarm.dlq.stream",
+			"Goalkeeper worker/validator iterations",
+			"runs the Goalkeeper workflow",
 		}
 		for _, needle := range forbidden {
 			if strings.Contains(section, needle) {

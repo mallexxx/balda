@@ -476,7 +476,7 @@ session-start snapshot. New or restored sessions read the latest file.
   - `memory`: ADK conversation/runtime state is process-local; only Balda metadata is persisted.
 - `balda.memory.enabled`: enable internal durable memory (default `true`)
   - when disabled, Balda does not snapshot `MEMORY.md` or register `balda.memory.*` MCP tools.
-- `balda.goal.max_iterations`: maximum Goalkeeper worker/validator iterations for `/goal` (default `25`)
+- `balda.goal.max_iterations`: maximum `/goal` work-validation iterations (default `25`)
   - invalid values are clamped to `25`.
 - `balda.nats.embedded`: run Balda-owned NATS inside the process (default `true`)
 - `balda.nats.host` / `port`: embedded listener address (default `127.0.0.1:-1`, random local port)
@@ -485,7 +485,7 @@ session-start snapshot. New or restored sessions read the latest file.
 - `balda.nats.max_memory` / `max_store`: embedded JetStream resource caps (defaults `256mb` and `2gb`)
 - removed runtime keys are rejected on startup (`balda.event_bus.*`, `balda.swarm.mode`, `balda.webhooks.mode`, `balda.scheduler.mode`)
 - `balda.swarm`: optional advanced runtime tuning for command handling, retries, backpressure, and failure retention. Most installs should leave it at defaults.
-- `/goal` runs the Goalkeeper workflow in the current session and workspace. The workflow runs a worker agent followed by a validator agent until the validator returns `verdict: pass` or `balda.goal.max_iterations` is reached.
+- `/goal` runs repeated work and validation passes in the current session and workspace until the goal passes validation or `balda.goal.max_iterations` is reached.
 - internal durable memory uses `${balda.state_dir}/MEMORY.md` when `balda.memory.enabled=true`
   - `balda.memory.read` reads the file from MCP.
   - `balda.memory.remember` appends facts to the file from MCP.
