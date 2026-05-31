@@ -142,6 +142,7 @@ func TestJetStreamArchitectureContractStatic(t *testing.T) {
 			"scheduler_mode",
 			"JetStream-backed actor runtime",
 			"embedded JetStream defaults",
+			"durable JetStream events for read-model projection",
 		}
 		for _, needle := range forbidden {
 			t.Run(needle, func(t *testing.T) {

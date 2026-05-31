@@ -42,7 +42,7 @@ type BusDrainer interface {
 // EventHandler is kept for event projector code that consumes decoded events.
 type EventHandler func(ctx context.Context, subject string, env Envelope) error
 
-// EventConsumer consumes durable JetStream events for read-model projection.
+// EventConsumer consumes durable runtime events for read-model projection.
 type EventConsumer interface {
 	RunEventConsumer(ctx context.Context, handler EventHandler) error
 }
