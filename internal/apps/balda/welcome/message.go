@@ -52,16 +52,10 @@ func BuildAgentWelcomeMessage(name, sessionID, agentType, model string, mcpServe
 
 	return fmt.Sprintf(
 		"🚀 **Session Started** • **Name:** `%s` • **ID:** `%s` • **Model:** `%s` • **Type:** `%s` • **MCP:** `%s` ",
-		escapeMarkdownV2(cleanName),
-		escapeMarkdownV2(cleanSessionID),
-		escapeMarkdownV2(cleanModel),
-		escapeMarkdownV2(cleanType),
-		escapeMarkdownV2(mcpValue),
+		strings.ReplaceAll(cleanName, "`", "\\` "),
+		strings.ReplaceAll(cleanSessionID, "`", "\\` "),
+		strings.ReplaceAll(cleanModel, "`", "\\` "),
+		strings.ReplaceAll(cleanType, "`", "\\` "),
+		strings.ReplaceAll(mcpValue, "`", "\\` "),
 	)
-}
-
-func escapeMarkdownV2(s string) string {
-	// Inside code blocks (backticks), only \ and ` need to be escaped.
-	// Since we are using backticks for values, we escape backticks.
-	return strings.ReplaceAll(s, "`", "\\` ")
 }
