@@ -21,7 +21,7 @@ const cleanupTimeout = 10 * time.Second
 
 const sessionStatusPersisted = "persisted"
 
-const baldaADKAppName = "norma-balda"
+const baldaRuntimeAppName = "norma-balda"
 
 const workspaceSyncSkippedNotice = "Workspace was restored without syncing the latest base changes because auto-sync conflicted. Use balda.workspace.import to retry later."
 
@@ -46,7 +46,7 @@ type baldaRuntimeManager interface {
 
 type AgentMetadata = baldaagent.AgentMetadata
 
-// Manager manages balda ADK sessions and persists session metadata.
+// Manager manages balda provider sessions and persists session metadata.
 type Manager struct {
 	agentBuilder       agentBuilder
 	runtimeManager     baldaRuntimeManager
@@ -288,7 +288,7 @@ func (m *Manager) createSession(ctx context.Context, sessionCtx SessionContext, 
 	}
 
 	if err := m.persistSessionRecord(ctx, ts, baldastate.SessionStatusActive); err != nil {
-		if closeErr := m.cleanupTopicSession(ctx, ts, sessionCleanupOptions{deleteADK: true, cleanupWorkspace: true}); closeErr != nil {
+		if closeErr := m.cleanupTopicSession(ctx, ts, sessionCleanupOptions{deleteRuntimeSession: true, cleanupWorkspace: true}); closeErr != nil {
 			m.logger.Warn().Err(closeErr).Str("session_id", sessionID).Msg("failed to rollback session after persist error")
 		}
 		return fmt.Errorf("persist session metadata: %w", err)
@@ -343,7 +343,7 @@ func (m *Manager) StopSession(locator SessionLocator) {
 	m.hardDeleteSession(locator)
 }
 
-// ResetSession deletes the ADK conversation history for the current session
+// ResetSession deletes the conversation history for the current session
 // while preserving balda metadata so the same chat can start fresh.
 func (m *Manager) ResetSession(ctx context.Context, locator SessionLocator) error {
 	sessionID := strings.TrimSpace(locator.SessionID)
@@ -357,7 +357,7 @@ func (m *Manager) ResetSession(ctx context.Context, locator SessionLocator) erro
 		Str("address_key", locator.AddressKey).
 		Msg("resetting session")
 
-	if m.removeActiveSession(locator, sessionCleanupOptions{deleteADK: true}) {
+	if m.removeActiveSession(locator, sessionCleanupOptions{deleteRuntimeSession: true}) {
 		return nil
 	}
 
@@ -389,7 +389,7 @@ func (m *Manager) ResetSession(ctx context.Context, locator SessionLocator) erro
 	}
 	appName := strings.TrimSpace(rootRuntime.AppName)
 	if appName == "" {
-		appName = baldaADKAppName
+		appName = baldaRuntimeAppName
 	}
 	if err := rootRuntime.SessionSvc.Delete(ctx, &adksession.DeleteRequest{
 		AppName:   appName,
@@ -410,7 +410,7 @@ func (m *Manager) hardDeleteSession(locator SessionLocator) {
 		Str("address_key", locator.AddressKey).
 		Msg("stopping session")
 
-	if !m.removeActiveSession(locator, sessionCleanupOptions{deleteADK: true, cleanupWorkspace: true}) {
+	if !m.removeActiveSession(locator, sessionCleanupOptions{deleteRuntimeSession: true, cleanupWorkspace: true}) {
 		m.logger.Warn().Str("session_id", sessionID).Msg("session not found for stop")
 	}
 	cleanupCtx, cancel := context.WithTimeout(context.Background(), cleanupTimeout)
@@ -433,7 +433,7 @@ func (m *Manager) stopAllWithContext(ctx context.Context) {
 
 	m.logger.Info().Int("count", len(sessions)).Msg("stopping all sessions")
 
-	opts := sessionCleanupOptions{deleteADK: !m.sessionsPersistent, cleanupWorkspace: true}
+	opts := sessionCleanupOptions{deleteRuntimeSession: !m.sessionsPersistent, cleanupWorkspace: true}
 	for _, ts := range sessions {
 		if err := m.cleanupTopicSession(ctx, ts, opts); err != nil {
 			m.logger.Warn().Err(err).Str("session_id", ts.sessionID).Msg("failed to close topic session")
@@ -444,8 +444,8 @@ func (m *Manager) stopAllWithContext(ctx context.Context) {
 }
 
 type sessionCleanupOptions struct {
-	deleteADK        bool
-	cleanupWorkspace bool
+	deleteRuntimeSession bool
+	cleanupWorkspace     bool
 }
 
 func (m *Manager) removeActiveSession(locator SessionLocator, opts sessionCleanupOptions) bool {
@@ -469,10 +469,10 @@ func (m *Manager) removeActiveSession(locator SessionLocator, opts sessionCleanu
 
 func (m *Manager) cleanupTopicSession(ctx context.Context, ts *TopicSession, opts sessionCleanupOptions) error {
 	var firstErr error
-	if opts.deleteADK && ts != nil && ts.sessionSvc != nil {
+	if opts.deleteRuntimeSession && ts != nil && ts.sessionSvc != nil {
 		sessionID := strings.TrimSpace(ts.GetAgentSessionID())
 		userID := strings.TrimSpace(ts.userID)
-		appName := baldaADKAppName
+		appName := baldaRuntimeAppName
 		if ts.sess != nil {
 			if sessionAppName := strings.TrimSpace(ts.sess.AppName()); sessionAppName != "" {
 				appName = sessionAppName

@@ -505,7 +505,7 @@ func (h *BaldaHandler) runTurnWithDelivery(
 				switch {
 				case progressPolicy.Thinking:
 					if sendErr := h.channel.SendDraftPlain(ctx, locator, draftID, planProgressText); sendErr != nil {
-						log.Warn().Err(sendErr).Int("topic_id", topicID).Msg("failed to send plan update draft")
+						log.Warn().Err(sendErr).Int("topic_id", topicID).Msg("failed to send plan update placeholder")
 					} else {
 						lastPlanProgressText = planProgressText
 						planDraftActive = true
@@ -521,7 +521,7 @@ func (h *BaldaHandler) runTurnWithDelivery(
 			if progressPolicy.Thinking && !planDraftActive {
 				thinkingThrottle.Do(func() {
 					if sendErr := h.channel.SendDraftPlain(ctx, locator, draftID, thinkingStages[thinkingIdx%len(thinkingStages)]); sendErr != nil {
-						log.Warn().Err(sendErr).Int("topic_id", topicID).Msg("failed to send thinking draft")
+						log.Warn().Err(sendErr).Int("topic_id", topicID).Msg("failed to send thinking placeholder")
 					}
 					thinkingIdx++
 				})
@@ -617,7 +617,7 @@ func (h *BaldaHandler) runTurnWithDelivery(
 			Bool("escalate", ev.Actions.Escalate).
 			Bool("final_response", ev.IsFinalResponse()).
 			Int("streamed_text_char_count", streamedText.Len()).
-			Msg("received ACP event")
+			Msg("received provider event")
 		if ev.TurnComplete {
 			sawTurnComplete = true
 			responseText := streamedText.String()
@@ -656,7 +656,7 @@ func (h *BaldaHandler) runTurnWithDelivery(
 	if !sawTurnComplete {
 		zerolog.Ctx(runCtx).Warn().
 			Int("streamed_text_char_count", streamedText.Len()).
-			Msg("ACP stream ended without turn complete; suppressing balda response")
+			Msg("provider event stream ended without turn complete; suppressing balda response")
 	}
 
 	return nil

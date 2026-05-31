@@ -8,7 +8,7 @@ import (
 	"google.golang.org/adk/session"
 )
 
-// TopicSession represents a single channel session's ADK agent session.
+// TopicSession represents a single channel session's provider-backed agent session.
 type TopicSession struct {
 	sessionID      string
 	agentSessionID string
