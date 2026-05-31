@@ -276,6 +276,17 @@ func (s *TaskService) publishTaskEvent(ctx context.Context, event baldastate.Swa
 	if payload == "" {
 		payload = "{}"
 	}
+	subject := SubjectEventTaskUpdated
+	switch strings.TrimSpace(event.EventType) {
+	case TaskEventDeliverySent:
+		subject = SubjectEventDeliverySent
+	case TaskEventDeliveryFailed:
+		subject = SubjectEventDeliveryFailed
+	case TaskEventTaskCreated:
+		subject = SubjectEventTaskCreated
+	case TaskEventTaskCompleted:
+		subject = SubjectEventTaskCompleted
+	}
 	env := Envelope{
 		ID:          event.ID,
 		Namespace:   NamespaceTelemetry,
@@ -290,7 +301,7 @@ func (s *TaskService) publishTaskEvent(ctx context.Context, event baldastate.Swa
 			"message_id": event.MessageID,
 		},
 	}
-	return s.bus.PublishEvent(ctx, subjectForTaskEvent(event.EventType), env)
+	return s.bus.PublishEvent(ctx, subject, env)
 }
 
 func (s *TaskService) publishEventRecord(ctx context.Context, event baldastate.SwarmTaskEventRecord) error {
@@ -350,23 +361,6 @@ func safeEventIDPart(raw string) string {
 		return "event"
 	}
 	return part
-}
-
-func subjectForTaskEvent(eventType string) string {
-	switch strings.TrimSpace(eventType) {
-	case TaskEventAgentStarted, TaskEventAgentProgress, TaskEventAgentResult:
-		return SubjectEventTaskUpdated
-	case TaskEventDeliverySent:
-		return SubjectEventDeliverySent
-	case TaskEventDeliveryFailed:
-		return SubjectEventDeliveryFailed
-	case TaskEventTaskCreated:
-		return SubjectEventTaskCreated
-	case TaskEventTaskCompleted:
-		return SubjectEventTaskCompleted
-	default:
-		return SubjectEventTaskUpdated
-	}
 }
 
 func marshalPayload(payload any) (string, error) {
