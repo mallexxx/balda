@@ -175,7 +175,7 @@ func TestRuntimeArchitectureContractStatic(t *testing.T) {
 			t.Run(needle, func(t *testing.T) {
 				matches := findSourceMatches(t, root, files, regexp.MustCompile(regexp.QuoteMeta(needle)))
 				if len(matches) > 0 {
-					t.Fatalf("removed sqlite mailbox polling symbol %q found in production Go files:\n%s", needle, formatSourceMatches(matches))
+					t.Fatalf("unsupported sqlite mailbox polling symbol %q found in production Go files:\n%s", needle, formatSourceMatches(matches))
 				}
 			})
 		}
@@ -204,7 +204,7 @@ func TestRuntimeArchitectureContractStatic(t *testing.T) {
 		}
 	})
 
-	t.Run("removed telegram debug commands are not routed", func(t *testing.T) {
+	t.Run("unsupported telegram debug commands are not routed", func(t *testing.T) {
 		handlerSource := readSource(t, filepath.Join(root, "handlers/command_handler.go"))
 		for _, removed := range []string{
 			`case "reset"`,
@@ -219,22 +219,22 @@ func TestRuntimeArchitectureContractStatic(t *testing.T) {
 			`case "memory"`,
 		} {
 			if strings.Contains(handlerSource, removed) {
-				t.Fatalf("command handler still routes removed command %q", removed)
+				t.Fatalf("command handler still routes unsupported command %q", removed)
 			}
 		}
 	})
 
-	t.Run("removed runtime status and dlq inspection surfaces stay deleted", func(t *testing.T) {
+	t.Run("runtime status and dlq inspection surfaces stay out of production", func(t *testing.T) {
 		matches := findSourceMatches(t, root, files, regexp.MustCompile(`\bActorRuntimeStatusProvider\b|\bDLQInspector\b|\bRuntimeStatus\b|\bConsumerStatus\b|\bStreamStatus\b|\bErrDLQEntryNotFound\b|\bGetDLQEntry\s*\(`))
 		if len(matches) > 0 {
-			t.Fatalf("removed runtime status or dlq inspection surface found in production Go files:\n%s", formatSourceMatches(matches))
+			t.Fatalf("runtime status or dlq inspection surface found in production Go files:\n%s", formatSourceMatches(matches))
 		}
 	})
 
 	t.Run("runtime lane inspection stays out of the public balda surface", func(t *testing.T) {
 		matches := findSourceMatches(t, root, files, regexp.MustCompile(`\bRuntimeLaneStatus\b|\bLaneStatus\s*\(`))
 		if len(matches) > 0 {
-			t.Fatalf("removed lane inspection surface found in production Go files:\n%s", formatSourceMatches(matches))
+			t.Fatalf("runtime lane inspection surface found in production Go files:\n%s", formatSourceMatches(matches))
 		}
 	})
 

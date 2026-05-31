@@ -360,7 +360,7 @@ func TestInitCommand_PreservesExistingConfigGitignore(t *testing.T) {
 	}
 }
 
-func TestInitCommand_RemovedBaldaProviderFlagRejected(t *testing.T) {
+func TestInitCommand_UnsupportedBaldaProviderFlagRejected(t *testing.T) {
 	_ = setWorkingDir(t)
 	setDetectedBinaries(t, "codex")
 	setDetectedBaseBranch(t, "", fmt.Errorf("not a git repo"))
@@ -369,7 +369,7 @@ func TestInitCommand_RemovedBaldaProviderFlagRejected(t *testing.T) {
 	cmd.SetArgs([]string{"--balda-root-agent", "codex"})
 	err := cmd.Execute()
 	if err == nil {
-		t.Fatal("expected unknown flag error for removed --balda-root-agent")
+		t.Fatal("expected unknown flag error for unsupported --balda-root-agent")
 	}
 	if !strings.Contains(err.Error(), "unknown flag") {
 		t.Fatalf("error = %q, want unknown flag", err.Error())

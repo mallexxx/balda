@@ -474,8 +474,8 @@ func TestCommandHandlerOnCommand_CancelCollaboratorAllowed(t *testing.T) {
 	assertLastSentContains(t, tgClient, "Cancel requested.")
 }
 
-func TestCommandHandlerOnCommand_RemovedCommandsAreSilent(t *testing.T) {
-	removed := []struct {
+func TestCommandHandlerOnCommand_UnsupportedCommandsAreSilent(t *testing.T) {
+	unsupported := []struct {
 		name string
 		args string
 	}{
@@ -491,7 +491,7 @@ func TestCommandHandlerOnCommand_RemovedCommandsAreSilent(t *testing.T) {
 		{name: "dlq"},
 	}
 
-	for _, tt := range removed {
+	for _, tt := range unsupported {
 		t.Run(tt.name, func(t *testing.T) {
 			handler, sm, turns, tgClient := newCommandHandlerTestHarness(t)
 
@@ -500,19 +500,19 @@ func TestCommandHandlerOnCommand_RemovedCommandsAreSilent(t *testing.T) {
 			}
 
 			if len(tgClient.messages) != 0 {
-				t.Fatalf("messages = %d, want 0 for removed command %q", len(tgClient.messages), tt.name)
+				t.Fatalf("messages = %d, want 0 for unsupported command %q", len(tgClient.messages), tt.name)
 			}
 			if len(sm.createCalls) != 0 {
-				t.Fatalf("create calls = %d, want 0 for removed command %q", len(sm.createCalls), tt.name)
+				t.Fatalf("create calls = %d, want 0 for unsupported command %q", len(sm.createCalls), tt.name)
 			}
 			if len(sm.resetCalls) != 0 {
-				t.Fatalf("reset calls = %d, want 0 for removed command %q", len(sm.resetCalls), tt.name)
+				t.Fatalf("reset calls = %d, want 0 for unsupported command %q", len(sm.resetCalls), tt.name)
 			}
 			if len(turns.commands) != 0 {
-				t.Fatalf("published commands = %d, want 0 for removed command %q", len(turns.commands), tt.name)
+				t.Fatalf("published commands = %d, want 0 for unsupported command %q", len(turns.commands), tt.name)
 			}
 			if len(turns.cancelCalls) != 0 {
-				t.Fatalf("cancel calls = %d, want 0 for removed command %q", len(turns.cancelCalls), tt.name)
+				t.Fatalf("cancel calls = %d, want 0 for unsupported command %q", len(turns.cancelCalls), tt.name)
 			}
 		})
 	}

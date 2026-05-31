@@ -136,7 +136,7 @@ balda:
 	}
 }
 
-func TestLoadConfigDocument_CapturesRemovedSchedulerJobsKey(t *testing.T) {
+func TestLoadConfigDocument_CapturesUnsupportedSchedulerJobsKey(t *testing.T) {
 	workingDir := t.TempDir()
 
 	if err := writeFile(filepath.Join(workingDir, ".config", "balda", "config.yaml"), `runtime:
@@ -170,11 +170,11 @@ balda:
 		t.Fatalf("LoadConfigDocument: %v", err)
 	}
 	if doc.Balda.Scheduler.RemovedJobs == nil {
-		t.Fatal("removed balda.scheduler.jobs key was ignored; want captured for validation")
+		t.Fatal("unsupported balda.scheduler.jobs key was ignored; want captured for validation")
 	}
 }
 
-func TestDefaultBaldaConfig_AvoidsRemovedRuntimeTemplateWording(t *testing.T) {
+func TestDefaultBaldaConfig_AvoidsStaleTemplateWording(t *testing.T) {
 	body := string(defaultBaldaConfig)
 	for _, needle := range []string{
 		"legacy typing / Thinking... progress only",
@@ -182,7 +182,7 @@ func TestDefaultBaldaConfig_AvoidsRemovedRuntimeTemplateWording(t *testing.T) {
 		"Required internal JetStream command/event bus.",
 	} {
 		if strings.Contains(body, needle) {
-			t.Fatalf("defaultBaldaConfig still contains removed runtime template wording %q", needle)
+			t.Fatalf("defaultBaldaConfig still contains stale template wording %q", needle)
 		}
 	}
 }

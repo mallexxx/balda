@@ -83,11 +83,11 @@ func TestOpenBaldaStateProviderUsesStateDB(t *testing.T) {
 	}
 }
 
-func TestOpenBaldaStateProviderIgnoresRemovedOldDBPath(t *testing.T) {
+func TestOpenBaldaStateProviderIgnoresOldDBPath(t *testing.T) {
 	stateDir := t.TempDir()
-	removedPath := filepath.Join(stateDir, "balda.db")
-	if err := os.WriteFile(removedPath, []byte("legacy"), 0o600); err != nil {
-		t.Fatalf("write removed old db path: %v", err)
+	oldPath := filepath.Join(stateDir, "balda.db")
+	if err := os.WriteFile(oldPath, []byte("legacy"), 0o600); err != nil {
+		t.Fatalf("write old db path: %v", err)
 	}
 
 	provider, err := openBaldaStateProvider(context.Background(), stateDir)
@@ -99,16 +99,16 @@ func TestOpenBaldaStateProviderIgnoresRemovedOldDBPath(t *testing.T) {
 	if _, err := os.Stat(paths.StateDBPath(stateDir)); err != nil {
 		t.Fatalf("stat state db: %v", err)
 	}
-	content, err := os.ReadFile(removedPath)
+	content, err := os.ReadFile(oldPath)
 	if err != nil {
-		t.Fatalf("read removed old db path: %v", err)
+		t.Fatalf("read old db path: %v", err)
 	}
 	if string(content) != "legacy" {
-		t.Fatalf("removed old db path content = %q, want unchanged", string(content))
+		t.Fatalf("old db path content = %q, want unchanged", string(content))
 	}
 }
 
-func TestValidateBaldaMCPConfiguration_RejectsRemovedBuiltInServerReferences(t *testing.T) {
+func TestValidateBaldaMCPConfiguration_RejectsUnsupportedBuiltInServerReferences(t *testing.T) {
 	cfg := Config{
 		Balda: BaldaConfig{
 			MCPServers: []string{"balda.config"},
@@ -228,7 +228,7 @@ func TestValidateSessionPersistence(t *testing.T) {
 	}
 }
 
-func TestValidateRemovedRuntimeConfig(t *testing.T) {
+func TestValidateUnsupportedRuntimeConfig(t *testing.T) {
 	t.Parallel()
 
 	err := validateRemovedRuntimeConfig(BaldaConfig{
@@ -238,7 +238,7 @@ func TestValidateRemovedRuntimeConfig(t *testing.T) {
 		Scheduler:       SchedulerConfig{RemovedMode: "mailbox"},
 	})
 	if err == nil {
-		t.Fatal("validateRemovedRuntimeConfig() error = nil, want non-nil")
+		t.Fatal("validateRemovedRuntimeConfig() error = nil, want unsupported-config error")
 	}
 	want := []string{
 		"balda.event_bus is no longer supported",
@@ -252,7 +252,7 @@ func TestValidateRemovedRuntimeConfig(t *testing.T) {
 		}
 	}
 	if strings.Contains(err.Error(), "legacy mode configuration") {
-		t.Fatalf("validateRemovedRuntimeConfig() error = %q, want removed-runtime wording", err.Error())
+		t.Fatalf("validateRemovedRuntimeConfig() error = %q, want current unsupported-config wording", err.Error())
 	}
 	if strings.Contains(err.Error(), "configure balda.nats for JetStream") {
 		t.Fatalf("validateRemovedRuntimeConfig() error = %q, still contains transport-specific event_bus guidance", err.Error())
@@ -262,7 +262,7 @@ func TestValidateRemovedRuntimeConfig(t *testing.T) {
 	}
 }
 
-func TestValidateRemovedRuntimeConfig_AllowsCurrentConfig(t *testing.T) {
+func TestValidateUnsupportedRuntimeConfig_AllowsCurrentConfig(t *testing.T) {
 	t.Parallel()
 
 	if err := validateRemovedRuntimeConfig(BaldaConfig{}); err != nil {
@@ -318,17 +318,17 @@ func TestBuildScheduledTaskSchedulerConfig(t *testing.T) {
 	}
 }
 
-func TestValidateSchedulerConfigRejectsRemovedJobsKey(t *testing.T) {
+func TestValidateSchedulerConfigRejectsUnsupportedJobsKey(t *testing.T) {
 	t.Parallel()
 
 	err := validateSchedulerConfig(SchedulerConfig{
 		RemovedJobs: []any{map[string]any{"id": "legacy"}},
 	})
 	if err == nil {
-		t.Fatal("validateSchedulerConfig() error = nil, want removed jobs key error")
+		t.Fatal("validateSchedulerConfig() error = nil, want unsupported jobs key error")
 	}
 	if !strings.Contains(err.Error(), "balda.scheduler.jobs is no longer supported") {
-		t.Fatalf("validateSchedulerConfig() error = %v, want removed jobs key guidance", err)
+		t.Fatalf("validateSchedulerConfig() error = %v, want unsupported jobs key guidance", err)
 	}
 }
 
@@ -347,7 +347,7 @@ func TestValidateRuntimeConfigLint_AllowsAlwaysOnSwarmConfig(t *testing.T) {
 	}
 }
 
-func TestValidateRemovedRuntimeConfig_AvoidsTransportSpecificModeGuidance(t *testing.T) {
+func TestValidateUnsupportedRuntimeConfig_AvoidsTransportSpecificModeGuidance(t *testing.T) {
 	t.Parallel()
 
 	err := validateRemovedRuntimeConfig(BaldaConfig{
@@ -355,7 +355,7 @@ func TestValidateRemovedRuntimeConfig_AvoidsTransportSpecificModeGuidance(t *tes
 		Scheduler: SchedulerConfig{RemovedMode: true},
 	})
 	if err == nil {
-		t.Fatal("validateRemovedRuntimeConfig() error = nil, want removed mode guidance")
+		t.Fatal("validateRemovedRuntimeConfig() error = nil, want unsupported mode guidance")
 	}
 	got := err.Error()
 	for _, needle := range []string{
