@@ -36,10 +36,29 @@ func Execute() error {
 func newRootCommand() (*cobra.Command, error) {
 	cobra.OnInitialize(initDotEnv)
 
+	resolvedVersion := strings.TrimSpace(version)
+	if resolvedVersion == "" || resolvedVersion == "dev" {
+		if info, ok := buildinfo.ReadBuildInfo(); ok && info.Main.Version != "" && info.Main.Version != "(devel)" {
+			resolvedVersion = info.Main.Version
+		}
+	}
+	if resolvedVersion == "" {
+		resolvedVersion = "dev"
+	}
+
+	resolvedCommit := strings.TrimSpace(commit)
+	if resolvedCommit == "" {
+		resolvedCommit = "unknown"
+	}
+	resolvedDate := strings.TrimSpace(date)
+	if resolvedDate == "" {
+		resolvedDate = "unknown"
+	}
+
 	cmd := &cobra.Command{
 		Use:     "balda",
 		Short:   "balda is a standalone Telegram control plane for norma",
-		Version: buildVersionString(),
+		Version: fmt.Sprintf("balda %s (commit %s, built %s)", resolvedVersion, resolvedCommit, resolvedDate),
 		PersistentPreRunE: func(_ *cobra.Command, _ []string) error {
 			logLevel := logging.LevelInfo
 			if debug {
@@ -75,27 +94,4 @@ func initDotEnv() {
 	if err := godotenv.Load(); err != nil && !errors.Is(err, fs.ErrNotExist) {
 		log.Warn().Err(err).Msg("failed to load .env file")
 	}
-}
-
-func buildVersionString() string {
-	resolvedVersion := strings.TrimSpace(version)
-	if resolvedVersion == "" || resolvedVersion == "dev" {
-		if info, ok := buildinfo.ReadBuildInfo(); ok && info.Main.Version != "" && info.Main.Version != "(devel)" {
-			resolvedVersion = info.Main.Version
-		}
-	}
-	if resolvedVersion == "" {
-		resolvedVersion = "dev"
-	}
-
-	resolvedCommit := strings.TrimSpace(commit)
-	if resolvedCommit == "" {
-		resolvedCommit = "unknown"
-	}
-	resolvedDate := strings.TrimSpace(date)
-	if resolvedDate == "" {
-		resolvedDate = "unknown"
-	}
-
-	return fmt.Sprintf("balda %s (commit %s, built %s)", resolvedVersion, resolvedCommit, resolvedDate)
 }
