@@ -568,7 +568,7 @@ func TestRestoreSession_FailsWhenPersistedWorkspaceBranchMissing(t *testing.T) {
 	}
 }
 
-func TestRestoreSession_RehomesOldWorkspacePathToCanonicalPath(t *testing.T) {
+func TestRestoreSession_RehomesNonCanonicalWorkspacePathToCanonicalPath(t *testing.T) {
 	ctx := context.Background()
 	workingDir := t.TempDir()
 	initGitRepo(t, ctx, workingDir)
@@ -582,11 +582,11 @@ func TestRestoreSession_RehomesOldWorkspacePathToCanonicalPath(t *testing.T) {
 	stateDir := t.TempDir()
 	locator := testTelegramLocator(22, 101)
 	branchName := "norma/relay/" + locator.SessionID
-	oldWorkspaceDir := filepath.Join(stateDir, "relay-sessions", locator.SessionID)
+	nonCanonicalWorkspaceDir := filepath.Join(stateDir, "relay-sessions", locator.SessionID)
 	canonicalWorkspaceDir := filepath.Join(stateDir, "sessions", locator.SessionID)
-	runGit(t, ctx, workingDir, "worktree", "add", "-b", branchName, oldWorkspaceDir, "HEAD")
+	runGit(t, ctx, workingDir, "worktree", "add", "-b", branchName, nonCanonicalWorkspaceDir, "HEAD")
 	t.Cleanup(func() {
-		_ = runGitAllowError(ctx, workingDir, "worktree", "remove", "--force", oldWorkspaceDir)
+		_ = runGitAllowError(ctx, workingDir, "worktree", "remove", "--force", nonCanonicalWorkspaceDir)
 		_ = runGitAllowError(ctx, workingDir, "worktree", "remove", "--force", canonicalWorkspaceDir)
 	})
 
@@ -598,7 +598,7 @@ func TestRestoreSession_RehomesOldWorkspacePathToCanonicalPath(t *testing.T) {
 				AddressKey:   locator.AddressKey,
 				AddressJSON:  locator.AddressJSON,
 				AgentName:    "persisted",
-				WorkspaceDir: oldWorkspaceDir,
+				WorkspaceDir: nonCanonicalWorkspaceDir,
 				BranchName:   branchName,
 				Status:       baldastate.SessionStatusActive,
 			},
