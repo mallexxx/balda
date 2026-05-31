@@ -8,8 +8,9 @@ import (
 
 const tokenChars = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
 
-// GenerateToken generates a random token of the specified length.
-func GenerateToken(length int) (string, error) {
+// GenerateOwnerToken generates a random owner token.
+func GenerateOwnerToken() (string, error) {
+	const length = 32
 	result := make([]byte, length)
 	for i := range result {
 		num, err := rand.Int(rand.Reader, big.NewInt(int64(len(tokenChars))))
@@ -19,9 +20,4 @@ func GenerateToken(length int) (string, error) {
 		result[i] = tokenChars[num.Int64()]
 	}
 	return string(result), nil
-}
-
-// GenerateOwnerToken generates a random owner token.
-func GenerateOwnerToken() (string, error) {
-	return GenerateToken(32)
 }
