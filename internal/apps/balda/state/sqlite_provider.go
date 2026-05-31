@@ -14,15 +14,15 @@ import (
 )
 
 type sqliteProvider struct {
-	db         *sql.DB
-	appKV      *sqliteKVStore
-	mcpKV      *sqliteKVStore
-	adkSession *sqliteADKSessionService
-	session    *sqliteSessionStore
-	tasks      *sqliteScheduledTaskStore
-	swarm      *sqliteSwarmStore
-	offset     *sqliteOffsetStore
-	collab     *auth.CollaboratorStore
+	db             *sql.DB
+	appKV          *sqliteKVStore
+	mcpKV          *sqliteKVStore
+	runtimeSession *sqliteADKSessionService
+	session        *sqliteSessionStore
+	tasks          *sqliteScheduledTaskStore
+	swarm          *sqliteSwarmStore
+	offset         *sqliteOffsetStore
+	collab         *auth.CollaboratorStore
 }
 
 var _ Provider = (*sqliteProvider)(nil)
@@ -143,14 +143,14 @@ func NewSQLiteProvider(ctx context.Context, path string) (Provider, error) {
 	}
 
 	var provider = &sqliteProvider{
-		db:         db,
-		appKV:      &sqliteKVStore{db: db, namespace: NamespaceApp},
-		mcpKV:      &sqliteKVStore{db: db, namespace: NamespaceSessionMCP},
-		adkSession: &sqliteADKSessionService{db: db},
-		session:    &sqliteSessionStore{db: db},
-		tasks:      &sqliteScheduledTaskStore{db: db},
-		swarm:      &sqliteSwarmStore{db: db},
-		offset:     &sqliteOffsetStore{db: db},
+		db:             db,
+		appKV:          &sqliteKVStore{db: db, namespace: NamespaceApp},
+		mcpKV:          &sqliteKVStore{db: db, namespace: NamespaceSessionMCP},
+		runtimeSession: &sqliteADKSessionService{db: db},
+		session:        &sqliteSessionStore{db: db},
+		tasks:          &sqliteScheduledTaskStore{db: db},
+		swarm:          &sqliteSwarmStore{db: db},
+		offset:         &sqliteOffsetStore{db: db},
 	}
 	provider.collab = auth.NewCollaboratorStore(provider)
 	return provider, nil
@@ -160,8 +160,8 @@ func (p *sqliteProvider) AppKV() KVStore {
 	return p.appKV
 }
 
-func (p *sqliteProvider) ADKSessions() adksession.Service {
-	return p.adkSession
+func (p *sqliteProvider) RuntimeSessions() adksession.Service {
+	return p.runtimeSession
 }
 
 func (p *sqliteProvider) SessionMCPKV() KVStore {

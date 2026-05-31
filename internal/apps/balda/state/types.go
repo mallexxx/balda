@@ -69,7 +69,7 @@ const (
 // This allows swapping SQLite with another provider later.
 type Provider interface {
 	AppKV() KVStore
-	ADKSessions() adksession.Service
+	RuntimeSessions() adksession.Service
 	SessionMCPKV() KVStore
 	Sessions() SessionStore
 	ScheduledTasks() ScheduledTaskStore

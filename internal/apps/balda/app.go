@@ -200,7 +200,7 @@ func Module(
 			fx.Annotate(
 				func(provider baldastate.Provider) adksession.Service {
 					if sessionPersistence == sessionPersistenceSQLite {
-						return provider.ADKSessions()
+						return provider.RuntimeSessions()
 					}
 					return adksession.InMemoryService()
 				},

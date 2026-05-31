@@ -332,7 +332,7 @@ func TestSQLiteProvider_WritesSchemaMigrationVersion(t *testing.T) {
 	assertSessionMetadataHasNoOldChatTopicUnique(t, ctx, db)
 }
 
-func TestSQLiteProvider_ADKSessionPersistsAcrossReopen(t *testing.T) {
+func TestSQLiteProvider_RuntimeSessionPersistsAcrossReopen(t *testing.T) {
 	dbPath := filepath.Join(t.TempDir(), "state.db")
 	ctx := context.Background()
 
@@ -340,7 +340,7 @@ func TestSQLiteProvider_ADKSessionPersistsAcrossReopen(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewSQLiteProvider(A) error = %v", err)
 	}
-	svcA := providerA.ADKSessions()
+	svcA := providerA.RuntimeSessions()
 	created, err := svcA.Create(ctx, &adksession.CreateRequest{
 		AppName:   "norma-balda",
 		UserID:    "tg-101",
@@ -371,7 +371,7 @@ func TestSQLiteProvider_ADKSessionPersistsAcrossReopen(t *testing.T) {
 	}
 	defer closeProvider(t, providerB)
 
-	got, err := providerB.ADKSessions().Get(ctx, &adksession.GetRequest{
+	got, err := providerB.RuntimeSessions().Get(ctx, &adksession.GetRequest{
 		AppName:   "norma-balda",
 		UserID:    "tg-101",
 		SessionID: "tg-1-2",
