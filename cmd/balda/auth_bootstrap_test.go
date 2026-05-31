@@ -4,12 +4,14 @@ import (
 	"context"
 	"path/filepath"
 	"testing"
+
+	"github.com/normahq/balda/internal/apps/balda/paths"
 )
 
 const testOwnerTokenPersisted = "owner-token-persisted"
 
 func TestLoadOrCreateBaldaOwnerToken_GeneratesAndReuses(t *testing.T) {
-	dbPath := baldaStateDBPath(t.TempDir())
+	dbPath := paths.StateDBPath(t.TempDir())
 
 	previousGenerator := baldaGenerateOwnerToken
 	defer func() { baldaGenerateOwnerToken = previousGenerator }()
@@ -46,9 +48,9 @@ func TestLoadOrCreateBaldaOwnerToken_GeneratesAndReuses(t *testing.T) {
 func TestResolveBaldaStateDir(t *testing.T) {
 	workingDir := t.TempDir()
 
-	resolved, err := resolveBaldaStateDir(workingDir, ".config/balda")
+	resolved, err := paths.ResolveStateDir(workingDir, ".config/balda")
 	if err != nil {
-		t.Fatalf("resolveBaldaStateDir: %v", err)
+		t.Fatalf("paths.ResolveStateDir: %v", err)
 	}
 
 	want := filepath.Join(workingDir, ".config", "balda")

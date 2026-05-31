@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"github.com/normahq/balda/internal/apps/balda/auth"
+	"github.com/normahq/balda/internal/apps/balda/paths"
 	"github.com/spf13/cobra"
 	"gopkg.in/yaml.v3"
 	"os"
@@ -110,14 +111,14 @@ func initCommand() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			stateDir, err := resolveBaldaStateDir(workingDir, stateDirRaw)
+			stateDir, err := paths.ResolveStateDir(workingDir, stateDirRaw)
 			if err != nil {
 				return fmt.Errorf("resolve balda state_dir: %w", err)
 			}
 			if err := os.MkdirAll(stateDir, 0o700); err != nil {
 				return fmt.Errorf("create Balda runtime state directory: %w", err)
 			}
-			dbPath := baldaStateDBPath(stateDir)
+			dbPath := paths.StateDBPath(stateDir)
 
 			ownerToken, err := loadOrCreateBaldaOwnerToken(context.Background(), dbPath)
 			if err != nil {

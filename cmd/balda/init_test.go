@@ -10,6 +10,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/normahq/balda/internal/apps/balda/paths"
 	baldastate "github.com/normahq/balda/internal/apps/balda/state"
 	"github.com/normahq/norma/pkg/runtime/appconfig"
 	"gopkg.in/yaml.v3"
@@ -673,7 +674,7 @@ func assertBaldaInitArtifacts(t *testing.T, workingDir string) {
 		t.Fatalf("%s is not a directory", stateDir)
 	}
 
-	dbPath := baldaStateDBPath(stateDir)
+	dbPath := paths.StateDBPath(stateDir)
 	if _, err := os.Stat(dbPath); err != nil {
 		t.Fatalf("stat %s: %v", dbPath, err)
 	}
@@ -682,7 +683,7 @@ func assertBaldaInitArtifacts(t *testing.T, workingDir string) {
 func assertBaldaOwnerTokenStored(t *testing.T, workingDir string, want string) {
 	t.Helper()
 
-	dbPath := baldaStateDBPath(filepath.Join(workingDir, baldaRuntimeStatePath))
+	dbPath := paths.StateDBPath(filepath.Join(workingDir, baldaRuntimeStatePath))
 	provider, err := baldastate.NewSQLiteProvider(context.Background(), dbPath)
 	if err != nil {
 		t.Fatalf("open provider: %v", err)

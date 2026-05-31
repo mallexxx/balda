@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/normahq/balda/internal/apps/balda"
+	"github.com/normahq/balda/internal/apps/balda/paths"
 	"github.com/normahq/balda/internal/apps/balda/shutdown"
 	"github.com/normahq/norma/pkg/runtime/appconfig"
 	"github.com/spf13/cobra"
@@ -66,7 +67,7 @@ func startCommand() *cobra.Command {
 				return fmt.Errorf("telegram token is required\nSet it via:\n  - Environment: BALDA_TELEGRAM_TOKEN=<token>\n  - CWD .env: %s with BALDA_TELEGRAM_TOKEN=<token>\n  - App config: balda.telegram.token in .config/balda/config.yaml\n  - Profile override: profiles.<name>.balda.telegram.token in the same file", filepath.Join(workingDir, ".env"))
 			}
 
-			stateDir, err := resolveBaldaStateDir(workingDir, baldaCfg.Balda.StateDir)
+			stateDir, err := paths.ResolveStateDir(workingDir, baldaCfg.Balda.StateDir)
 			if err != nil {
 				return fmt.Errorf("resolve balda state_dir: %w", err)
 			}
@@ -74,7 +75,7 @@ func startCommand() *cobra.Command {
 				return fmt.Errorf("create balda state dir: %w", err)
 			}
 
-			dbPath := baldaStateDBPath(stateDir)
+			dbPath := paths.StateDBPath(stateDir)
 			ownerToken, err := loadOrCreateBaldaOwnerToken(context.Background(), dbPath)
 			if err != nil {
 				return fmt.Errorf("bootstrap balda owner token: %w", err)

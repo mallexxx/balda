@@ -6,21 +6,12 @@ import (
 	"strings"
 
 	"github.com/normahq/balda/internal/apps/balda/auth"
-	"github.com/normahq/balda/internal/apps/balda/paths"
 	baldastate "github.com/normahq/balda/internal/apps/balda/state"
 )
 
 const baldaOwnerAuthTokenKV = "owner_auth_token"
 
 var baldaGenerateOwnerToken = auth.GenerateOwnerToken
-
-func resolveBaldaStateDir(workingDir, rawStateDir string) (string, error) {
-	return paths.ResolveStateDir(workingDir, rawStateDir)
-}
-
-func baldaStateDBPath(stateDir string) string {
-	return paths.StateDBPath(stateDir)
-}
 
 func loadOrCreateBaldaOwnerToken(ctx context.Context, dbPath string) (string, error) {
 	provider, err := baldastate.NewSQLiteProvider(ctx, dbPath)
