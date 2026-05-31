@@ -37,8 +37,30 @@ func baldaPlanProgressText(ev *adksession.Event) (string, bool) {
 	if snapshot == nil {
 		return "", false
 	}
-	entries, ok := baldaPlanEntries(snapshot)
-	if !ok || len(entries) == 0 {
+	rawEntries, ok := snapshot[acpPlanEntriesKey]
+	if !ok {
+		return "", false
+	}
+	var entries []map[string]any
+	switch typed := rawEntries.(type) {
+	case []map[string]any:
+		if len(typed) == 0 {
+			return "", false
+		}
+		entries = typed
+	case []any:
+		entries = make([]map[string]any, 0, len(typed))
+		for _, rawEntry := range typed {
+			entry, ok := rawEntry.(map[string]any)
+			if !ok {
+				return "", false
+			}
+			entries = append(entries, entry)
+		}
+		if len(entries) == 0 {
+			return "", false
+		}
+	default:
 		return "", false
 	}
 
@@ -57,35 +79,6 @@ func baldaPlanProgressText(ev *adksession.Event) (string, bool) {
 		lines = append(lines, fmt.Sprintf("- [%s] %s", status, content))
 	}
 	return strings.Join(lines, "\n"), true
-}
-
-func baldaPlanEntries(snapshot map[string]any) ([]map[string]any, bool) {
-	rawEntries, ok := snapshot[acpPlanEntriesKey]
-	if !ok {
-		return nil, false
-	}
-	switch entries := rawEntries.(type) {
-	case []map[string]any:
-		if len(entries) == 0 {
-			return nil, false
-		}
-		return entries, true
-	case []any:
-		normalized := make([]map[string]any, 0, len(entries))
-		for _, rawEntry := range entries {
-			entry, ok := rawEntry.(map[string]any)
-			if !ok {
-				return nil, false
-			}
-			normalized = append(normalized, entry)
-		}
-		if len(normalized) == 0 {
-			return nil, false
-		}
-		return normalized, true
-	default:
-		return nil, false
-	}
 }
 
 func stringValue(raw any) string {
