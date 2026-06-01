@@ -24,7 +24,8 @@ type commandSessionManager interface {
 	ResetSession(ctx context.Context, locator session.SessionLocator) error
 }
 
-// CommandHandler handles balda commands like /topic and /close.
+// CommandHandler handles Balda chat commands such as /topic, /goal, /close,
+// /cancel, and /user.
 type CommandHandler struct {
 	ownerStore        *auth.OwnerStore
 	collaboratorStore *auth.CollaboratorStore

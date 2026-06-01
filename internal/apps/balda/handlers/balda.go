@@ -35,7 +35,8 @@ const (
 	telegramProgressThrottleInterval = 4 * time.Second
 )
 
-// BaldaHandler handles bidirectional messages between the owner and agent.
+// BaldaHandler handles bidirectional session messages for the owner and
+// collaborators.
 type BaldaHandler struct {
 	ownerStore         *auth.OwnerStore
 	collaboratorStore  *auth.CollaboratorStore
