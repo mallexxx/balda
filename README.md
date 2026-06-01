@@ -109,8 +109,9 @@ directly to your bot:
 /start owner=<owner_token>
 ```
 
-After owner auth, send a normal direct message to use the owner session. Create
-a named topic session when you want an isolated workspace and conversation:
+After owner auth, send a normal direct message to start the bot's main DM
+session. Create a named topic session when you want an isolated workspace and
+conversation:
 
 ```text
 /topic <name>

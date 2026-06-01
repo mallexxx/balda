@@ -75,8 +75,8 @@ printed auth link or sending:
 /start owner=<owner_token>
 ```
 
-After owner auth, users can send normal direct messages to the owner session or
-create a named topic session:
+After owner auth, users can send normal direct messages to the bot's main DM
+session or create a named topic session:
 
 ```text
 /topic <name>
@@ -572,9 +572,9 @@ Per model turn:
 Balda runs with a single provider per process (`balda.provider`).
 
 - The provider is initialized before message handling.
-- The owner session (`topic_id=0` in the owner DM) is bootstrapped for the owner chat during activation.
-- On restart, the owner session follows the same restore path as regular sessions: restore persisted metadata first, then fall back to fresh create only when no persisted record exists.
-- Every regular channel address maps to its own session, including public main-chat `topic_id=0`, but all sessions in that balda instance use the same provider runtime.
+- The owner main-DM session (`topic_id=0` in the owner DM) is bootstrapped for the owner chat during activation.
+- On restart, that owner main-DM session follows the same restore path as regular sessions: restore persisted metadata first, then fall back to fresh create only when no persisted record exists.
+- Other direct-message main-chat sessions and public/topic sessions are restored or created lazily on demand, but all sessions in that balda instance use the same provider runtime.
 
 ### Manual session control
 
@@ -1001,6 +1001,6 @@ Each configured task has `id`, `cron`, and an `envelope` with `target`, `key`,
 8. Polling mode resumes from persisted Telegram offset in balda state DB.
 9. Non-terminal provider progress sends throttled typing indicators in DM and public chats; thinking placeholders are DM-only.
 10. Final assistant response uses configured `balda.telegram.formatting_mode` with fallback retry without formatting on transport or formatting-validation errors.
-11. `/close` in a topic resets history and closes that topic; `/close` in the owner DM main chat resets only the owner session.
+11. `/close` in a topic resets history and closes that topic; `/close` in a DM main chat resets that chat's current main session.
 12. With `balda.sessions.persistence=sqlite`, restart restores conversation history and explicit `/close` clears it for the current session.
 13. `balda eval-fixtures` validates deterministic scenario fixtures in `testdata/scenarios` and checks golden event manifests; use `--scenario` and `--actual-events` for event-type comparison.
