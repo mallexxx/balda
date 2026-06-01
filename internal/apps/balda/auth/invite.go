@@ -95,6 +95,7 @@ func (s *InviteStore) ListInvites(ctx context.Context) ([]Invite, error) {
 		return nil, fmt.Errorf("list invite keys: %w", err)
 	}
 
+	now := time.Now()
 	invites := make([]Invite, 0, len(keys))
 	for _, key := range keys {
 		raw, ok, err := s.store.GetJSON(ctx, key)
@@ -109,6 +110,9 @@ func (s *InviteStore) ListInvites(ctx context.Context) ([]Invite, error) {
 
 		var invite Invite
 		if err := json.Unmarshal(data, &invite); err != nil {
+			continue
+		}
+		if !invite.ExpiresAt.IsZero() && !invite.ExpiresAt.After(now) {
 			continue
 		}
 
