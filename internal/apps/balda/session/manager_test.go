@@ -91,7 +91,7 @@ func TestStopSession_PersistentModeSuspendsWithoutDeletingMetadata(t *testing.T)
 		t.Fatalf("DeleteBySessionID called with %q, want no delete", store.deletedSessionID)
 	}
 	if _, ok := m.sessions["tg-10-42"]; ok {
-		t.Fatal("session still active after StopTelegramSession")
+		t.Fatal("session still active after StopSession")
 	}
 }
 
