@@ -155,8 +155,8 @@ func (h *BaldaHandler) onMessage(ctx context.Context, event *events.MessageEvent
 			UserID:  transportUserID,
 		}, ownerSessionLabel)
 		if err != nil {
-			log.Error().Err(err).Str("agent", baldaProviderName).Msg("failed to ensure owner session")
-			_ = h.channel.SendPlain(ctx, locator, "Could not start owner session. Please close this chat and try again.")
+			log.Error().Err(err).Str("agent", baldaProviderName).Msg("failed to ensure main dm session")
+			_ = h.channel.SendPlain(ctx, locator, "Could not start this session. Please close this chat and try again.")
 			return nil
 		}
 		if sendOwnerWelcome {

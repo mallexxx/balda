@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"context"
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -166,6 +167,86 @@ func TestBaldaHandlerOnMessage_OwnerDMCreatesOwnerSession(t *testing.T) {
 	assertLastSentContains(t, tgClient, "***Name:*** `balda`")
 	if got := store.lastUpsert.AgentName; got != "balda" {
 		t.Fatalf("persisted label = %q, want balda", got)
+	}
+}
+
+func TestBaldaHandlerOnMessage_CollaboratorDMCreateFailureUsesGenericSessionMessage(t *testing.T) {
+	locator := baldatelegram.NewLocator(9002, 0)
+	store := &fakeBaldaRestoreSessionStore{
+		foundByAddress: false,
+	}
+
+	ownerStore, err := auth.NewOwnerStore(&fakeOwnerKVStore{})
+	if err != nil {
+		t.Fatalf("NewOwnerStore(): %v", err)
+	}
+	if _, err := ownerStore.RegisterOwner(101, 9001, "owner", "Owner", "", true); err != nil {
+		t.Fatalf("RegisterOwner(): %v", err)
+	}
+	collaboratorStore := auth.NewCollaboratorStore(&fakeCollaboratorBackingStore{
+		values: map[string]auth.Collaborator{
+			"202": {UserID: "202"},
+		},
+	})
+
+	builder := &fakeBaldaRestoreAgentBuilder{
+		metadata: baldaagent.AgentMetadata{
+			Type:       "opencode_acp",
+			Model:      "opencode/minimax-m2.5-free",
+			MCPServers: []string{"balda", "azure_devops"},
+		},
+		createErr: errors.New("create runtime session failed"),
+	}
+	runtimeManager := &fakeBaldaRestoreRuntimeManager{providerID: "balda-provider"}
+	sessionManager := newBaldaRestoreSessionManager(t, builder, runtimeManager, store)
+
+	tgClient := &fakeTelegramClient{}
+	msg := messenger.NewMessenger(tgClient, zerolog.Nop())
+	turnDispatcher := &fakeTurnDispatcher{}
+
+	handler := &BaldaHandler{
+		ownerStore:        ownerStore,
+		collaboratorStore: collaboratorStore,
+		channel: baldatelegram.NewAdapter(baldatelegram.AdapterParams{
+			Messenger: msg,
+			TGClient:  tgClient,
+			Logger:    zerolog.Nop(),
+		}),
+		sessionManager:  sessionManager,
+		turnDispatcher:  turnDispatcher,
+		actorDispatcher: turnDispatcher,
+		logger:          zerolog.Nop(),
+	}
+	handler.setOwner(101, 9001)
+	setUnexportedField(t, handler, "baldaProviderName", "balda-provider")
+	handler.botUsername = testBaldaBotUsername
+	handler.botUserID = 4242
+
+	event := &events.MessageEvent{
+		Type: messagetype.Text,
+		Message: &client.Message{
+			Chat: client.Chat{
+				Id:   9002,
+				Type: "private",
+			},
+			Text: &[]string{"hello collaborator session"}[0],
+			From: &client.User{Id: 202},
+		},
+	}
+	if err := handler.onMessage(context.Background(), event); err != nil {
+		t.Fatalf("onMessage() error = %v", err)
+	}
+
+	if len(turnDispatcher.commands) != 0 {
+		t.Fatalf("published commands = %d, want 0", len(turnDispatcher.commands))
+	}
+	if got := store.lastUpsert.SessionID; got != "" {
+		t.Fatalf("persisted session = %q, want empty on create failure", got)
+	}
+	assertLastSentContains(t, tgClient, "Could not start this session. Please close this chat and try again.")
+	assertLastSentNotContains(t, tgClient, "owner session")
+	if last := lastSentText(t, tgClient); strings.Contains(last, locator.SessionID) {
+		t.Fatalf("last message = %q, must not expose session id", last)
 	}
 }
 
@@ -449,9 +530,10 @@ func (f *fakeBaldaRestoreSessionStore) List(context.Context) ([]baldastate.Sessi
 
 type fakeBaldaRestoreAgentBuilder struct {
 	metadata baldaagent.AgentMetadata
+	createErr error
 }
 
-func (*fakeBaldaRestoreAgentBuilder) CreateRuntimeSession(
+func (f *fakeBaldaRestoreAgentBuilder) CreateRuntimeSession(
 	context.Context,
 	*baldaagent.BuiltRuntime,
 	string,
@@ -459,6 +541,9 @@ func (*fakeBaldaRestoreAgentBuilder) CreateRuntimeSession(
 	string,
 	string,
 ) (adksession.Session, error) {
+	if f.createErr != nil {
+		return nil, f.createErr
+	}
 	return nil, nil
 }
 

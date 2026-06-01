@@ -223,14 +223,14 @@ func (h *CommandHandler) onCloseCommand(ctx context.Context, commandCtx baldatel
 		log.Warn().Err(err).Str("session_id", commandCtx.Locator.SessionID).Msg("failed to publish /close cancel control command")
 	}
 	if err := h.sessionManager.ResetSession(ctx, commandCtx.Locator); err != nil {
-		log.Warn().Err(err).Str("session_id", commandCtx.Locator.SessionID).Msg("failed to reset owner session during /close")
+		log.Warn().Err(err).Str("session_id", commandCtx.Locator.SessionID).Msg("failed to reset main dm session during /close")
 		if sendErr := h.channel.SendPlain(ctx, commandCtx.Locator, "Could not reset this session."); sendErr != nil {
 			return sendErr
 		}
 		return nil
 	}
 	if err := h.channel.SendPlain(ctx, commandCtx.Locator, "Session history reset."); err != nil {
-		log.Warn().Err(err).Int64("chat_id", commandCtx.ChatID).Msg("failed to send /close owner session confirmation")
+		log.Warn().Err(err).Int64("chat_id", commandCtx.ChatID).Msg("failed to send /close main dm session confirmation")
 	}
 	return nil
 }
