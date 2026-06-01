@@ -199,7 +199,7 @@ func (m *WorkspaceManager) Export(ctx context.Context, workspaceDir, branchName,
 	dirty := strings.TrimSpace(git.GitRunCmd(ctx, mainRepo, "git", "status", "--porcelain"))
 	stashed := dirty != ""
 	if stashed {
-		if err := git.GitRunCmdErr(ctx, mainRepo, "git", "stash", "push", "-u", "-m", "norma pre-export"); err != nil {
+		if err := git.GitRunCmdErr(ctx, mainRepo, "git", "stash", "push", "-u", "-m", "balda pre-export"); err != nil {
 			return fmt.Errorf("git stash push: %w", err)
 		}
 	}
