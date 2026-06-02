@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/joho/godotenv"
+	"github.com/normahq/balda/internal/apps/balda/shutdown"
 	"github.com/normahq/balda/internal/logging"
 	"github.com/rs/zerolog/log"
 	"github.com/spf13/cobra"
@@ -30,7 +31,46 @@ func Execute() error {
 	if err != nil {
 		return err
 	}
-	return cmd.Execute()
+	executed, err := cmd.ExecuteC()
+	return normalizeExecuteError(executed, err)
+}
+
+type unprintedCLIError struct {
+	err error
+}
+
+func (e *unprintedCLIError) Error() string {
+	if e == nil || e.err == nil {
+		return ""
+	}
+	return e.err.Error()
+}
+
+func (e *unprintedCLIError) Unwrap() error {
+	if e == nil {
+		return nil
+	}
+	return e.err
+}
+
+func normalizeExecuteError(cmd *cobra.Command, err error) error {
+	if err == nil {
+		return nil
+	}
+	if !isStartCommand(cmd) {
+		return err
+	}
+	if shutdown.IsExpected(err) {
+		return nil
+	}
+	return &unprintedCLIError{err: err}
+}
+
+func isStartCommand(cmd *cobra.Command) bool {
+	if cmd == nil {
+		return false
+	}
+	return strings.TrimSpace(cmd.Name()) == "start"
 }
 
 func newRootCommand() (*cobra.Command, error) {

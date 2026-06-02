@@ -2,6 +2,8 @@ package main
 
 import (
 	"bytes"
+	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -9,6 +11,7 @@ import (
 
 	baldaapp "github.com/normahq/balda/internal/apps/balda"
 	"github.com/normahq/norma/pkg/runtime/appconfig"
+	"github.com/spf13/cobra"
 )
 
 type baldaTestConfigDocument struct {
@@ -235,11 +238,61 @@ func TestNewRootCommand_VersionFlag(t *testing.T) {
 	}
 }
 
-func TestStartCommandSilencesUsageForRuntimeErrors(t *testing.T) {
+func TestStartCommandSilencesRuntimeErrors(t *testing.T) {
 	cmd := startCommand()
 	if !cmd.SilenceUsage {
 		t.Fatal("startCommand().SilenceUsage = false, want true")
 	}
+	if !cmd.SilenceErrors {
+		t.Fatal("startCommand().SilenceErrors = false, want true")
+	}
+}
+
+func TestNormalizeExecuteError(t *testing.T) {
+	t.Run("nil", func(t *testing.T) {
+		if err := normalizeExecuteError(nil, nil); err != nil {
+			t.Fatalf("normalizeExecuteError(nil, nil) = %v, want nil", err)
+		}
+	})
+
+	t.Run("start command expected cancel", func(t *testing.T) {
+		err := normalizeExecuteError(&cobra.Command{Use: "start"}, context.Canceled)
+		if err != nil {
+			t.Fatalf("normalizeExecuteError(start, context.Canceled) = %v, want nil", err)
+		}
+	})
+
+	t.Run("start command wrapped expected cancel", func(t *testing.T) {
+		input := errors.New("context canceled")
+		err := normalizeExecuteError(&cobra.Command{Use: "start"}, input)
+		if err != nil {
+			t.Fatalf("normalizeExecuteError(start, wrapped expected cancel) = %v, want nil", err)
+		}
+	})
+
+	t.Run("start command unexpected error", func(t *testing.T) {
+		input := errors.New("boom")
+		err := normalizeExecuteError(&cobra.Command{Use: "start"}, input)
+		var got *unprintedCLIError
+		if !errors.As(err, &got) {
+			t.Fatalf("normalizeExecuteError(start, boom) = %T, want *unprintedCLIError", err)
+		}
+		if !errors.Is(err, input) {
+			t.Fatalf("normalizeExecuteError(start, boom) = %v, want wrapped %v", err, input)
+		}
+	})
+
+	t.Run("non-start command keeps error", func(t *testing.T) {
+		input := errors.New("boom")
+		err := normalizeExecuteError(&cobra.Command{Use: "init"}, input)
+		if !errors.Is(err, input) {
+			t.Fatalf("normalizeExecuteError(init, boom) = %v, want %v", err, input)
+		}
+		var got *unprintedCLIError
+		if errors.As(err, &got) {
+			t.Fatalf("normalizeExecuteError(init, boom) = %T, do not want *unprintedCLIError", err)
+		}
+	})
 }
 
 func writeFile(path, content string) error {

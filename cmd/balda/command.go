@@ -30,10 +30,11 @@ type baldaConfigDocument struct {
 
 func startCommand() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:          "start",
-		Short:        "Start Telegram Balda bot",
-		Long:         "Start the Telegram Balda bot server.",
-		SilenceUsage: true,
+		Use:           "start",
+		Short:         "Start Telegram Balda bot",
+		Long:          "Start the Telegram Balda bot server.",
+		SilenceErrors: true,
+		SilenceUsage:  true,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			workingDir, err := os.Getwd()
 			if err != nil {
