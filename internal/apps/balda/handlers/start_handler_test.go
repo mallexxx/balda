@@ -9,8 +9,6 @@ import (
 	"time"
 
 	"github.com/normahq/balda/internal/apps/balda/auth"
-	"github.com/normahq/balda/internal/apps/balda/messenger"
-	"github.com/rs/zerolog"
 	"github.com/tgbotkit/client"
 	"github.com/tgbotkit/runtime/events"
 )
@@ -544,12 +542,13 @@ func newStartHandlerFullTestHarness(t *testing.T, authToken string) (*StartHandl
 	collaboratorStore := auth.NewCollaboratorStore(&fakeCollaboratorBackingStore{})
 
 	tgClient := &fakeTelegramClient{}
-	msg := messenger.NewMessenger(tgClient, zerolog.Nop())
+	adapter := newTestTelegramAdapter(tgClient, "none")
+	bus := &recordingHandlerCommandBus{deliveryAdapter: adapter}
 	handler := &StartHandler{
 		ownerStore:        ownerStore,
 		inviteStore:       inviteStore,
 		collaboratorStore: collaboratorStore,
-		messenger:         msg,
+		actorDispatcher:   bus,
 		authToken:         authToken,
 	}
 
@@ -630,12 +629,13 @@ func newBaldaHandlerTestHarness(t *testing.T) (*StartHandler, *auth.OwnerStore, 
 	}
 
 	tgClient := &fakeTelegramClient{}
-	msg := messenger.NewMessenger(tgClient, zerolog.Nop())
+	adapter := newTestTelegramAdapter(tgClient, "none")
+	bus := &recordingHandlerCommandBus{deliveryAdapter: adapter}
 	baldaHandler := &fakeBaldaHandler{}
 	startHandler := &StartHandler{
-		ownerStore: ownerStore,
-		messenger:  msg,
-		authToken:  "",
+		ownerStore:      ownerStore,
+		actorDispatcher: bus,
+		authToken:       "",
 	}
 	startHandler.baldaHandler = baldaHandler
 

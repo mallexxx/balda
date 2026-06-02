@@ -6,12 +6,9 @@ import (
 	"reflect"
 	"unsafe"
 
-	baldatelegram "github.com/normahq/balda/internal/apps/balda/channel/telegram"
-	"github.com/normahq/balda/internal/apps/balda/messenger"
 	"github.com/normahq/balda/internal/apps/balda/session"
 	baldastate "github.com/normahq/balda/internal/apps/balda/state"
 	"github.com/normahq/balda/internal/apps/balda/swarm"
-	"github.com/rs/zerolog"
 	"github.com/tgbotkit/client"
 	"testing"
 )
@@ -87,8 +84,10 @@ func (b *recordingHandlerCommandBus) PublishEvent(_ context.Context, subject str
 
 type fakeTelegramClient struct {
 	client.ClientWithResponsesInterface
-	sendErr  error
-	messages []client.SendMessageJSONRequestBody
+	sendErr     error
+	messages    []client.SendMessageJSONRequestBody
+	drafts      []client.SendMessageDraftJSONRequestBody
+	chatActions []client.SendChatActionJSONRequestBody
 }
 
 func (c *fakeTelegramClient) SendMessageWithResponse(_ context.Context, body client.SendMessageJSONRequestBody, _ ...client.RequestEditorFn) (*client.SendMessageResponse, error) {
@@ -108,14 +107,38 @@ func (c *fakeTelegramClient) SendMessageWithResponse(_ context.Context, body cli
 	}, nil
 }
 
-func newBaldaTestTelegramAdapter() *baldatelegram.Adapter {
-	tgClient := &fakeTelegramClient{}
-	msg := messenger.NewMessenger(tgClient, zerolog.Nop())
-	return baldatelegram.NewAdapter(baldatelegram.AdapterParams{
-		Messenger: msg,
-		TGClient:  tgClient,
-		Logger:    zerolog.Nop(),
-	})
+func (c *fakeTelegramClient) SendMessageDraftWithResponse(_ context.Context, body client.SendMessageDraftJSONRequestBody, _ ...client.RequestEditorFn) (*client.SendMessageDraftResponse, error) {
+	c.drafts = append(c.drafts, body)
+	if c.sendErr != nil {
+		return nil, c.sendErr
+	}
+	return &client.SendMessageDraftResponse{
+		HTTPResponse: &http.Response{StatusCode: http.StatusOK, Status: "200 OK"},
+		JSON200: &struct {
+			Ok     client.SendMessageDraft200Ok `json:"ok"`
+			Result bool                         `json:"result"`
+		}{
+			Ok:     true,
+			Result: true,
+		},
+	}, nil
+}
+
+func (c *fakeTelegramClient) SendChatActionWithResponse(_ context.Context, body client.SendChatActionJSONRequestBody, _ ...client.RequestEditorFn) (*client.SendChatActionResponse, error) {
+	c.chatActions = append(c.chatActions, body)
+	if c.sendErr != nil {
+		return nil, c.sendErr
+	}
+	return &client.SendChatActionResponse{
+		HTTPResponse: &http.Response{StatusCode: http.StatusOK, Status: "200 OK"},
+		JSON200: &struct {
+			Ok     client.SendChatAction200Ok `json:"ok"`
+			Result bool                       `json:"result"`
+		}{
+			Ok:     true,
+			Result: true,
+		},
+	}, nil
 }
 
 func newBaldaSessionManagerWithSession(t *testing.T, locator session.SessionLocator, ts *session.TopicSession) *session.Manager {

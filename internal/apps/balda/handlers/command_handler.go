@@ -84,7 +84,7 @@ func (h *CommandHandler) onCommand(ctx context.Context, event *events.CommandEve
 
 func (h *CommandHandler) onGoalCommand(ctx context.Context, commandCtx baldatelegram.CommandContext) error {
 	if !h.canUseSessionCommand(ctx, commandCtx.UserID) {
-		if err := h.channel.SendAgentReply(ctx, commandCtx.Locator, "Only the bot owner or collaborators can use this command."); err != nil {
+		if err := sendAgentReply(ctx, h.actorDispatcher, commandHandlerActorAddress, commandCtx.Locator, "Only the bot owner or collaborators can use this command."); err != nil {
 			return err
 		}
 		return nil
@@ -92,21 +92,21 @@ func (h *CommandHandler) onGoalCommand(ctx context.Context, commandCtx baldatele
 
 	objective := strings.TrimSpace(commandCtx.Args)
 	if objective == "" {
-		if err := h.channel.SendAgentReply(ctx, commandCtx.Locator, "Usage:\n/goal <objective>\n/goal clear"); err != nil {
+		if err := sendAgentReply(ctx, h.actorDispatcher, commandHandlerActorAddress, commandCtx.Locator, "Usage:\n/goal <objective>\n/goal clear"); err != nil {
 			return err
 		}
 		return nil
 	}
 	if strings.EqualFold(objective, "clear") {
 		if h.actorDispatcher == nil {
-			if err := h.channel.SendAgentReply(ctx, commandCtx.Locator, "Goal control is unavailable right now. Please try again."); err != nil {
+			if err := sendAgentReply(ctx, h.actorDispatcher, commandHandlerActorAddress, commandCtx.Locator, "Goal control is unavailable right now. Please try again."); err != nil {
 				return err
 			}
 			return nil
 		}
 		if err := submitGoalClearControl(ctx, h.actorDispatcher, commandCtx.Locator, baldatelegram.UserID(commandCtx.UserID), "goal cleared by user", true); err != nil {
 			log.Warn().Err(err).Str("session_id", commandCtx.Locator.SessionID).Msg("failed to publish goal clear command")
-			if sendErr := h.channel.SendAgentReply(ctx, commandCtx.Locator, "Could not clear goal run."); sendErr != nil {
+			if sendErr := sendAgentReply(ctx, h.actorDispatcher, commandHandlerActorAddress, commandCtx.Locator, "Could not clear goal run."); sendErr != nil {
 				return sendErr
 			}
 		}
@@ -116,13 +116,13 @@ func (h *CommandHandler) onGoalCommand(ctx context.Context, commandCtx baldatele
 	started, err := h.submitGoalTask(ctx, commandCtx.Locator, objective, baldatelegram.UserID(commandCtx.UserID))
 	if err != nil {
 		log.Warn().Err(err).Str("session_id", commandCtx.Locator.SessionID).Msg("failed to start /goal run")
-		if sendErr := h.channel.SendAgentReply(ctx, commandCtx.Locator, "Could not start goal run."); sendErr != nil {
+		if sendErr := sendAgentReply(ctx, h.actorDispatcher, commandHandlerActorAddress, commandCtx.Locator, "Could not start goal run."); sendErr != nil {
 			return sendErr
 		}
 		return nil
 	}
 	if !started {
-		if err := h.channel.SendAgentReply(ctx, commandCtx.Locator, "A goal run is already active for this session."); err != nil {
+		if err := sendAgentReply(ctx, h.actorDispatcher, commandHandlerActorAddress, commandCtx.Locator, "A goal run is already active for this session."); err != nil {
 			return err
 		}
 		return nil
@@ -133,14 +133,14 @@ func (h *CommandHandler) onGoalCommand(ctx context.Context, commandCtx baldatele
 
 func (h *CommandHandler) onTopicCommand(ctx context.Context, commandCtx baldatelegram.CommandContext) error {
 	if !h.canUseSessionCommand(ctx, commandCtx.UserID) {
-		if err := h.channel.SendPlain(ctx, commandCtx.Locator, "Only the bot owner or collaborators can use this command."); err != nil {
+		if err := sendPlain(ctx, h.actorDispatcher, commandHandlerActorAddress, commandCtx.Locator, "Only the bot owner or collaborators can use this command."); err != nil {
 			return err
 		}
 		return nil
 	}
 
 	if !commandCtx.IsDM {
-		if err := h.channel.SendPlain(ctx, commandCtx.Locator, "This command is only available in direct messages."); err != nil {
+		if err := sendPlain(ctx, h.actorDispatcher, commandHandlerActorAddress, commandCtx.Locator, "This command is only available in direct messages."); err != nil {
 			return err
 		}
 		return nil
@@ -148,14 +148,14 @@ func (h *CommandHandler) onTopicCommand(ctx context.Context, commandCtx baldatel
 
 	topicName := strings.TrimSpace(commandCtx.Args)
 	if topicName == "" {
-		if err := h.channel.SendPlain(ctx, commandCtx.Locator, "Usage: /topic <name>"); err != nil {
+		if err := sendPlain(ctx, h.actorDispatcher, commandHandlerActorAddress, commandCtx.Locator, "Usage: /topic <name>"); err != nil {
 			return err
 		}
 		return nil
 	}
 	baldaProviderID := strings.TrimSpace(h.sessionManager.BaldaProviderID())
 	if baldaProviderID == "" {
-		if err := h.channel.SendPlain(ctx, commandCtx.Locator, "Balda is not ready right now."); err != nil {
+		if err := sendPlain(ctx, h.actorDispatcher, commandHandlerActorAddress, commandCtx.Locator, "Balda is not ready right now."); err != nil {
 			return err
 		}
 		return nil
@@ -170,7 +170,7 @@ func (h *CommandHandler) onTopicCommand(ctx context.Context, commandCtx baldatel
 	topicLocator, err := h.channel.CreateTopicLocator(ctx, commandCtx.ChatID, fmt.Sprintf("Balda: %s", topicName))
 	if err != nil {
 		log.Error().Err(err).Str("topic_name", topicName).Msg("failed to create topic")
-		if sendErr := h.channel.SendPlain(ctx, commandCtx.Locator, "Could not create topic session."); sendErr != nil {
+		if sendErr := sendPlain(ctx, h.actorDispatcher, commandHandlerActorAddress, commandCtx.Locator, "Could not create topic session."); sendErr != nil {
 			return sendErr
 		}
 		return nil
@@ -181,7 +181,7 @@ func (h *CommandHandler) onTopicCommand(ctx context.Context, commandCtx baldatel
 	}, topicName); err != nil {
 		log.Error().Err(err).Str("topic_name", topicName).Msg("failed to create topic session after topic creation")
 		_ = h.channel.Close(ctx, topicLocator)
-		if sendErr := h.channel.SendPlain(ctx, commandCtx.Locator, "Could not create topic session."); sendErr != nil {
+		if sendErr := sendPlain(ctx, h.actorDispatcher, commandHandlerActorAddress, commandCtx.Locator, "Could not create topic session."); sendErr != nil {
 			return sendErr
 		}
 		return nil
@@ -190,7 +190,7 @@ func (h *CommandHandler) onTopicCommand(ctx context.Context, commandCtx baldatel
 	metadata := h.sessionManager.GetAgentMetadata(baldaProviderID)
 
 	welcomeMsg := welcome.BuildAgentWelcomeMessage(topicName, topicLocator.SessionID, metadata.Type, metadata.Model, metadata.MCPServers)
-	if err := h.channel.SendMarkdown(ctx, topicLocator, welcomeMsg); err != nil {
+	if err := sendMarkdown(ctx, h.actorDispatcher, commandHandlerActorAddress, topicLocator, welcomeMsg); err != nil {
 		log.Error().Err(err).Msg("failed to send welcome message")
 		return err
 	}
@@ -200,21 +200,21 @@ func (h *CommandHandler) onTopicCommand(ctx context.Context, commandCtx baldatel
 
 func (h *CommandHandler) onCloseCommand(ctx context.Context, commandCtx baldatelegram.CommandContext) error {
 	if !h.canUseSessionCommand(ctx, commandCtx.UserID) {
-		if err := h.channel.SendPlain(ctx, commandCtx.Locator, "Only the bot owner or collaborators can use this command."); err != nil {
+		if err := sendPlain(ctx, h.actorDispatcher, commandHandlerActorAddress, commandCtx.Locator, "Only the bot owner or collaborators can use this command."); err != nil {
 			return err
 		}
 		return nil
 	}
 
 	if !commandCtx.IsDM {
-		if err := h.channel.SendPlain(ctx, commandCtx.Locator, "This command is only available in direct messages."); err != nil {
+		if err := sendPlain(ctx, h.actorDispatcher, commandHandlerActorAddress, commandCtx.Locator, "This command is only available in direct messages."); err != nil {
 			return err
 		}
 		return nil
 	}
 
 	if strings.TrimSpace(commandCtx.Args) != "" {
-		if err := h.channel.SendPlain(ctx, commandCtx.Locator, "Usage: /close"); err != nil {
+		if err := sendPlain(ctx, h.actorDispatcher, commandHandlerActorAddress, commandCtx.Locator, "Usage: /close"); err != nil {
 			return err
 		}
 		return nil
@@ -226,12 +226,12 @@ func (h *CommandHandler) onCloseCommand(ctx context.Context, commandCtx baldatel
 		}
 		if err := h.sessionManager.ResetSession(ctx, commandCtx.Locator); err != nil {
 			log.Warn().Err(err).Str("session_id", commandCtx.Locator.SessionID).Msg("failed to reset session during /close")
-			if sendErr := h.channel.SendPlain(ctx, commandCtx.Locator, "Could not close this topic."); sendErr != nil {
+			if sendErr := sendPlain(ctx, h.actorDispatcher, commandHandlerActorAddress, commandCtx.Locator, "Could not close this topic."); sendErr != nil {
 				return sendErr
 			}
 			return nil
 		}
-		if err := h.channel.SendPlain(ctx, commandCtx.Locator, "Closing this topic and resetting session history."); err != nil {
+		if err := sendPlain(ctx, h.actorDispatcher, commandHandlerActorAddress, commandCtx.Locator, "Closing this topic and resetting session history."); err != nil {
 			log.Warn().Err(err).Int64("chat_id", commandCtx.ChatID).Int("topic_id", commandCtx.TopicID).Msg("failed to send /close confirmation")
 		}
 		if err := h.channel.Close(ctx, commandCtx.Locator); err != nil {
@@ -245,12 +245,12 @@ func (h *CommandHandler) onCloseCommand(ctx context.Context, commandCtx baldatel
 	}
 	if err := h.sessionManager.ResetSession(ctx, commandCtx.Locator); err != nil {
 		log.Warn().Err(err).Str("session_id", commandCtx.Locator.SessionID).Msg("failed to reset main dm session during /close")
-		if sendErr := h.channel.SendPlain(ctx, commandCtx.Locator, "Could not reset this session."); sendErr != nil {
+		if sendErr := sendPlain(ctx, h.actorDispatcher, commandHandlerActorAddress, commandCtx.Locator, "Could not reset this session."); sendErr != nil {
 			return sendErr
 		}
 		return nil
 	}
-	if err := h.channel.SendPlain(ctx, commandCtx.Locator, "Session history reset."); err != nil {
+	if err := sendPlain(ctx, h.actorDispatcher, commandHandlerActorAddress, commandCtx.Locator, "Session history reset."); err != nil {
 		log.Warn().Err(err).Int64("chat_id", commandCtx.ChatID).Msg("failed to send /close main dm session confirmation")
 	}
 	return nil
@@ -258,33 +258,33 @@ func (h *CommandHandler) onCloseCommand(ctx context.Context, commandCtx baldatel
 
 func (h *CommandHandler) onCancelCommand(ctx context.Context, commandCtx baldatelegram.CommandContext) error {
 	if !h.canUseSessionCommand(ctx, commandCtx.UserID) {
-		if err := h.channel.SendPlain(ctx, commandCtx.Locator, "Only the bot owner or collaborators can use this command."); err != nil {
+		if err := sendPlain(ctx, h.actorDispatcher, commandHandlerActorAddress, commandCtx.Locator, "Only the bot owner or collaborators can use this command."); err != nil {
 			return err
 		}
 		return nil
 	}
 
 	if strings.TrimSpace(commandCtx.Args) != "" {
-		if err := h.channel.SendPlain(ctx, commandCtx.Locator, "Usage: /cancel"); err != nil {
+		if err := sendPlain(ctx, h.actorDispatcher, commandHandlerActorAddress, commandCtx.Locator, "Usage: /cancel"); err != nil {
 			return err
 		}
 		return nil
 	}
 
 	if h.actorDispatcher == nil {
-		if err := h.channel.SendPlain(ctx, commandCtx.Locator, "Cancel is unavailable right now. Please try again."); err != nil {
+		if err := sendPlain(ctx, h.actorDispatcher, commandHandlerActorAddress, commandCtx.Locator, "Cancel is unavailable right now. Please try again."); err != nil {
 			return err
 		}
 		return nil
 	}
 	if err := submitSessionTurnCancelControl(ctx, h.actorDispatcher, commandCtx.Locator, baldatelegram.UserID(commandCtx.UserID), "session turn canceled by user", true); err != nil {
 		log.Warn().Err(err).Str("session_id", commandCtx.Locator.SessionID).Msg("failed to publish cancel command")
-		if sendErr := h.channel.SendPlain(ctx, commandCtx.Locator, "Could not request cancel."); sendErr != nil {
+		if sendErr := sendPlain(ctx, h.actorDispatcher, commandHandlerActorAddress, commandCtx.Locator, "Could not request cancel."); sendErr != nil {
 			return sendErr
 		}
 		return nil
 	}
-	if err := h.channel.SendPlain(ctx, commandCtx.Locator, "Cancel requested."); err != nil {
+	if err := sendPlain(ctx, h.actorDispatcher, commandHandlerActorAddress, commandCtx.Locator, "Cancel requested."); err != nil {
 		return err
 	}
 	return nil

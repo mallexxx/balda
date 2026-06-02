@@ -7,7 +7,6 @@ import (
 	"strings"
 
 	"github.com/google/uuid"
-	baldatelegram "github.com/normahq/balda/internal/apps/balda/channel/telegram"
 	baldasession "github.com/normahq/balda/internal/apps/balda/session"
 	"github.com/normahq/balda/internal/apps/balda/swarm"
 	"github.com/rs/zerolog"
@@ -32,9 +31,9 @@ type taskControlPayload struct {
 
 type taskControlActor struct {
 	turnDispatcher TurnQueue
+	dispatcher     swarm.ActorDispatcher
 	tasks          *swarm.TaskService
 	taskRuns       *TaskRunRegistry
-	channel        *baldatelegram.Adapter
 	logger         zerolog.Logger
 }
 
@@ -42,9 +41,9 @@ type taskControlActorParams struct {
 	fx.In
 
 	TurnDispatcher *TurnDispatcher
+	Dispatcher     swarm.ActorDispatcher
 	TaskService    *swarm.TaskService
 	TaskRuns       *TaskRunRegistry
-	Channel        *baldatelegram.Adapter
 	Logger         zerolog.Logger
 }
 
@@ -230,10 +229,15 @@ func (a *taskControlActor) clearGoal(ctx context.Context, payload taskControlPay
 }
 
 func (a *taskControlActor) sendControlMessage(ctx context.Context, locator baldasession.SessionLocator, text string) {
-	if a == nil || a.channel == nil || strings.TrimSpace(text) == "" {
+	if a == nil || a.dispatcher == nil || strings.TrimSpace(text) == "" {
 		return
 	}
-	if err := a.channel.SendPlain(ctx, locator, text); err != nil {
+	env, err := PlainDeliveryEnvelope("", swarm.SystemAddress("control"), locator, text, "")
+	if err != nil {
+		a.logger.Warn().Err(err).Str("session_id", locator.SessionID).Msg("failed to build control response")
+		return
+	}
+	if _, err := a.dispatcher.Dispatch(ctx, env); err != nil {
 		a.logger.Warn().Err(err).Str("session_id", locator.SessionID).Msg("failed to send control response")
 	}
 }

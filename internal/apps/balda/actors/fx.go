@@ -73,9 +73,9 @@ var Module = fx.Module("balda_actors",
 			func(params taskControlActorParams) swarm.Actor {
 				return &taskControlActor{
 					turnDispatcher: params.TurnDispatcher,
+					dispatcher:     params.Dispatcher,
 					tasks:          params.TaskService,
 					taskRuns:       params.TaskRuns,
-					channel:        params.Channel,
 					logger:         params.Logger.With().Str("component", "balda.task_control_actor").Logger(),
 				}
 			},

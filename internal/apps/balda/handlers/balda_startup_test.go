@@ -12,7 +12,6 @@ import (
 	baldaagent "github.com/normahq/balda/internal/apps/balda/agent"
 	"github.com/normahq/balda/internal/apps/balda/auth"
 	baldatelegram "github.com/normahq/balda/internal/apps/balda/channel/telegram"
-	"github.com/normahq/balda/internal/apps/balda/messenger"
 	baldasession "github.com/normahq/balda/internal/apps/balda/session"
 	baldastate "github.com/normahq/balda/internal/apps/balda/state"
 	"github.com/rs/zerolog"
@@ -301,15 +300,12 @@ func TestBootstrapOwnerSession_RestoresPersistedOwnerWorkspaceMetadata(t *testin
 	tgClient := &fakeBaldaStartupTGClient{
 		fakeTelegramClient: &fakeTelegramClient{},
 	}
-	msg := messenger.NewMessenger(tgClient, zerolog.Nop())
+	adapter := newTestTelegramAdapter(tgClient, "")
+	bus := &recordingHandlerCommandBus{deliveryAdapter: adapter}
 	handler := &BaldaHandler{
-		channel: baldatelegram.NewAdapter(baldatelegram.AdapterParams{
-			Messenger: msg,
-			TGClient:  tgClient,
-			Logger:    zerolog.Nop(),
-		}),
+		channel:           adapter,
+		actorDispatcher:   bus,
 		sessionManager:    sessionManager,
-		messenger:         msg,
 		baldaProviderName: "balda-provider",
 		logger:            zerolog.Nop(),
 	}
@@ -337,12 +333,16 @@ func newBaldaStartupHandlerForTest(t *testing.T, tgClient client.ClientWithRespo
 	if err != nil {
 		t.Fatalf("new owner store: %v", err)
 	}
+	adapter := newTestTelegramAdapter(tgClient, "")
+	bus := &recordingHandlerCommandBus{deliveryAdapter: adapter}
 
 	return &BaldaHandler{
-		ownerStore: ownerStore,
-		tgClient:   tgClient,
-		authToken:  authToken,
-		logger:     logger,
+		ownerStore:      ownerStore,
+		channel:         adapter,
+		actorDispatcher: bus,
+		tgClient:        tgClient,
+		authToken:       authToken,
+		logger:          logger,
 	}
 }
 
@@ -382,14 +382,7 @@ func newRegisteredOwnerStartupHandler(t *testing.T) (*BaldaHandler, *fakeBaldaSt
 	runtimeManager := &fakeBaldaRestoreRuntimeManager{providerID: "balda-provider"}
 	sessionManager := newBaldaRestoreSessionManager(t, builder, runtimeManager, &fakeBaldaRestoreSessionStore{})
 
-	msg := messenger.NewMessenger(tgClient, zerolog.Nop())
-	handler.channel = baldatelegram.NewAdapter(baldatelegram.AdapterParams{
-		Messenger: msg,
-		TGClient:  tgClient,
-		Logger:    zerolog.Nop(),
-	})
 	handler.sessionManager = sessionManager
-	handler.messenger = msg
 	handler.baldaProviderName = "balda-provider"
 	return handler, tgClient
 }

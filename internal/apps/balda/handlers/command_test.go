@@ -599,15 +599,18 @@ func TestCommandHandlerOnCommand_UserUsageShowsUserID(t *testing.T) {
 		TGClient:  tgClient,
 		Logger:    zerolog.Nop(),
 	})
+	bus := &recordingHandlerCommandBus{deliveryAdapter: channel}
 	handler := &CommandHandler{
 		ownerStore:        ownerStore,
 		collaboratorStore: collaboratorStore,
 		channel:           channel,
+		actorDispatcher:   bus,
 		userHandler: &userHandler{
 			ownerStore:        ownerStore,
 			inviteStore:       inviteStore,
 			collaboratorStore: collaboratorStore,
 			channel:           channel,
+			actorDispatcher:   bus,
 			tgClient:          tgClient,
 		},
 	}
@@ -683,8 +686,10 @@ func (f *fakeCommandSessionManager) ResetSession(_ context.Context, locator sess
 }
 
 type fakeTurnDispatcher struct {
-	commands    []swarm.Envelope
-	cancelCalls []cancelSessionCall
+	commands         []swarm.Envelope
+	deliveryCommands []swarm.Envelope
+	cancelCalls      []cancelSessionCall
+	deliveryAdapter  *baldatelegram.Adapter
 }
 
 func (*fakeTurnDispatcher) Enqueue(actors.TurnTask) (int, error) {
@@ -692,6 +697,18 @@ func (*fakeTurnDispatcher) Enqueue(actors.TurnTask) (int, error) {
 }
 
 func (f *fakeTurnDispatcher) Dispatch(_ context.Context, env swarm.Envelope) (*swarm.DispatchReceipt, error) {
+	if env.To.Target == swarm.ActorTypeDelivery && f.deliveryAdapter != nil {
+		f.deliveryCommands = append(f.deliveryCommands, env)
+		if err := handleDeliveryCommandForTest(context.Background(), f.deliveryAdapter, env); err != nil {
+			return nil, err
+		}
+		return &swarm.DispatchReceipt{
+			Stream:   swarm.DefaultCommandStream,
+			Sequence: uint64(len(f.deliveryCommands)),
+			Subject:  swarm.SubjectForEnvelope(env),
+			MsgID:    swarm.DedupeKeyOrID(env),
+		}, nil
+	}
 	f.commands = append(f.commands, env)
 	return &swarm.DispatchReceipt{
 		Stream:   swarm.DefaultCommandStream,
@@ -728,12 +745,15 @@ func newCommandHandlerTestHarness(t *testing.T) (*CommandHandler, *fakeCommandSe
 			"202": {UserID: "202"},
 		},
 	})
+	inviteStore, err := auth.NewInviteStore(&fakeInviteKVStore{})
+	if err != nil {
+		t.Fatalf("NewInviteStore(): %v", err)
+	}
 
 	tgClient := &fakeTelegramClient{}
-	msg := messenger.NewMessenger(tgClient, zerolog.Nop())
-	msg.SetAgentReplyFormattingMode("none")
+	adapter := newTestTelegramAdapter(tgClient, "none")
 	sessionManager := &fakeCommandSessionManager{}
-	turnDispatcher := &fakeTurnDispatcher{}
+	turnDispatcher := &fakeTurnDispatcher{deliveryAdapter: adapter}
 	sessionManager.baldaProvider = testProviderAlpha
 	sessionManager.metadata = session.AgentMetadata{
 		Type:       "opencode_acp",
@@ -743,24 +763,29 @@ func newCommandHandlerTestHarness(t *testing.T) (*CommandHandler, *fakeCommandSe
 	handler := &CommandHandler{
 		ownerStore:        ownerStore,
 		collaboratorStore: collaboratorStore,
-		channel: baldatelegram.NewAdapter(baldatelegram.AdapterParams{
-			Messenger: msg,
-			TGClient:  tgClient,
-			Logger:    zerolog.Nop(),
-		}),
+		channel:           adapter,
 		sessionManager:    sessionManager,
 		actorDispatcher:   turnDispatcher,
 		goalMaxIterations: normalizeGoalMaxIterations(0),
+		userHandler: &userHandler{
+			ownerStore:        ownerStore,
+			inviteStore:       inviteStore,
+			collaboratorStore: collaboratorStore,
+			channel:           adapter,
+			actorDispatcher:   turnDispatcher,
+			tgClient:          tgClient,
+		},
 	}
 	return handler, sessionManager, turnDispatcher, tgClient
 }
 
 type recordingHandlerCommandBus struct {
-	commands      []swarm.Envelope
-	commandErrs   []error
-	eventSubjects []string
-	eventEnvs     []swarm.Envelope
-	eventErrs     []error
+	commands        []swarm.Envelope
+	commandErrs     []error
+	eventSubjects   []string
+	eventEnvs       []swarm.Envelope
+	eventErrs       []error
+	deliveryAdapter *baldatelegram.Adapter
 }
 
 func (b *recordingHandlerCommandBus) Dispatch(_ context.Context, env swarm.Envelope) (*swarm.DispatchReceipt, error) {
@@ -772,6 +797,11 @@ func (b *recordingHandlerCommandBus) Dispatch(_ context.Context, env swarm.Envel
 		}
 	}
 	b.commands = append(b.commands, env)
+	if env.To.Target == swarm.ActorTypeDelivery && b.deliveryAdapter != nil {
+		if err := handleDeliveryCommandForTest(context.Background(), b.deliveryAdapter, env); err != nil {
+			return nil, err
+		}
+	}
 	return &swarm.DispatchReceipt{Stream: swarm.DefaultCommandStream, Sequence: uint64(len(b.commands)), Subject: swarm.SubjectForEnvelope(env), MsgID: swarm.DedupeKeyOrID(env)}, nil
 }
 

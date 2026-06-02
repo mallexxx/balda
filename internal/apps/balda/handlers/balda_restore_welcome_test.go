@@ -12,7 +12,6 @@ import (
 	baldaagent "github.com/normahq/balda/internal/apps/balda/agent"
 	"github.com/normahq/balda/internal/apps/balda/auth"
 	baldatelegram "github.com/normahq/balda/internal/apps/balda/channel/telegram"
-	"github.com/normahq/balda/internal/apps/balda/messenger"
 	baldasession "github.com/normahq/balda/internal/apps/balda/session"
 	baldastate "github.com/normahq/balda/internal/apps/balda/state"
 	"github.com/rs/zerolog"
@@ -201,21 +200,17 @@ func TestBaldaHandlerOnMessage_CollaboratorDMCreateFailureUsesGenericSessionMess
 	sessionManager := newBaldaRestoreSessionManager(t, builder, runtimeManager, store)
 
 	tgClient := &fakeTelegramClient{}
-	msg := messenger.NewMessenger(tgClient, zerolog.Nop())
-	turnDispatcher := &fakeTurnDispatcher{}
+	adapter := newTestTelegramAdapter(tgClient, "none")
+	turnDispatcher := &fakeTurnDispatcher{deliveryAdapter: adapter}
 
 	handler := &BaldaHandler{
 		ownerStore:        ownerStore,
 		collaboratorStore: collaboratorStore,
-		channel: baldatelegram.NewAdapter(baldatelegram.AdapterParams{
-			Messenger: msg,
-			TGClient:  tgClient,
-			Logger:    zerolog.Nop(),
-		}),
-		sessionManager:  sessionManager,
-		turnDispatcher:  turnDispatcher,
-		actorDispatcher: turnDispatcher,
-		logger:          zerolog.Nop(),
+		channel:           adapter,
+		sessionManager:    sessionManager,
+		turnDispatcher:    turnDispatcher,
+		actorDispatcher:   turnDispatcher,
+		logger:            zerolog.Nop(),
 	}
 	handler.setOwner(101, 9001)
 	setUnexportedField(t, handler, "baldaProviderName", "balda-provider")
@@ -323,15 +318,11 @@ func TestBaldaHandlerOnMessage_PublicTopicRestoreWarnsWhenWorkspaceSyncSkipped(t
 	setUnexportedField(t, sessionManager, "sessions", map[string]*baldasession.TopicSession{})
 
 	tgClient := &fakeTelegramClient{}
-	msg := messenger.NewMessenger(tgClient, zerolog.Nop())
-	turnDispatcher := &fakeTurnDispatcher{}
+	adapter := newTestTelegramAdapter(tgClient, "none")
+	turnDispatcher := &fakeTurnDispatcher{deliveryAdapter: adapter}
 	handler := &BaldaHandler{
-		ownerStore: ownerStore,
-		channel: baldatelegram.NewAdapter(baldatelegram.AdapterParams{
-			Messenger: msg,
-			TGClient:  tgClient,
-			Logger:    zerolog.Nop(),
-		}),
+		ownerStore:      ownerStore,
+		channel:         adapter,
 		sessionManager:  sessionManager,
 		turnDispatcher:  turnDispatcher,
 		actorDispatcher: turnDispatcher,
@@ -395,16 +386,12 @@ func newBaldaRestoreHandlerHarness(t *testing.T, store *fakeBaldaRestoreSessionS
 	sessionManager := newBaldaRestoreSessionManager(t, builder, runtimeManager, store)
 
 	tgClient := &fakeTelegramClient{}
-	msg := messenger.NewMessenger(tgClient, zerolog.Nop())
-	turnDispatcher := &fakeTurnDispatcher{}
+	adapter := newTestTelegramAdapter(tgClient, "none")
+	turnDispatcher := &fakeTurnDispatcher{deliveryAdapter: adapter}
 
 	handler := &BaldaHandler{
-		ownerStore: ownerStore,
-		channel: baldatelegram.NewAdapter(baldatelegram.AdapterParams{
-			Messenger: msg,
-			TGClient:  tgClient,
-			Logger:    zerolog.Nop(),
-		}),
+		ownerStore:      ownerStore,
+		channel:         adapter,
 		sessionManager:  sessionManager,
 		turnDispatcher:  turnDispatcher,
 		actorDispatcher: turnDispatcher,

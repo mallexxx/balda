@@ -1,0 +1,51 @@
+package handlers
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"strings"
+
+	"github.com/normahq/balda/internal/apps/balda/actors"
+	baldatelegram "github.com/normahq/balda/internal/apps/balda/channel/telegram"
+	"github.com/normahq/balda/internal/apps/balda/messenger"
+	"github.com/normahq/balda/internal/apps/balda/swarm"
+	"github.com/rs/zerolog"
+	"github.com/tgbotkit/client"
+)
+
+func newTestTelegramAdapter(tgClient client.ClientWithResponsesInterface, formattingMode string) *baldatelegram.Adapter {
+	msg := messenger.NewMessenger(tgClient, zerolog.Nop())
+	if strings.TrimSpace(formattingMode) != "" {
+		msg.SetAgentReplyFormattingMode(formattingMode)
+	}
+	return baldatelegram.NewAdapter(baldatelegram.AdapterParams{
+		Messenger: msg,
+		TGClient:  tgClient,
+		Logger:    zerolog.Nop(),
+	})
+}
+
+func handleDeliveryCommandForTest(ctx context.Context, adapter *baldatelegram.Adapter, env swarm.Envelope) error {
+	if adapter == nil {
+		return fmt.Errorf("delivery adapter is required")
+	}
+	var payload actors.DeliveryPayload
+	if err := json.Unmarshal([]byte(env.PayloadJSON), &payload); err != nil {
+		return err
+	}
+	switch payload.Mode {
+	case actors.DeliveryModeAgentReply:
+		return adapter.SendAgentReply(ctx, payload.Locator, payload.Text)
+	case actors.DeliveryModePlain:
+		return adapter.SendPlain(ctx, payload.Locator, payload.Text)
+	case actors.DeliveryModeMarkdown:
+		return adapter.SendMarkdown(ctx, payload.Locator, payload.Text)
+	case actors.DeliveryModeDraftPlain:
+		return adapter.SendDraftPlain(ctx, payload.Locator, payload.DraftID, payload.Text)
+	case actors.DeliveryModeChatAction:
+		return adapter.SendTyping(ctx, payload.Locator)
+	default:
+		return fmt.Errorf("unsupported delivery mode %q", payload.Mode)
+	}
+}

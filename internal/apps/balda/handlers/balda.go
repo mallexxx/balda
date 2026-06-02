@@ -149,7 +149,7 @@ func (h *BaldaHandler) onMessage(ctx context.Context, event *events.MessageEvent
 		sendOwnerWelcome := existingSession == nil
 		baldaProviderName := h.getProviderName()
 		if baldaProviderName == "" {
-			_ = h.channel.SendPlain(ctx, locator, "Balda is not ready right now. Please close this chat and try again.")
+			_ = sendPlain(ctx, h.actorDispatcher, baldaHandlerActorAddress, locator, "Balda is not ready right now. Please close this chat and try again.")
 			return nil
 		}
 		ts, err = h.sessionManager.EnsureSession(ctx, baldasession.SessionContext{
@@ -158,19 +158,19 @@ func (h *BaldaHandler) onMessage(ctx context.Context, event *events.MessageEvent
 		}, ownerSessionLabel)
 		if err != nil {
 			log.Error().Err(err).Str("agent", baldaProviderName).Msg("failed to ensure main dm session")
-			_ = h.channel.SendPlain(ctx, locator, "Could not start this session. Please close this chat and try again.")
+			_ = sendPlain(ctx, h.actorDispatcher, baldaHandlerActorAddress, locator, "Could not start this session. Please close this chat and try again.")
 			return nil
 		}
 		if sendOwnerWelcome {
 			metadata := h.sessionManager.GetAgentMetadata(baldaProviderName)
 			welcomeMsg := welcome.BuildAgentWelcomeMessage(ownerSessionLabel, ts.GetSessionID(), metadata.Type, metadata.Model, metadata.MCPServers)
-			_ = h.channel.SendMarkdown(ctx, locator, welcomeMsg)
+			_ = sendMarkdown(ctx, h.actorDispatcher, baldaHandlerActorAddress, locator, welcomeMsg)
 			h.sendSessionStartupNotice(ctx, locator, ts.GetSessionID())
 		}
 	} else {
 		ts, err = h.sessionManager.GetSession(locator)
 		if err != nil {
-			_ = h.channel.SendPlain(ctx, locator, "Restoring agent session...")
+			_ = sendPlain(ctx, h.actorDispatcher, baldaHandlerActorAddress, locator, "Restoring agent session...")
 			ts, err = h.sessionManager.RestoreSession(ctx, baldasession.SessionContext{
 				Locator:                    locator,
 				UserID:                     transportUserID,
@@ -180,7 +180,7 @@ func (h *BaldaHandler) onMessage(ctx context.Context, event *events.MessageEvent
 				if errors.Is(err, baldasession.ErrNoPersistedSession) {
 					baldaProviderName := h.getProviderName()
 					if baldaProviderName == "" {
-						_ = h.channel.SendPlain(ctx, locator, "Balda is not ready right now. Please close this chat topic and try again.")
+						_ = sendPlain(ctx, h.actorDispatcher, baldaHandlerActorAddress, locator, "Balda is not ready right now. Please close this chat topic and try again.")
 						return nil
 					}
 					ts, err = h.sessionManager.EnsureSession(ctx, baldasession.SessionContext{
@@ -189,12 +189,12 @@ func (h *BaldaHandler) onMessage(ctx context.Context, event *events.MessageEvent
 					}, autoSessionLabel)
 					if err != nil {
 						log.Error().Err(err).Str("agent", baldaProviderName).Int("topic_id", topicID).Msg("failed to create session")
-						_ = h.channel.SendPlain(ctx, locator, "Could not start this session. Please close this chat topic and create a new one.")
+						_ = sendPlain(ctx, h.actorDispatcher, baldaHandlerActorAddress, locator, "Could not start this session. Please close this chat topic and create a new one.")
 						return nil
 					}
 				} else {
 					log.Warn().Err(err).Int("topic_id", topicID).Msg("failed to restore session")
-					_ = h.channel.SendPlain(ctx, locator, "Could not restore this session. Please close this chat topic and create a new one.")
+					_ = sendPlain(ctx, h.actorDispatcher, baldaHandlerActorAddress, locator, "Could not restore this session. Please close this chat topic and create a new one.")
 					return nil
 				}
 			}
@@ -203,7 +203,7 @@ func (h *BaldaHandler) onMessage(ctx context.Context, event *events.MessageEvent
 				metadata := h.sessionManager.GetAgentMetadata(baldaProviderID)
 				welcomeName := h.welcomeDisplayName(messageCtx, ts)
 				welcomeMsg := welcome.BuildAgentWelcomeMessage(welcomeName, ts.GetSessionID(), metadata.Type, metadata.Model, metadata.MCPServers)
-				_ = h.channel.SendMarkdown(ctx, locator, welcomeMsg)
+				_ = sendMarkdown(ctx, h.actorDispatcher, baldaHandlerActorAddress, locator, welcomeMsg)
 				h.sendSessionStartupNotice(ctx, locator, ts.GetSessionID())
 			}
 		}
@@ -219,12 +219,12 @@ func (h *BaldaHandler) onMessage(ctx context.Context, event *events.MessageEvent
 		messageCtx.ProgressPolicy,
 	); err != nil {
 		if swarm.IsCommandQueueFull(err) {
-			_ = h.channel.SendPlain(ctx, locator, "Session command queue is full. Please wait or use /cancel.")
+			_ = sendPlain(ctx, h.actorDispatcher, baldaHandlerActorAddress, locator, "Session command queue is full. Please wait or use /cancel.")
 			return nil
 		}
 
 		log.Error().Err(err).Int("topic_id", topicID).Msg("failed to publish balda session command")
-		_ = h.channel.SendPlain(ctx, locator, "Failed to publish your message for processing. Please try again.")
+		_ = sendPlain(ctx, h.actorDispatcher, baldaHandlerActorAddress, locator, "Failed to publish your message for processing. Please try again.")
 	}
 
 	return nil
@@ -309,7 +309,7 @@ func (h *BaldaHandler) runTurnTaskWithDelivery(
 	if topicID > 0 {
 		errText = "Agent execution failed. Please close this chat topic and create a new session with /topic <name>."
 	}
-	if sendErr := h.channel.SendPlain(context.Background(), locator, errText); sendErr != nil {
+	if sendErr := sendPlain(context.Background(), h.actorDispatcher, baldaHandlerActorAddress, locator, errText); sendErr != nil {
 		log.Warn().Err(sendErr).Int("topic_id", topicID).Msg("failed to send balda error message")
 	}
 	return err
@@ -455,6 +455,13 @@ func (h *BaldaHandler) runTurnWithDelivery(
 			planProgressText, hasPlanUpdate = baldaPlanProgressText(ev)
 		}
 		if !ev.TurnComplete {
+			if progressPolicy.Typing {
+				typingThrottle.Do(func() {
+					if sendErr := sendTyping(ctx, h.actorDispatcher, baldaHandlerActorAddress, locator); sendErr != nil {
+						log.Warn().Err(sendErr).Int("topic_id", topicID).Msg("failed to send typing chat action")
+					}
+				})
+			}
 			if taskBackedDelivery {
 				if hasPlanUpdate && planProgressText != "" && planProgressText != lastPlanProgressText {
 					deliverySeq++
@@ -469,24 +476,18 @@ func (h *BaldaHandler) runTurnWithDelivery(
 					}
 					lastPlanProgressText = planProgressText
 				}
-			} else if progressPolicy.Typing {
-				typingThrottle.Do(func() {
-					if sendErr := h.channel.SendTyping(ctx, locator); sendErr != nil {
-						log.Warn().Err(sendErr).Int("topic_id", topicID).Msg("failed to send typing chat action")
-					}
-				})
 			}
 			if !taskBackedDelivery && hasPlanUpdate && planProgressText != "" && planProgressText != lastPlanProgressText {
 				switch {
 				case progressPolicy.Thinking:
-					if sendErr := h.channel.SendDraftPlain(ctx, locator, draftID, planProgressText); sendErr != nil {
+					if sendErr := sendDraftPlain(ctx, h.actorDispatcher, baldaHandlerActorAddress, locator, draftID, planProgressText); sendErr != nil {
 						log.Warn().Err(sendErr).Int("topic_id", topicID).Msg("failed to send plan update placeholder")
 					} else {
 						lastPlanProgressText = planProgressText
 						planDraftActive = true
 					}
 				default:
-					if sendErr := h.channel.SendPlain(ctx, locator, planProgressText); sendErr != nil {
+					if sendErr := sendPlain(ctx, h.actorDispatcher, baldaHandlerActorAddress, locator, planProgressText); sendErr != nil {
 						log.Warn().Err(sendErr).Int("topic_id", topicID).Msg("failed to send plan update message")
 					} else {
 						lastPlanProgressText = planProgressText
@@ -495,7 +496,7 @@ func (h *BaldaHandler) runTurnWithDelivery(
 			}
 			if !taskBackedDelivery && progressPolicy.Thinking && !planDraftActive {
 				thinkingThrottle.Do(func() {
-					if sendErr := h.channel.SendDraftPlain(ctx, locator, draftID, thinkingStages[thinkingIdx%len(thinkingStages)]); sendErr != nil {
+					if sendErr := sendDraftPlain(ctx, h.actorDispatcher, baldaHandlerActorAddress, locator, draftID, thinkingStages[thinkingIdx%len(thinkingStages)]); sendErr != nil {
 						log.Warn().Err(sendErr).Int("topic_id", topicID).Msg("failed to send thinking placeholder")
 					}
 					thinkingIdx++
@@ -614,7 +615,7 @@ func (h *BaldaHandler) runTurnWithDelivery(
 					}
 					responseEmitted = true
 					responseSource = "streamed_text"
-				} else if sendErr := h.channel.SendAgentReply(ctx, locator, responseText); sendErr != nil {
+				} else if sendErr := sendAgentReply(ctx, h.actorDispatcher, baldaHandlerActorAddress, locator, responseText); sendErr != nil {
 					log.Warn().Err(sendErr).Int("topic_id", topicID).Msg("failed to send balda response")
 				} else {
 					responseEmitted = true
@@ -639,7 +640,7 @@ func (h *BaldaHandler) runTurnWithDelivery(
 						responseEmitted = true
 						responseSource = "finish_reason"
 						handledEmptyTerminalReason = true
-					} else if sendErr := h.channel.SendPlain(ctx, locator, terminalMessage); sendErr != nil {
+					} else if sendErr := sendPlain(ctx, h.actorDispatcher, baldaHandlerActorAddress, locator, terminalMessage); sendErr != nil {
 						log.Warn().Err(sendErr).Int("topic_id", topicID).Msg("failed to send balda terminal finish reason message")
 					} else {
 						responseEmitted = true

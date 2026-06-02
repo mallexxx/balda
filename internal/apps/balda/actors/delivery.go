@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/google/uuid"
 	baldasession "github.com/normahq/balda/internal/apps/balda/session"
 	"github.com/normahq/balda/internal/apps/balda/swarm"
 )
@@ -16,41 +17,147 @@ func DeliveryEnvelope(
 	text string,
 	dedupeSuffix string,
 ) (swarm.Envelope, error) {
-	message := strings.TrimSpace(text)
-	if message == "" {
-		return swarm.Envelope{}, fmt.Errorf("delivery text is required")
-	}
-	payload := DeliveryPayload{
+	return AgentReplyDeliveryEnvelope(taskID, from, locator, text, dedupeSuffix)
+}
+
+func AgentReplyDeliveryEnvelope(
+	taskID string,
+	from swarm.ActorAddress,
+	locator baldasession.SessionLocator,
+	text string,
+	dedupeSuffix string,
+) (swarm.Envelope, error) {
+	return deliveryEnvelope(taskID, from, DeliveryPayload{
 		TaskID:  strings.TrimSpace(taskID),
 		Locator: locator,
-		Text:    message,
+		Mode:    DeliveryModeAgentReply,
+		Text:    strings.TrimSpace(text),
+	}, dedupeSuffix)
+}
+
+func PlainDeliveryEnvelope(
+	taskID string,
+	from swarm.ActorAddress,
+	locator baldasession.SessionLocator,
+	text string,
+	dedupeSuffix string,
+) (swarm.Envelope, error) {
+	return deliveryEnvelope(taskID, from, DeliveryPayload{
+		TaskID:  strings.TrimSpace(taskID),
+		Locator: locator,
+		Mode:    DeliveryModePlain,
+		Text:    strings.TrimSpace(text),
+	}, dedupeSuffix)
+}
+
+func MarkdownDeliveryEnvelope(
+	taskID string,
+	from swarm.ActorAddress,
+	locator baldasession.SessionLocator,
+	text string,
+	dedupeSuffix string,
+) (swarm.Envelope, error) {
+	return deliveryEnvelope(taskID, from, DeliveryPayload{
+		TaskID:  strings.TrimSpace(taskID),
+		Locator: locator,
+		Mode:    DeliveryModeMarkdown,
+		Text:    strings.TrimSpace(text),
+	}, dedupeSuffix)
+}
+
+func DraftPlainDeliveryEnvelope(
+	taskID string,
+	from swarm.ActorAddress,
+	locator baldasession.SessionLocator,
+	draftID int,
+	text string,
+) (swarm.Envelope, error) {
+	return deliveryEnvelope(taskID, from, DeliveryPayload{
+		TaskID:  strings.TrimSpace(taskID),
+		Locator: locator,
+		Mode:    DeliveryModeDraftPlain,
+		Text:    strings.TrimSpace(text),
+		DraftID: draftID,
+	}, "")
+}
+
+func ChatActionDeliveryEnvelope(
+	taskID string,
+	from swarm.ActorAddress,
+	locator baldasession.SessionLocator,
+	action string,
+) (swarm.Envelope, error) {
+	return deliveryEnvelope(taskID, from, DeliveryPayload{
+		TaskID:  strings.TrimSpace(taskID),
+		Locator: locator,
+		Mode:    DeliveryModeChatAction,
+		Action:  strings.TrimSpace(action),
+	}, "")
+}
+
+func deliveryEnvelope(
+	taskID string,
+	from swarm.ActorAddress,
+	payload DeliveryPayload,
+	dedupeSuffix string,
+) (swarm.Envelope, error) {
+	if strings.TrimSpace(payload.Locator.ChannelType) == "" || strings.TrimSpace(payload.Locator.AddressKey) == "" || strings.TrimSpace(payload.Locator.SessionID) == "" {
+		return swarm.Envelope{}, fmt.Errorf("delivery locator is required")
+	}
+	if err := validateDeliveryPayload(payload); err != nil {
+		return swarm.Envelope{}, err
 	}
 	data, err := json.Marshal(payload)
 	if err != nil {
 		return swarm.Envelope{}, fmt.Errorf("encode delivery payload: %w", err)
 	}
-	dedupeKey := strings.TrimSpace(taskID)
-	if dedupeKey == "" {
-		dedupeKey = "delivery:" + shortTaskHash(strings.Join([]string{
-			strings.TrimSpace(locator.SessionID),
-			strings.TrimSpace(locator.AddressKey),
-			message,
-		}, "|"))
-	}
-	if suffix := strings.TrimSpace(dedupeSuffix); suffix != "" {
-		dedupeKey += ":delivery:" + suffix
-	}
+
+	dedupeKey := deliveryDedupeKey(taskID, payload.Mode, dedupeSuffix)
 	return swarm.Envelope{
 		ID:            dedupeKey,
 		Namespace:     swarm.NamespaceAgentResult,
 		Kind:          taskPayloadKindDelivery,
 		From:          from,
-		To:            swarm.ActorAddress{Target: swarm.ActorTypeDelivery, Key: locator.DeliveryActorKey()},
-		SessionID:     locator.SessionID,
+		To:            swarm.ActorAddress{Target: swarm.ActorTypeDelivery, Key: payload.Locator.DeliveryActorKey()},
+		SessionID:     payload.Locator.SessionID,
 		TaskID:        strings.TrimSpace(taskID),
 		CorrelationID: strings.TrimSpace(taskID),
 		Priority:      70,
 		DedupeKey:     dedupeKey,
 		PayloadJSON:   string(data),
 	}, nil
+}
+
+func validateDeliveryPayload(payload DeliveryPayload) error {
+	switch payload.Mode {
+	case DeliveryModeAgentReply, DeliveryModePlain, DeliveryModeMarkdown, DeliveryModeDraftPlain:
+		if strings.TrimSpace(payload.Text) == "" {
+			return fmt.Errorf("delivery text is required")
+		}
+	case DeliveryModeChatAction:
+		if strings.TrimSpace(payload.Action) == "" {
+			return fmt.Errorf("delivery action is required")
+		}
+	default:
+		return fmt.Errorf("unsupported delivery mode %q", payload.Mode)
+	}
+	if payload.Mode == DeliveryModeDraftPlain && payload.DraftID <= 0 {
+		return fmt.Errorf("draft id is required")
+	}
+	return nil
+}
+
+func deliveryDedupeKey(taskID string, mode DeliveryMode, dedupeSuffix string) string {
+	trimmedTaskID := strings.TrimSpace(taskID)
+	if trimmedTaskID == "" {
+		id := "delivery:" + strings.ToLower(string(mode)) + ":" + uuid.NewString()
+		if suffix := strings.TrimSpace(dedupeSuffix); suffix != "" {
+			return id + ":" + suffix
+		}
+		return id
+	}
+	if suffix := strings.TrimSpace(dedupeSuffix); suffix != "" {
+		return trimmedTaskID + ":delivery:" + suffix
+	}
+	return trimmedTaskID + ":delivery:" + strings.ToLower(string(mode)) + ":" + uuid.NewString()
 }

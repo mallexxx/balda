@@ -8,6 +8,7 @@ import (
 	"github.com/normahq/balda/internal/apps/balda/auth"
 	baldatelegram "github.com/normahq/balda/internal/apps/balda/channel/telegram"
 	baldasession "github.com/normahq/balda/internal/apps/balda/session"
+	"github.com/normahq/balda/internal/apps/balda/swarm"
 	"github.com/tgbotkit/client"
 	"go.uber.org/fx"
 )
@@ -17,6 +18,7 @@ type userHandler struct {
 	inviteStore       *auth.InviteStore
 	collaboratorStore *auth.CollaboratorStore
 	channel           *baldatelegram.Adapter
+	actorDispatcher   swarm.ActorDispatcher
 	tgClient          client.ClientWithResponsesInterface
 	botUsername       string
 }
@@ -28,6 +30,7 @@ type userHandlerParams struct {
 	InviteStore       *auth.InviteStore
 	CollaboratorStore *auth.CollaboratorStore
 	Channel           *baldatelegram.Adapter
+	ActorDispatcher   swarm.ActorDispatcher
 	TGClient          client.ClientWithResponsesInterface `optional:"true"`
 }
 
@@ -51,7 +54,7 @@ func (h *userHandler) getBotUsername(ctx context.Context) string {
 
 func (h *userHandler) HandleUserCommand(ctx context.Context, commandCtx baldatelegram.CommandContext) error {
 	if !h.ownerStore.IsOwner(commandCtx.UserID) {
-		if err := h.channel.SendPlain(ctx, commandCtx.Locator, "This command is only for the owner."); err != nil {
+		if err := sendPlain(ctx, h.actorDispatcher, userHandlerActorAddress, commandCtx.Locator, "This command is only for the owner."); err != nil {
 			return err
 		}
 		return nil
@@ -79,7 +82,7 @@ func (h *userHandler) sendUsage(ctx context.Context, locator baldasession.Sessio
 		"• /user add - Generate invite link\n" +
 		"• /user list - Show collaborators and active invites\n" +
 		"• /user remove <user_id> - Remove collaborator by ID\n"
-	return h.channel.SendPlain(ctx, locator, usage)
+	return sendPlain(ctx, h.actorDispatcher, userHandlerActorAddress, locator, usage)
 }
 
 func (h *userHandler) onAdd(ctx context.Context, commandCtx baldatelegram.CommandContext) error {
@@ -87,7 +90,7 @@ func (h *userHandler) onAdd(ctx context.Context, commandCtx baldatelegram.Comman
 
 	token, _, err := h.inviteStore.CreateInvite(ctx, ownerID)
 	if err != nil {
-		if err := h.channel.SendPlain(ctx, commandCtx.Locator, "Failed to create invite. Please try again."); err != nil {
+		if err := sendPlain(ctx, h.actorDispatcher, userHandlerActorAddress, commandCtx.Locator, "Failed to create invite. Please try again."); err != nil {
 			return err
 		}
 		return nil
@@ -100,7 +103,7 @@ func (h *userHandler) onAdd(ctx context.Context, commandCtx baldatelegram.Comman
 	inviteLink := fmt.Sprintf("https://t.me/%s?start=invite_%s", username, token)
 	message := fmt.Sprintf("Invite link created:\n%s\n\nVisit this link to become a bot collaborator", inviteLink)
 
-	if err := h.channel.SendPlain(ctx, commandCtx.Locator, message); err != nil {
+	if err := sendPlain(ctx, h.actorDispatcher, userHandlerActorAddress, commandCtx.Locator, message); err != nil {
 		return err
 	}
 	return nil
@@ -111,7 +114,7 @@ func (h *userHandler) onList(ctx context.Context, commandCtx baldatelegram.Comma
 
 	collaborators, err := h.collaboratorStore.ListCollaborators(ctx)
 	if err != nil {
-		if err := h.channel.SendPlain(ctx, commandCtx.Locator, "Failed to list collaborators. Please try again."); err != nil {
+		if err := sendPlain(ctx, h.actorDispatcher, userHandlerActorAddress, commandCtx.Locator, "Failed to list collaborators. Please try again."); err != nil {
 			return err
 		}
 		return nil
@@ -135,7 +138,7 @@ func (h *userHandler) onList(ctx context.Context, commandCtx baldatelegram.Comma
 
 	invites, err := h.inviteStore.ListInvites(ctx)
 	if err != nil {
-		if err := h.channel.SendPlain(ctx, commandCtx.Locator, "Failed to list invites. Please try again."); err != nil {
+		if err := sendPlain(ctx, h.actorDispatcher, userHandlerActorAddress, commandCtx.Locator, "Failed to list invites. Please try again."); err != nil {
 			return err
 		}
 		return nil
@@ -149,7 +152,7 @@ func (h *userHandler) onList(ctx context.Context, commandCtx baldatelegram.Comma
 	}
 
 	message := strings.Join(lines, "\n")
-	if err := h.channel.SendPlain(ctx, commandCtx.Locator, message); err != nil {
+	if err := sendPlain(ctx, h.actorDispatcher, userHandlerActorAddress, commandCtx.Locator, message); err != nil {
 		return err
 	}
 	return nil
@@ -158,7 +161,7 @@ func (h *userHandler) onList(ctx context.Context, commandCtx baldatelegram.Comma
 func (h *userHandler) onRemove(ctx context.Context, commandCtx baldatelegram.CommandContext) error {
 	args := strings.Fields(commandCtx.Args)
 	if len(args) < 2 {
-		if err := h.channel.SendPlain(ctx, commandCtx.Locator, "Usage: /user remove <user_id>"); err != nil {
+		if err := sendPlain(ctx, h.actorDispatcher, userHandlerActorAddress, commandCtx.Locator, "Usage: /user remove <user_id>"); err != nil {
 			return err
 		}
 		return nil
@@ -166,21 +169,21 @@ func (h *userHandler) onRemove(ctx context.Context, commandCtx baldatelegram.Com
 
 	userID := strings.TrimSpace(args[1])
 	if userID == "" {
-		if err := h.channel.SendPlain(ctx, commandCtx.Locator, "User ID required"); err != nil {
+		if err := sendPlain(ctx, h.actorDispatcher, userHandlerActorAddress, commandCtx.Locator, "User ID required"); err != nil {
 			return err
 		}
 		return nil
 	}
 
 	if err := h.collaboratorStore.RemoveCollaborator(ctx, userID); err != nil {
-		if err := h.channel.SendPlain(ctx, commandCtx.Locator, "Could not remove collaborator. Please try again."); err != nil {
+		if err := sendPlain(ctx, h.actorDispatcher, userHandlerActorAddress, commandCtx.Locator, "Could not remove collaborator. Please try again."); err != nil {
 			return err
 		}
 		return nil
 	}
 
 	message := fmt.Sprintf("Collaborator removed: %s", userID)
-	if err := h.channel.SendPlain(ctx, commandCtx.Locator, message); err != nil {
+	if err := sendPlain(ctx, h.actorDispatcher, userHandlerActorAddress, commandCtx.Locator, message); err != nil {
 		return err
 	}
 	return nil

@@ -64,7 +64,7 @@ func (h *BaldaHandler) bootstrapOwnerSession(ctx context.Context, ownerID, chatI
 
 	metadata := h.sessionManager.GetAgentMetadata(baldaProviderName)
 	welcomeMsg := welcome.BuildAgentWelcomeMessage(ownerSessionLabel, ts.GetSessionID(), metadata.Type, metadata.Model, metadata.MCPServers)
-	_ = h.channel.SendMarkdown(ctx, locator, welcomeMsg)
+	_ = sendMarkdown(ctx, h.actorDispatcher, baldaHandlerActorAddress, locator, welcomeMsg)
 	h.sendSessionStartupNotice(ctx, locator, ts.GetSessionID())
 
 	h.logger.Info().
@@ -85,7 +85,7 @@ func (h *BaldaHandler) sendSessionStartupNotice(ctx context.Context, locator bal
 		return
 	}
 
-	if err := h.channel.SendPlain(ctx, locator, notice); err != nil {
+	if err := sendPlain(ctx, h.actorDispatcher, baldaHandlerActorAddress, locator, notice); err != nil {
 		h.logger.Warn().Err(err).Str("session_id", sessionID).Msg("failed to send session startup notice")
 	}
 }
@@ -129,13 +129,13 @@ func (h *BaldaHandler) onStart(ctx context.Context) error {
 
 	if err := h.bootstrapOwnerSession(ctx, owner.UserID, owner.ChatID); err != nil {
 		h.logger.Error().Err(err).Int64("owner_id", owner.UserID).Msg("failed to bootstrap owner session during startup")
-		if sendErr := h.messenger.SendPlain(ctx, owner.UserID, "Could not start owner session. Please try again.", 0); sendErr != nil {
+		if sendErr := sendPlain(ctx, h.actorDispatcher, baldaHandlerActorAddress, baldatelegram.NewLocator(owner.UserID, 0), "Could not start owner session. Please try again."); sendErr != nil {
 			h.logger.Warn().Err(sendErr).Msg("failed to send owner session failure message")
 		}
 		return fmt.Errorf("bootstrap owner session during startup: %w", err)
 	}
 
-	if err := h.messenger.SendPlain(ctx, owner.UserID, "Boss, I'm online and ready to work.", 0); err != nil {
+	if err := sendPlain(ctx, h.actorDispatcher, baldaHandlerActorAddress, baldatelegram.NewLocator(owner.UserID, 0), "Boss, I'm online and ready to work."); err != nil {
 		h.logger.Warn().Err(err).Int64("owner_id", owner.UserID).Msg("failed to send startup ready message to owner")
 		return nil
 	}

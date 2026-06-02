@@ -30,9 +30,9 @@ func TestTaskControlActorCancelsSessionWork(t *testing.T) {
 	turns := &fakeTurnDispatcher{}
 	actor := &taskControlActor{
 		turnDispatcher: turns,
+		dispatcher:     dispatcher,
 		tasks:          tasks,
 		taskRuns:       NewTaskRunRegistry(),
-		channel:        newBaldaTestTelegramAdapter(),
 	}
 	env, err := ControlCancelEnvelope(locator, "", testTelegramUserID101, "session canceled by user")
 	if err != nil {
@@ -75,9 +75,9 @@ func TestTaskControlActorCancelsSessionTurnOnly(t *testing.T) {
 	turns := &fakeTurnDispatcher{}
 	actor := &taskControlActor{
 		turnDispatcher: turns,
+		dispatcher:     dispatcher,
 		tasks:          tasks,
 		taskRuns:       NewTaskRunRegistry(),
-		channel:        newBaldaTestTelegramAdapter(),
 	}
 	env, err := ControlCancelTurnEnvelopeWithNotify(locator, testTelegramUserID101, "session turn canceled by user", true)
 	if err != nil {
@@ -117,9 +117,9 @@ func TestTaskControlActorCancelsTaskWork(t *testing.T) {
 	}
 	actor := &taskControlActor{
 		turnDispatcher: &fakeTurnDispatcher{},
+		dispatcher:     dispatcher,
 		tasks:          tasks,
 		taskRuns:       NewTaskRunRegistry(),
-		channel:        newBaldaTestTelegramAdapter(),
 	}
 	env, err := ControlCancelEnvelope(locator, "task-one", testTelegramUserID101, "task canceled by user")
 	if err != nil {
@@ -169,9 +169,9 @@ func TestTaskControlActorCancelsAllRegisteredTaskRuns(t *testing.T) {
 
 	actor := &taskControlActor{
 		turnDispatcher: &fakeTurnDispatcher{},
+		dispatcher:     dispatcher,
 		tasks:          tasks,
 		taskRuns:       registry,
-		channel:        newBaldaTestTelegramAdapter(),
 	}
 
 	env, err := ControlCancelEnvelope(locator, "task-multi-run", testTelegramUserID101, "task canceled by user")
@@ -229,9 +229,9 @@ func TestTaskControlActorClearsGoalTasksOnly(t *testing.T) {
 	turns := &fakeTurnDispatcher{}
 	actor := &taskControlActor{
 		turnDispatcher: turns,
+		dispatcher:     dispatcher,
 		tasks:          tasks,
 		taskRuns:       NewTaskRunRegistry(),
-		channel:        newBaldaTestTelegramAdapter(),
 	}
 	env, err := ControlClearGoalEnvelopeWithNotify(locator, testTelegramUserID101, "goal cleared by user", true)
 	if err != nil {

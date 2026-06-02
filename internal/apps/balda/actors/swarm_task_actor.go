@@ -39,10 +39,23 @@ type scheduledTaskPayload struct {
 }
 
 type DeliveryPayload struct {
-	TaskID  string                      `json:"task_id"`
+	TaskID  string                      `json:"task_id,omitempty"`
 	Locator baldasession.SessionLocator `json:"locator"`
-	Text    string                      `json:"text"`
+	Mode    DeliveryMode                `json:"mode"`
+	Text    string                      `json:"text,omitempty"`
+	DraftID int                         `json:"draft_id,omitempty"`
+	Action  string                      `json:"action,omitempty"`
 }
+
+type DeliveryMode string
+
+const (
+	DeliveryModeAgentReply DeliveryMode = "agent_reply"
+	DeliveryModePlain      DeliveryMode = "plain"
+	DeliveryModeMarkdown   DeliveryMode = "markdown"
+	DeliveryModeDraftPlain DeliveryMode = "draft_plain"
+	DeliveryModeChatAction DeliveryMode = "chat_action"
+)
 
 type taskActorExecutor struct {
 	tasks      *swarm.TaskService

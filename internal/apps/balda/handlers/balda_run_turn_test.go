@@ -176,10 +176,7 @@ func TestRunTurn_SendsProgressForNonTerminalEventsInDM(t *testing.T) {
 		TGClient:  tgClient,
 		Logger:    zerolog.Nop(),
 	})
-	h := &BaldaHandler{
-		channel: channel,
-		logger:  zerolog.Nop(),
-	}
+	h := newBaldaRunTurnHandlerWithChannel(channel, nil)
 
 	adkRunner, sessionID := newBaldaRunTurnTestRunner(t)
 	locator := baldatelegram.NewLocator(9001, 77)
@@ -236,10 +233,7 @@ func TestRunTurn_SkipsTypingAndDraftWhenAllProgressDisabled(t *testing.T) {
 		TGClient:  tgClient,
 		Logger:    zerolog.Nop(),
 	})
-	h := &BaldaHandler{
-		channel: channel,
-		logger:  zerolog.Nop(),
-	}
+	h := newBaldaRunTurnHandlerWithChannel(channel, nil)
 
 	adkRunner, sessionID := newBaldaRunTurnTestRunner(t)
 	locator := baldatelegram.NewLocator(9001, 77)
@@ -271,10 +265,7 @@ func TestRunTurn_SendsTypingWithoutThinkingDraftInPublicChat(t *testing.T) {
 		TGClient:  tgClient,
 		Logger:    zerolog.Nop(),
 	})
-	h := &BaldaHandler{
-		channel: channel,
-		logger:  zerolog.Nop(),
-	}
+	h := newBaldaRunTurnHandlerWithChannel(channel, nil)
 
 	adkRunner, sessionID := newBaldaRunTurnTestRunner(t)
 	locator := baldatelegram.NewLocator(9001, 77)
@@ -391,6 +382,9 @@ func TestRunTurn_TaskBackedProgressUsesDeliveryActor(t *testing.T) {
 
 	if len(tgClient.drafts) != 0 || len(tgClient.chatActions) != 0 || len(tgClient.messages) != 0 {
 		t.Fatalf("telegram direct sends = drafts:%d typing:%d messages:%d, want 0", len(tgClient.drafts), len(tgClient.chatActions), len(tgClient.messages))
+	}
+	if got := deliveryModeCount(t, bus.commands, actors.DeliveryModeChatAction); got != 1 {
+		t.Fatalf("chat action delivery commands = %d, want 1", got)
 	}
 	gotTexts := deliveryTextsFromCommands(t, bus.commands)
 	wantTexts := []string{
@@ -516,10 +510,7 @@ func TestRunTurn_SendsProgressAndGenericMessageForNonThoughtEventsWithoutFinalRe
 		TGClient:  tgClient,
 		Logger:    zerolog.Nop(),
 	})
-	h := &BaldaHandler{
-		channel: channel,
-		logger:  zerolog.Nop(),
-	}
+	h := newBaldaRunTurnHandlerWithChannel(channel, nil)
 
 	adkRunner, sessionID := newBaldaRunTurnTestRunnerWithEvents(t, func(invocationID string) []*adksession.Event {
 		toolCall := adksession.NewEvent(invocationID)
@@ -576,18 +567,14 @@ func TestRunTurn_SendsTypingAgainAfterThrottleInterval(t *testing.T) {
 		baseTime.Add(telegramProgressThrottleInterval),
 	}
 	timeIdx := 0
-	h := &BaldaHandler{
-		channel: channel,
-		logger:  zerolog.Nop(),
-		now: func() time.Time {
-			if timeIdx >= len(times) {
-				return times[len(times)-1]
-			}
-			now := times[timeIdx]
-			timeIdx++
-			return now
-		},
-	}
+	h := newBaldaRunTurnHandlerWithChannel(channel, func() time.Time {
+		if timeIdx >= len(times) {
+			return times[len(times)-1]
+		}
+		now := times[timeIdx]
+		timeIdx++
+		return now
+	})
 
 	adkRunner, sessionID := newBaldaRunTurnTestRunner(t)
 	locator := baldatelegram.NewLocator(9001, 77)
@@ -621,18 +608,14 @@ func TestRunTurn_SendsThinkingDraftAgainAfterThrottleInterval(t *testing.T) {
 		baseTime.Add(telegramProgressThrottleInterval),
 	}
 	timeIdx := 0
-	h := &BaldaHandler{
-		channel: channel,
-		logger:  zerolog.Nop(),
-		now: func() time.Time {
-			if timeIdx >= len(times) {
-				return times[len(times)-1]
-			}
-			now := times[timeIdx]
-			timeIdx++
-			return now
-		},
-	}
+	h := newBaldaRunTurnHandlerWithChannel(channel, func() time.Time {
+		if timeIdx >= len(times) {
+			return times[len(times)-1]
+		}
+		now := times[timeIdx]
+		timeIdx++
+		return now
+	})
 
 	adkRunner, sessionID := newBaldaRunTurnTestRunner(t)
 	locator := baldatelegram.NewLocator(9001, 77)
@@ -672,19 +655,15 @@ func TestRunTurn_DoesNotFallBackToThinkingAfterPlanDraftInDM(t *testing.T) {
 		baseTime.Add(2 * telegramProgressThrottleInterval),
 	}
 	timeIdx := 0
-	h := &BaldaHandler{
-		channel:            channel,
-		logger:             zerolog.Nop(),
-		planUpdatesEnabled: true,
-		now: func() time.Time {
-			if timeIdx >= len(times) {
-				return times[len(times)-1]
-			}
-			now := times[timeIdx]
-			timeIdx++
-			return now
-		},
-	}
+	h := newBaldaRunTurnHandlerWithChannel(channel, func() time.Time {
+		if timeIdx >= len(times) {
+			return times[len(times)-1]
+		}
+		now := times[timeIdx]
+		timeIdx++
+		return now
+	})
+	h.planUpdatesEnabled = true
 
 	adkRunner, sessionID := newBaldaRunTurnTestRunnerWithEvents(t, func(invocationID string) []*adksession.Event {
 		thought := adksession.NewEvent(invocationID)
@@ -742,10 +721,7 @@ func TestRunTurn_SendsFinalResponseWithoutParseModeWhenConfiguredNone(t *testing
 		TGClient:  tgClient,
 		Logger:    zerolog.Nop(),
 	})
-	h := &BaldaHandler{
-		channel: channel,
-		logger:  zerolog.Nop(),
-	}
+	h := newBaldaRunTurnHandlerWithChannel(channel, nil)
 
 	adkRunner, sessionID := newBaldaRunTurnTestRunner(t)
 	locator := baldatelegram.NewLocator(9001, 77)
@@ -771,10 +747,7 @@ func TestRunTurn_SkipsExactDuplicateFinalAfterStreamedText(t *testing.T) {
 		TGClient:  tgClient,
 		Logger:    zerolog.Nop(),
 	})
-	h := &BaldaHandler{
-		channel: channel,
-		logger:  zerolog.Nop(),
-	}
+	h := newBaldaRunTurnHandlerWithChannel(channel, nil)
 
 	adkRunner, sessionID := newBaldaRunTurnTestRunnerWithEvents(t, func(invocationID string) []*adksession.Event {
 		partial := adksession.NewEvent(invocationID)
@@ -813,10 +786,7 @@ func TestRunTurn_MergesFinalResponseDeltaChunksOnTurnComplete(t *testing.T) {
 		TGClient:  tgClient,
 		Logger:    zerolog.Nop(),
 	})
-	h := &BaldaHandler{
-		channel: channel,
-		logger:  zerolog.Nop(),
-	}
+	h := newBaldaRunTurnHandlerWithChannel(channel, nil)
 
 	adkRunner, sessionID := newBaldaRunTurnTestRunnerWithEvents(t, func(invocationID string) []*adksession.Event {
 		chunkOne := adksession.NewEvent(invocationID)
@@ -858,10 +828,7 @@ func TestRunTurn_AppendsFinalResponseTextEventsOnTurnComplete(t *testing.T) {
 		TGClient:  tgClient,
 		Logger:    zerolog.Nop(),
 	})
-	h := &BaldaHandler{
-		channel: channel,
-		logger:  zerolog.Nop(),
-	}
+	h := newBaldaRunTurnHandlerWithChannel(channel, nil)
 
 	adkRunner, sessionID := newBaldaRunTurnTestRunnerWithEvents(t, func(invocationID string) []*adksession.Event {
 		chunkOne := adksession.NewEvent(invocationID)
@@ -901,10 +868,7 @@ func TestRunTurn_SendsGenericMessageWhenOnlyNonFinalTextExistsOnTurnComplete(t *
 		TGClient:  tgClient,
 		Logger:    zerolog.Nop(),
 	})
-	h := &BaldaHandler{
-		channel: channel,
-		logger:  zerolog.Nop(),
-	}
+	h := newBaldaRunTurnHandlerWithChannel(channel, nil)
 
 	adkRunner, sessionID := newBaldaRunTurnTestRunnerWithEvents(t, func(invocationID string) []*adksession.Event {
 		nonFinalOne := adksession.NewEvent(invocationID)
@@ -954,10 +918,7 @@ func TestRunTurn_DoesNotLeakNonFinalProgressTextInPublicChat(t *testing.T) {
 		TGClient:  tgClient,
 		Logger:    zerolog.Nop(),
 	})
-	h := &BaldaHandler{
-		channel: channel,
-		logger:  zerolog.Nop(),
-	}
+	h := newBaldaRunTurnHandlerWithChannel(channel, nil)
 
 	adkRunner, sessionID := newBaldaRunTurnTestRunnerWithEvents(t, func(invocationID string) []*adksession.Event {
 		progressOne := adksession.NewEvent(invocationID)
@@ -1021,10 +982,7 @@ func TestRunTurn_SendsFinalTextFromTurnCompleteEvent(t *testing.T) {
 		TGClient:  tgClient,
 		Logger:    zerolog.Nop(),
 	})
-	h := &BaldaHandler{
-		channel: channel,
-		logger:  zerolog.Nop(),
-	}
+	h := newBaldaRunTurnHandlerWithChannel(channel, nil)
 
 	adkRunner, sessionID := newBaldaRunTurnTestRunnerWithEvents(t, func(invocationID string) []*adksession.Event {
 		progress := adksession.NewEvent(invocationID)
@@ -1184,10 +1142,7 @@ func TestRunTurn_DoesNotSendWithoutTurnComplete(t *testing.T) {
 		TGClient:  tgClient,
 		Logger:    zerolog.Nop(),
 	})
-	h := &BaldaHandler{
-		channel: channel,
-		logger:  zerolog.Nop(),
-	}
+	h := newBaldaRunTurnHandlerWithChannel(channel, nil)
 
 	adkRunner, sessionID := newBaldaRunTurnTestRunnerWithEvents(t, func(invocationID string) []*adksession.Event {
 		final := adksession.NewEvent(invocationID)
@@ -1215,10 +1170,7 @@ func TestRunTurn_SendsGenericMessageWhenOnlyPartialTextExistsOnTurnComplete(t *t
 		TGClient:  tgClient,
 		Logger:    zerolog.Nop(),
 	})
-	h := &BaldaHandler{
-		channel: channel,
-		logger:  zerolog.Nop(),
-	}
+	h := newBaldaRunTurnHandlerWithChannel(channel, nil)
 
 	adkRunner, sessionID := newBaldaRunTurnTestRunnerWithEvents(t, func(invocationID string) []*adksession.Event {
 		partialOne := adksession.NewEvent(invocationID)
@@ -1258,10 +1210,7 @@ func TestRunTurn_SendsGenericMessageWhenOnlyPartialMarkdownChunksExistOnTurnComp
 		TGClient:  tgClient,
 		Logger:    zerolog.Nop(),
 	})
-	h := &BaldaHandler{
-		channel: channel,
-		logger:  zerolog.Nop(),
-	}
+	h := newBaldaRunTurnHandlerWithChannel(channel, nil)
 
 	adkRunner, sessionID := newBaldaRunTurnTestRunnerWithEvents(t, func(invocationID string) []*adksession.Event {
 		partialOne := adksession.NewEvent(invocationID)
@@ -1305,10 +1254,7 @@ func TestRunTurn_SendsGenericMessageWhenOnlyThoughtOrPartialTextExistsOnTurnComp
 		TGClient:  tgClient,
 		Logger:    zerolog.Nop(),
 	})
-	h := &BaldaHandler{
-		channel: channel,
-		logger:  zerolog.Nop(),
-	}
+	h := newBaldaRunTurnHandlerWithChannel(channel, nil)
 
 	adkRunner, sessionID := newBaldaRunTurnTestRunnerWithEvents(t, func(invocationID string) []*adksession.Event {
 		thought := adksession.NewEvent(invocationID)
@@ -1518,10 +1464,19 @@ func newBaldaRunTurnTestHandler(t *testing.T, agentReplyFormattingNone bool) (*B
 		Logger:    zerolog.Nop(),
 	})
 
+	return newBaldaRunTurnHandlerWithChannel(channel, nil), tgClient
+}
+
+func newBaldaRunTurnHandlerWithChannel(channel *baldatelegram.Adapter, now func() time.Time) *BaldaHandler {
+	if channel == nil {
+		return &BaldaHandler{logger: zerolog.Nop(), now: now}
+	}
 	return &BaldaHandler{
-		channel: channel,
-		logger:  zerolog.Nop(),
-	}, tgClient
+		channel:         channel,
+		actorDispatcher: &recordingHandlerCommandBus{deliveryAdapter: channel},
+		logger:          zerolog.Nop(),
+		now:             now,
+	}
 }
 
 func newBaldaRunTurnTaskTestHandler(t *testing.T) (*BaldaHandler, *baldaRunTurnTelegramClient, *recordingHandlerCommandBus, *swarm.TaskService) {
@@ -1576,6 +1531,9 @@ func deliveryTextsFromCommands(t *testing.T, commands []swarm.Envelope) []string
 		if err := json.Unmarshal([]byte(env.PayloadJSON), &payload); err != nil {
 			t.Fatalf("decode delivery payload: %v", err)
 		}
+		if strings.TrimSpace(payload.Text) == "" {
+			continue
+		}
 		texts = append(texts, payload.Text)
 	}
 	return texts
@@ -1603,6 +1561,25 @@ func taskEventPayload(t *testing.T, env swarm.Envelope) map[string]any {
 		t.Fatalf("decode task event payload: %v", err)
 	}
 	return payload
+}
+
+func deliveryModeCount(t *testing.T, commands []swarm.Envelope, mode actors.DeliveryMode) int {
+	t.Helper()
+
+	count := 0
+	for _, env := range commands {
+		if env.To.Target != swarm.ActorTypeDelivery {
+			continue
+		}
+		var payload actors.DeliveryPayload
+		if err := json.Unmarshal([]byte(env.PayloadJSON), &payload); err != nil {
+			t.Fatalf("decode delivery payload: %v", err)
+		}
+		if payload.Mode == mode {
+			count++
+		}
+	}
+	return count
 }
 
 func newBaldaRunTurnTestRunnerWithEvents(
