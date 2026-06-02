@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/google/uuid"
+	"github.com/normahq/balda/internal/apps/balda/deliverycmd"
 	baldasession "github.com/normahq/balda/internal/apps/balda/session"
 	baldastate "github.com/normahq/balda/internal/apps/balda/state"
 	"github.com/normahq/balda/internal/apps/balda/swarm"
@@ -38,23 +39,16 @@ type scheduledTaskPayload struct {
 	TopicID      int                          `json:"topic_id,omitempty"`
 }
 
-type DeliveryPayload struct {
-	TaskID  string                      `json:"task_id,omitempty"`
-	Locator baldasession.SessionLocator `json:"locator"`
-	Mode    DeliveryMode                `json:"mode"`
-	Text    string                      `json:"text,omitempty"`
-	DraftID int                         `json:"draft_id,omitempty"`
-	Action  string                      `json:"action,omitempty"`
-}
+type DeliveryPayload = deliverycmd.Payload
 
-type DeliveryMode string
+type DeliveryMode = deliverycmd.Mode
 
 const (
-	DeliveryModeAgentReply DeliveryMode = "agent_reply"
-	DeliveryModePlain      DeliveryMode = "plain"
-	DeliveryModeMarkdown   DeliveryMode = "markdown"
-	DeliveryModeDraftPlain DeliveryMode = "draft_plain"
-	DeliveryModeChatAction DeliveryMode = "chat_action"
+	DeliveryModeAgentReply DeliveryMode = deliverycmd.ModeAgentReply
+	DeliveryModePlain      DeliveryMode = deliverycmd.ModePlain
+	DeliveryModeMarkdown   DeliveryMode = deliverycmd.ModeMarkdown
+	DeliveryModeDraftPlain DeliveryMode = deliverycmd.ModeDraftPlain
+	DeliveryModeChatAction DeliveryMode = deliverycmd.ModeChatAction
 )
 
 type taskActorExecutor struct {

@@ -25,7 +25,7 @@ func TestGoalKeeperActorCompletesPassingRun(t *testing.T) {
 
 	ctx := context.Background()
 	_, bus, dispatcher, tasks, _ := newTaskActorSwarmServices(t, ctx)
-	locator := session.SessionLocator{SessionID: "tg-101-202", AddressKey: "101"}
+	locator := session.SessionLocator{ChannelType: "telegram", SessionID: "tg-101-202", AddressKey: "101"}
 	ts := newBaldaTopicSession(t, locator.SessionID)
 	setUnexportedField(t, ts, "userID", "101")
 	setUnexportedField(t, ts, "agentSessionID", "adk-session-1")
@@ -71,6 +71,15 @@ func TestGoalKeeperActorCompletesPassingRun(t *testing.T) {
 	if got := lastPublishedCommandTo(t, bus, swarm.ActorTypeDelivery, locator.DeliveryActorKey()); got.Kind != taskPayloadKindDelivery {
 		t.Fatalf("last delivery = %+v, want delivery command", got)
 	}
+	payloads := deliveryPayloadsForTask(t, bus, env.TaskID)
+	if len(payloads) == 0 {
+		t.Fatalf("delivery payloads = %v, want at least one", payloads)
+	}
+	for _, payload := range payloads {
+		if payload.Mode != DeliveryModeAgentReply {
+			t.Fatalf("delivery payload mode = %q, want %q", payload.Mode, DeliveryModeAgentReply)
+		}
+	}
 }
 
 func TestGoalKeeperActorRejectsSecondActiveGoalInSession(t *testing.T) {
@@ -78,7 +87,7 @@ func TestGoalKeeperActorRejectsSecondActiveGoalInSession(t *testing.T) {
 
 	ctx := context.Background()
 	_, bus, dispatcher, tasks, _ := newTaskActorSwarmServices(t, ctx)
-	locator := session.SessionLocator{SessionID: "tg-101-202", AddressKey: "101"}
+	locator := session.SessionLocator{ChannelType: "telegram", SessionID: "tg-101-202", AddressKey: "101"}
 	ts := newBaldaTopicSession(t, locator.SessionID)
 	setUnexportedField(t, ts, "userID", "101")
 	setUnexportedField(t, ts, "agentSessionID", "adk-session-1")
@@ -137,7 +146,7 @@ func TestGoalKeeperActorDeliversWorkerProgressAndDedupesRepeatedOutput(t *testin
 
 	ctx := context.Background()
 	_, bus, dispatcher, tasks, _ := newTaskActorSwarmServices(t, ctx)
-	locator := session.SessionLocator{SessionID: "tg-101-202", AddressKey: "101"}
+	locator := session.SessionLocator{ChannelType: "telegram", SessionID: "tg-101-202", AddressKey: "101"}
 	ts := newBaldaTopicSession(t, locator.SessionID)
 	setUnexportedField(t, ts, "userID", "101")
 	setUnexportedField(t, ts, "agentSessionID", "adk-session-1")
@@ -211,7 +220,7 @@ func TestGoalKeeperActorDeliversPlanUpdatesWhenEnabled(t *testing.T) {
 
 	ctx := context.Background()
 	_, bus, dispatcher, tasks, _ := newTaskActorSwarmServices(t, ctx)
-	locator := session.SessionLocator{SessionID: "tg-101-202", AddressKey: "101"}
+	locator := session.SessionLocator{ChannelType: "telegram", SessionID: "tg-101-202", AddressKey: "101"}
 	ts := newBaldaTopicSession(t, locator.SessionID)
 	setUnexportedField(t, ts, "userID", "101")
 	setUnexportedField(t, ts, "agentSessionID", "adk-session-1")
@@ -341,7 +350,7 @@ func TestGoalKeeperActorPreservesWorkspaceOnExportFailure(t *testing.T) {
 	_ = provider
 	_ = bus
 	_ = allocator
-	locator := session.SessionLocator{SessionID: "tg-101-202", AddressKey: "101"}
+	locator := session.SessionLocator{ChannelType: "telegram", SessionID: "tg-101-202", AddressKey: "101"}
 	ts := newBaldaTopicSession(t, locator.SessionID)
 	setUnexportedField(t, ts, "userID", "101")
 	setUnexportedField(t, ts, "agentSessionID", "adk-session-1")
@@ -464,20 +473,28 @@ func (r fakeGoalRuntime) ExportWorkspace(ctx context.Context, commitMessage stri
 
 func deliveryTextsForTask(t *testing.T, bus *recordingHandlerCommandBus, taskID string) []string {
 	t.Helper()
+	payloads := deliveryPayloadsForTask(t, bus, taskID)
 	var texts []string
+	for _, payload := range payloads {
+		texts = append(texts, payload.Text)
+	}
+	return texts
+}
+
+func deliveryPayloadsForTask(t *testing.T, bus *recordingHandlerCommandBus, taskID string) []DeliveryPayload {
+	t.Helper()
+	var payloads []DeliveryPayload
 	for _, env := range bus.commands {
 		if env.TaskID != taskID || env.To.Target != swarm.ActorTypeDelivery {
 			continue
 		}
-		var payload struct {
-			Text string `json:"text"`
-		}
+		var payload DeliveryPayload
 		if err := json.Unmarshal([]byte(env.PayloadJSON), &payload); err != nil {
 			t.Fatalf("decode delivery payload: %v", err)
 		}
-		texts = append(texts, payload.Text)
+		payloads = append(payloads, payload)
 	}
-	return texts
+	return payloads
 }
 
 func countMatches(values []string, want string) int {

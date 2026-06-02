@@ -4,7 +4,7 @@ Balda `/goal <objective>` starts goal work from the current session context in a
 
 Use `/goal clear` to stop active goal work for the current session. `/cancel` does not stop GoalKeeper runs.
 
-The workflow uses the configured `balda.provider` and the Balda MCP server set, but it does not reuse the current chat runtime session, workspace, or state. Each `/goal` run gets:
+The workflow uses the configured `balda.provider` and the Balda MCP server set through the same app-scoped Balda provider runtime used by normal session turns, but it does not reuse the current chat runtime session, workspace, or state. Each `/goal` run gets:
 
 - a separate GoalKeeper ADK session/state
 - a separate goal workspace under Balda state

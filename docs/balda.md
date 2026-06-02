@@ -173,7 +173,7 @@ flowchart TB
 
 Balda treats `actorlayer` as the reusable actor library boundary and never as product policy.
 
-- `balda.provider` selects one app-scoped provider runtime for all Balda sessions and `/goal` worker-validator runs in the process.
+- `balda.provider` selects one app-scoped provider runtime for all Balda sessions and `/goal` worker-validator runs in the process. `/goal` still creates isolated goal session/workspace state, but it reuses the same provider runtime/client ownership as normal session turns.
 - Actorlayer owns generic actor mechanics: registration, addressing, envelopes, retry/error helpers, lane execution, lifecycle state, and transport-facing contracts.
 - Balda owns product actors and product behavior implemented as actors: session turns, task routing, goal execution, delivery, control, and memory.
 - Balda exposes its durable transport to product/runtime code only as actorlayer source, delivery, and dispatch abstractions; the concrete transport stays inside the NATS adapter.

@@ -257,6 +257,7 @@ func (m *RuntimeManager) BuildGoalRuntime(
 	}
 
 	workflow, err := base.builder.BuildGoalWorkflow(ctx, GoalBuildConfig{
+		BaseAgent:         base.runtime.Agent,
 		ProviderID:        base.providerID,
 		SessionID:         sourceSessionID,
 		BranchName:        branchName,
@@ -380,18 +381,10 @@ func (b childRuntimeBase) buildGoalCommitMessage(
 	workerOutput string,
 	validatorOutput string,
 ) (string, error) {
-	agent, err := b.builder.buildGoalCommitAgent(ctx, goalCommitAgentConfig{
-		ProviderID:        b.providerID,
-		SessionID:         sourceSessionID,
-		SessionBranch:     branchName,
-		WorkspaceDir:      workspaceDir,
-		RepoBranchAtStart: b.builder.currentRepoBranch(ctx),
-		MCPServerIDs:      b.extraMCPServerIDs,
-	})
+	agent, err := buildGoalCommitAgent(b.runtime.Agent)
 	if err != nil {
 		return "", err
 	}
-	defer func() { _ = closeRuntimeAgent(agent) }()
 
 	r, err := b.runner(agent, "goal commit message")
 	if err != nil {

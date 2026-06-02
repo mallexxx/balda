@@ -4,14 +4,12 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"io"
 	"iter"
 	"regexp"
 	"strings"
 	"sync"
 
 	"github.com/normahq/balda/internal/apps/balda/goalkeeperworkflow"
-	"github.com/normahq/norma/pkg/runtime/agentfactory"
 	adkagent "google.golang.org/adk/agent"
 	adksession "google.golang.org/adk/session"
 	"google.golang.org/genai"
@@ -28,6 +26,7 @@ var conventionalCommitSubjectPattern = regexp.MustCompile(`^[a-z]+(?:\([^)]+\))?
 
 // GoalBuildConfig configures Balda's /goal worker-validator workflow.
 type GoalBuildConfig struct {
+	BaseAgent           adkagent.Agent
 	ProviderID          string
 	SessionID           string
 	BranchName          string
@@ -40,136 +39,107 @@ type GoalBuildConfig struct {
 // BuildGoalWorkflow builds Balda's /goal worker-validator workflow using
 // Balda's configured provider for both child agents.
 func (b *Builder) BuildGoalWorkflow(ctx context.Context, cfg GoalBuildConfig) (adkagent.Agent, error) {
-	if b == nil || b.factory == nil {
+	_ = ctx
+	if b == nil {
 		return nil, fmt.Errorf("agent builder is required")
 	}
 	providerID := strings.TrimSpace(cfg.ProviderID)
 	if providerID == "" {
 		return nil, fmt.Errorf("balda provider is not configured")
 	}
-	sessionID := strings.TrimSpace(cfg.SessionID)
-	if sessionID == "" {
+	if strings.TrimSpace(cfg.SessionID) == "" {
 		return nil, fmt.Errorf("session id is required")
 	}
-	workspaceDir := strings.TrimSpace(cfg.WorkspaceDir)
-	if workspaceDir == "" {
+	if strings.TrimSpace(cfg.WorkspaceDir) == "" {
 		return nil, fmt.Errorf("workspace dir is required")
 	}
 	if cfg.MaxIterations == 0 {
 		return nil, fmt.Errorf("max iterations must be greater than zero")
 	}
-
-	repoBranchAtStart := b.currentRepoBranch(ctx)
-	sessionBranch := strings.TrimSpace(cfg.BranchName)
-	if sessionBranch == "" {
-		sessionBranch = fmt.Sprintf("norma/balda/%s", sessionID)
+	if cfg.BaseAgent == nil {
+		return nil, fmt.Errorf("goal base agent is required")
 	}
-	mcpServerIDs := b.buildAgentMCPServerIDs(providerID, cfg.BundledMCPServerIDs, cfg.ExtraMCPServerIDs)
 
-	worker, err := b.buildGoalChildAgent(ctx, goalChildAgentConfig{
-		ProviderID:        providerID,
-		Name:              goalWorkerName,
-		Description:       "Goal worker agent",
-		SessionID:         sessionID,
-		SessionBranch:     sessionBranch,
-		WorkspaceDir:      workspaceDir,
-		RepoBranchAtStart: repoBranchAtStart,
-		RoleInstruction:   goalWorkerInstruction(),
-		OutputKey:         goalWorkerOutputStateKey,
-		MCPServerIDs:      mcpServerIDs,
+	worker, err := wrapGoalPromptAgent(cfg.BaseAgent, goalPromptAgentConfig{
+		Name:        goalWorkerName,
+		Description: "Goal worker agent",
+		OutputKey:   goalWorkerOutputStateKey,
+		BuildPrompt: func(ctx adkagent.InvocationContext) (string, error) {
+			prompt := extractGoalPromptText(ctx.UserContent())
+			if prompt == "" {
+				return "", fmt.Errorf("goal prompt is empty")
+			}
+			return joinGoalPromptSections(goalWorkerInstruction(), prompt), nil
+		},
 	})
 	if err != nil {
 		return nil, err
 	}
 
-	rawValidator, err := b.buildGoalChildAgent(ctx, goalChildAgentConfig{
-		ProviderID:        providerID,
-		Name:              goalValidatorName,
-		Description:       "Goal validator agent",
-		SessionID:         sessionID,
-		SessionBranch:     sessionBranch,
-		WorkspaceDir:      workspaceDir,
-		RepoBranchAtStart: repoBranchAtStart,
-		RoleInstruction:   goalValidatorInstruction(),
-		MCPServerIDs:      mcpServerIDs,
-	})
+	validator, err := wrapGoalValidatorWithWorkerOutput(cfg.BaseAgent, goalWorkerOutputStateKey, goalValidatorInstruction())
 	if err != nil {
-		_ = closeRuntimeAgent(worker)
-		return nil, err
-	}
-	validator, err := wrapGoalValidatorWithWorkerOutput(rawValidator, goalWorkerOutputStateKey)
-	if err != nil {
-		_ = closeRuntimeAgent(worker)
-		_ = closeRuntimeAgent(rawValidator)
 		return nil, err
 	}
 
 	workflow, err := goalkeeperworkflow.New(worker, validator, cfg.MaxIterations)
 	if err != nil {
-		_ = closeRuntimeAgent(worker)
-		_ = closeRuntimeAgent(validator)
 		return nil, err
 	}
-	closers := make([]io.Closer, 0, 2)
-	if closer, ok := worker.(io.Closer); ok {
-		closers = append(closers, closer)
-	}
-	if closer, ok := validator.(io.Closer); ok {
-		closers = append(closers, closer)
-	}
-	return &closableGoalWorkflow{Agent: workflow, base: workflow, closers: closers}, nil
+	return &closableGoalWorkflow{Agent: workflow, base: workflow}, nil
 }
 
-type goalChildAgentConfig struct {
-	ProviderID        string
-	Name              string
-	Description       string
-	SessionID         string
-	SessionBranch     string
-	WorkspaceDir      string
-	RepoBranchAtStart string
-	RoleInstruction   string
-	OutputKey         string
-	MCPServerIDs      []string
+type goalPromptBuilder func(adkagent.InvocationContext) (string, error)
+
+type goalPromptAgentConfig struct {
+	Name        string
+	Description string
+	OutputKey   string
+	BuildPrompt goalPromptBuilder
 }
 
-func (b *Builder) buildGoalChildAgent(ctx context.Context, cfg goalChildAgentConfig) (adkagent.Agent, error) {
-	req := b.goalChildBuildRequest(cfg)
-	ag, err := b.factory.Build(ctx, req)
-	if err != nil {
-		return nil, fmt.Errorf("creating %s from provider %q: %w", cfg.Name, cfg.ProviderID, err)
+func wrapGoalPromptAgent(base adkagent.Agent, cfg goalPromptAgentConfig) (adkagent.Agent, error) {
+	if base == nil {
+		return nil, fmt.Errorf("goal base agent is required")
 	}
-	return ag, nil
-}
-
-func (b *Builder) goalChildBuildRequest(cfg goalChildAgentConfig) agentfactory.BuildRequest {
-	baseInstruction := b.buildBaldaInstruction(
-		cfg.SessionID,
-		"telegram",
-		cfg.ProviderID,
-		cfg.SessionBranch,
-		cfg.WorkspaceDir,
-		cfg.RepoBranchAtStart,
-	)
-	parts := []string{
-		strings.TrimSpace(baseInstruction),
-		strings.TrimSpace(cfg.RoleInstruction),
+	if cfg.BuildPrompt == nil {
+		return nil, fmt.Errorf("goal prompt builder is required")
 	}
-	var instructionParts []string
-	for _, part := range parts {
-		if part != "" {
-			instructionParts = append(instructionParts, part)
-		}
-	}
-	return agentfactory.BuildRequest{
-		AgentID:          cfg.ProviderID,
-		Name:             cfg.Name,
-		Description:      cfg.Description,
-		WorkingDirectory: cfg.WorkspaceDir,
-		Instruction:      strings.Join(instructionParts, "\n\n"),
-		OutputKey:        strings.TrimSpace(cfg.OutputKey),
-		MCPServerIDs:     cfg.MCPServerIDs,
-	}
+	outputKey := strings.TrimSpace(cfg.OutputKey)
+	return adkagent.New(adkagent.Config{
+		Name:        cfg.Name,
+		Description: cfg.Description,
+		Run: func(ctx adkagent.InvocationContext) iter.Seq2[*adksession.Event, error] {
+			return func(yield func(*adksession.Event, error) bool) {
+				prompt, err := cfg.BuildPrompt(ctx)
+				if err != nil {
+					yield(nil, err)
+					return
+				}
+				wrappedCtx := goalUserContentContext{
+					InvocationContext: ctx,
+					userContent:       genai.NewContentFromText(prompt, genai.RoleUser),
+				}
+				finalOutput := ""
+				for ev, err := range base.Run(wrappedCtx) {
+					if text := visibleGoalEventText(ev); text != "" {
+						finalOutput = text
+					}
+					if !yield(ev, err) {
+						return
+					}
+					if err != nil {
+						return
+					}
+				}
+				if outputKey == "" || ctx == nil || ctx.Session() == nil {
+					return
+				}
+				if err := ctx.Session().State().Set(outputKey, strings.TrimSpace(finalOutput)); err != nil {
+					yield(nil, fmt.Errorf("set goal session output %q: %w", outputKey, err))
+				}
+			}
+		},
+	})
 }
 
 func goalWorkerInstruction() string {
@@ -198,44 +168,14 @@ func goalValidatorInstruction() string {
 	}, "\n")
 }
 
-type goalCommitAgentConfig struct {
-	ProviderID        string
-	SessionID         string
-	SessionBranch     string
-	WorkspaceDir      string
-	RepoBranchAtStart string
-	MCPServerIDs      []string
-}
-
-func (b *Builder) buildGoalCommitAgent(ctx context.Context, cfg goalCommitAgentConfig) (adkagent.Agent, error) {
-	req := b.goalCommitBuildRequest(cfg)
-	ag, err := b.factory.Build(ctx, req)
-	if err != nil {
-		return nil, fmt.Errorf("creating %s from provider %q: %w", goalCommitterName, cfg.ProviderID, err)
-	}
-	return ag, nil
-}
-
-func (b *Builder) goalCommitBuildRequest(cfg goalCommitAgentConfig) agentfactory.BuildRequest {
-	baseInstruction := b.buildBaldaInstruction(
-		cfg.SessionID,
-		"telegram",
-		cfg.ProviderID,
-		cfg.SessionBranch,
-		cfg.WorkspaceDir,
-		cfg.RepoBranchAtStart,
-	)
-	return agentfactory.BuildRequest{
-		AgentID:          cfg.ProviderID,
-		Name:             goalCommitterName,
-		Description:      "Goal export commit message generator",
-		WorkingDirectory: cfg.WorkspaceDir,
-		Instruction: strings.Join([]string{
-			strings.TrimSpace(baseInstruction),
-			goalCommitterInstruction(),
-		}, "\n\n"),
-		MCPServerIDs: cfg.MCPServerIDs,
-	}
+func buildGoalCommitAgent(base adkagent.Agent) (adkagent.Agent, error) {
+	return wrapGoalPromptAgent(base, goalPromptAgentConfig{
+		Name:        goalCommitterName,
+		Description: "Goal export commit message generator",
+		BuildPrompt: func(ctx adkagent.InvocationContext) (string, error) {
+			return joinGoalPromptSections(goalCommitterInstruction(), extractGoalPromptText(ctx.UserContent())), nil
+		},
+	})
 }
 
 func goalCommitterInstruction() string {
@@ -293,124 +233,23 @@ func visibleGoalEventText(ev *adksession.Event) string {
 	return strings.Join(parts, "\n\n")
 }
 
-func wrapGoalValidatorWithWorkerOutput(inner adkagent.Agent, workerOutputStateKey string) (adkagent.Agent, error) {
+func wrapGoalValidatorWithWorkerOutput(inner adkagent.Agent, workerOutputStateKey string, roleInstruction string) (adkagent.Agent, error) {
 	key := strings.TrimSpace(workerOutputStateKey)
 	if key == "" {
 		return nil, fmt.Errorf("worker output state key is required")
 	}
-
-	base, err := adkagent.New(adkagent.Config{
+	base, err := wrapGoalPromptAgent(inner, goalPromptAgentConfig{
 		Name:        inner.Name(),
 		Description: inner.Description(),
-		SubAgents:   inner.SubAgents(),
-		Run: func(ctx adkagent.InvocationContext) iter.Seq2[*adksession.Event, error] {
-			return func(yield func(*adksession.Event, error) bool) {
-				goal := ""
-				if content := ctx.UserContent(); content != nil {
-					var parts []string
-					for _, part := range content.Parts {
-						if part == nil || part.Thought {
-							continue
-						}
-						text := strings.TrimSpace(part.Text)
-						if text != "" {
-							parts = append(parts, text)
-						}
-					}
-					goal = strings.Join(parts, "\n\n")
-				}
-				workerOutput := ""
-				if ctx != nil && ctx.Session() != nil {
-					value, err := ctx.Session().State().Get(key)
-					if err == nil && value != nil {
-						workerOutput = strings.TrimSpace(fmt.Sprintf("%v", value))
-					}
-				}
-				if goal == "" {
-					goal = "Goal:"
-				}
-				prompt := goal + "\n\nWorker result:\n" + workerOutput
-				if workerOutput == "" {
-					prompt = goal + "\n\nWorker result:\n(none)"
-				}
-				wrappedCtx := goalUserContentContext{
-					InvocationContext: ctx,
-					userContent:       genai.NewContentFromText(prompt, genai.RoleUser),
-				}
-				for ev, err := range inner.Run(wrappedCtx) {
-					if !yield(ev, err) {
-						return
-					}
-					if err != nil {
-						return
-					}
-				}
-			}
+		BuildPrompt: func(ctx adkagent.InvocationContext) (string, error) {
+			prompt := buildGoalValidationPrompt(ctx, key)
+			return joinGoalPromptSections(roleInstruction, prompt), nil
 		},
 	})
 	if err != nil {
 		return nil, err
 	}
-	closer, ok := inner.(io.Closer)
-	if !ok {
-		return base, nil
-	}
-	return goalValidatorWrapper{Agent: base, base: base, closer: closer}, nil
-}
-
-type goalValidatorWrapper struct {
-	adkagent.Agent
-	base   adkagent.Agent
-	closer io.Closer
-}
-
-func (w goalValidatorWrapper) Name() string {
-	if w.base == nil {
-		return ""
-	}
-	return w.base.Name()
-}
-
-func (w goalValidatorWrapper) Description() string {
-	if w.base == nil {
-		return ""
-	}
-	return w.base.Description()
-}
-
-func (w goalValidatorWrapper) SubAgents() []adkagent.Agent {
-	if w.base == nil {
-		return nil
-	}
-	return w.base.SubAgents()
-}
-
-func (w goalValidatorWrapper) Run(ctx adkagent.InvocationContext) iter.Seq2[*adksession.Event, error] {
-	if w.base == nil {
-		return func(func(*adksession.Event, error) bool) {}
-	}
-	return w.base.Run(ctx)
-}
-
-func (w goalValidatorWrapper) FindAgent(name string) adkagent.Agent {
-	if w.base == nil {
-		return nil
-	}
-	return w.base.FindAgent(name)
-}
-
-func (w goalValidatorWrapper) FindSubAgent(name string) adkagent.Agent {
-	if w.base == nil {
-		return nil
-	}
-	return w.base.FindSubAgent(name)
-}
-
-func (w goalValidatorWrapper) Close() error {
-	if w.closer == nil {
-		return nil
-	}
-	return w.closer.Close()
+	return base, nil
 }
 
 type goalUserContentContext struct {
@@ -424,10 +263,9 @@ func (c goalUserContentContext) UserContent() *genai.Content {
 
 type closableGoalWorkflow struct {
 	adkagent.Agent
-	base    adkagent.Agent
-	closers []io.Closer
-	once    sync.Once
-	err     error
+	base adkagent.Agent
+	once sync.Once
+	err  error
 }
 
 func (w *closableGoalWorkflow) Name() string {
@@ -477,19 +315,56 @@ func (w *closableGoalWorkflow) Close() error {
 		return nil
 	}
 	w.once.Do(func() {
-		errs := make([]error, 0, len(w.closers)+1)
+		errs := make([]error, 0, 1)
 		if err := closeRuntimeAgent(w.base); err != nil {
 			errs = append(errs, err)
-		}
-		for _, closer := range w.closers {
-			if closer == nil {
-				continue
-			}
-			if err := closer.Close(); err != nil {
-				errs = append(errs, err)
-			}
 		}
 		w.err = errors.Join(errs...)
 	})
 	return w.err
+}
+
+func extractGoalPromptText(content *genai.Content) string {
+	if content == nil {
+		return ""
+	}
+	var parts []string
+	for _, part := range content.Parts {
+		if part == nil || part.Thought {
+			continue
+		}
+		text := strings.TrimSpace(part.Text)
+		if text != "" {
+			parts = append(parts, text)
+		}
+	}
+	return strings.Join(parts, "\n\n")
+}
+
+func joinGoalPromptSections(parts ...string) string {
+	filtered := make([]string, 0, len(parts))
+	for _, part := range parts {
+		if trimmed := strings.TrimSpace(part); trimmed != "" {
+			filtered = append(filtered, trimmed)
+		}
+	}
+	return strings.Join(filtered, "\n\n")
+}
+
+func buildGoalValidationPrompt(ctx adkagent.InvocationContext, workerOutputStateKey string) string {
+	goal := extractGoalPromptText(ctx.UserContent())
+	if goal == "" {
+		goal = "Goal:"
+	}
+	workerOutput := ""
+	if ctx != nil && ctx.Session() != nil {
+		value, err := ctx.Session().State().Get(workerOutputStateKey)
+		if err == nil && value != nil {
+			workerOutput = strings.TrimSpace(fmt.Sprintf("%v", value))
+		}
+	}
+	if workerOutput == "" {
+		workerOutput = "(none)"
+	}
+	return goal + "\n\nWorker result:\n" + workerOutput
 }

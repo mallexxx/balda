@@ -2,8 +2,6 @@ package goalkeeper
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -13,6 +11,7 @@ import (
 	"strings"
 
 	"github.com/google/uuid"
+	"github.com/normahq/balda/internal/apps/balda/deliverycmd"
 	"github.com/normahq/balda/internal/apps/balda/progress"
 	baldasession "github.com/normahq/balda/internal/apps/balda/session"
 	baldastate "github.com/normahq/balda/internal/apps/balda/state"
@@ -121,12 +120,6 @@ type goalTaskPayload struct {
 	Objective       string                      `json:"objective"`
 	TransportUserID string                      `json:"transport_user_id"`
 	MaxIterations   int                         `json:"max_iterations,omitempty"`
-}
-
-type taskDeliveryPayload struct {
-	TaskID  string                      `json:"task_id"`
-	Locator baldasession.SessionLocator `json:"locator"`
-	Text    string                      `json:"text"`
 }
 
 type taskArtifactResultV1 struct {
@@ -780,43 +773,28 @@ func (a *Actor) deliver(
 	if message == "" {
 		return nil
 	}
-	payload := taskDeliveryPayload{
-		TaskID:  strings.TrimSpace(taskID),
-		Locator: locator,
-		Text:    message,
-	}
-	data, err := json.Marshal(payload)
+	locator = normalizeGoalDeliveryLocator(locator)
+	env, err := deliverycmd.AgentReplyEnvelope(
+		strings.TrimSpace(taskID),
+		swarm.ActorAddress{Target: swarm.ActorTypeGoalkeeper, Key: taskID},
+		locator,
+		message,
+		dedupeSuffix,
+	)
 	if err != nil {
-		return swarm.PermanentError(fmt.Errorf("encode task delivery payload: %w", err))
-	}
-	dedupeKey := strings.TrimSpace(taskID)
-	if dedupeKey == "" {
-		dedupeKey = "delivery:" + shortTaskHash(strings.Join([]string{
-			strings.TrimSpace(locator.SessionID),
-			strings.TrimSpace(locator.AddressKey),
-			message,
-		}, "|"))
-	}
-	if suffix := strings.TrimSpace(dedupeSuffix); suffix != "" {
-		dedupeKey += ":delivery:" + suffix
-	}
-	env := swarm.Envelope{
-		ID:            dedupeKey,
-		Namespace:     swarm.NamespaceAgentResult,
-		Kind:          taskPayloadKindDelivery,
-		From:          swarm.ActorAddress{Target: swarm.ActorTypeGoalkeeper, Key: taskID},
-		To:            swarm.ActorAddress{Target: swarm.ActorTypeDelivery, Key: locator.DeliveryActorKey()},
-		SessionID:     locator.SessionID,
-		TaskID:        taskID,
-		CorrelationID: taskID,
-		Priority:      70,
-		DedupeKey:     dedupeKey,
-		PayloadJSON:   string(data),
+		return swarm.PermanentError(fmt.Errorf("build goal delivery envelope: %w", err))
 	}
 	if _, err := a.dispatcher.Dispatch(ctx, env); err != nil {
 		return swarm.TransientError(err)
 	}
 	return nil
+}
+
+func normalizeGoalDeliveryLocator(locator baldasession.SessionLocator) baldasession.SessionLocator {
+	if strings.TrimSpace(locator.ChannelType) == "" {
+		locator.ChannelType = "telegram"
+	}
+	return locator
 }
 
 func normalizeGoalMaxIterations(v int) int {
@@ -876,11 +854,6 @@ func redactSecrets(raw string) string {
 	text = secretGitHubTokenPattern.ReplaceAllString(text, "[REDACTED_TOKEN]")
 	text = secretTelegramToken.ReplaceAllString(text, "[REDACTED_TOKEN]")
 	return text
-}
-
-func shortTaskHash(value string) string {
-	sum := sha256.Sum256([]byte(strings.TrimSpace(value)))
-	return hex.EncodeToString(sum[:])[:12]
 }
 
 func renderReviewableOutcome(task baldastate.SwarmTaskRecord, artifacts taskArtifactSnapshot) string {
