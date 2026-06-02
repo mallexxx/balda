@@ -13,7 +13,6 @@ import (
 	baldachannel "github.com/normahq/balda/internal/apps/balda/channel"
 	baldatelegram "github.com/normahq/balda/internal/apps/balda/channel/telegram"
 	"github.com/normahq/balda/internal/apps/balda/messenger"
-	"github.com/normahq/balda/internal/apps/balda/progress"
 	baldasession "github.com/normahq/balda/internal/apps/balda/session"
 	"github.com/normahq/balda/internal/apps/balda/swarm"
 	"github.com/normahq/balda/internal/apps/balda/tgbotkit"
@@ -430,34 +429,9 @@ func (h *BaldaHandler) runTurnWithDelivery(
 	thinkingIdx := 0
 	typingThrottle := throttle.New(telegramProgressThrottleInterval, throttle.WithClock(h.currentTime))
 	thinkingThrottle := throttle.New(telegramProgressThrottleInterval, throttle.WithClock(h.currentTime))
-	outputThrottle := throttle.New(telegramProgressThrottleInterval, throttle.WithClock(h.currentTime))
 	lastPlanProgressText := ""
 	planDraftActive := false
-	lastVisibleText := ""
-	lastDeliveredOutput := ""
 	deliverySeq := 0
-
-	flushTaskOutputProgress := func() error {
-		if !taskBackedDelivery {
-			return nil
-		}
-		delta := visibleTextDelta(lastDeliveredOutput, lastVisibleText)
-		if strings.TrimSpace(delta) == "" {
-			return nil
-		}
-		deliverySeq++
-		if err := h.dispatchTaskDelivery(ctx, taskID, locator, sessionID, delta, fmt.Sprintf("progress:output:%03d", deliverySeq)); err != nil {
-			return err
-		}
-		if err := h.appendTaskEvent(ctx, taskID, swarm.TaskEventAgentProgress, "session.actor", "", map[string]any{
-			"kind": "output",
-			"text": strings.TrimSpace(delta),
-		}); err != nil {
-			return err
-		}
-		lastDeliveredOutput = lastVisibleText
-		return nil
-	}
 
 	for ev, err := range r.Run(runCtx, userID, agentSessionID, userContent, agent.RunConfig{}) {
 		if err != nil {
@@ -577,22 +551,6 @@ func (h *BaldaHandler) runTurnWithDelivery(
 			}
 		}
 		eventText := eventTextBuilder.String()
-		visibleText := progress.VisibleText(ev)
-		if taskBackedDelivery && !ev.TurnComplete {
-			merged := mergeVisibleText(lastVisibleText, visibleText)
-			if merged != lastVisibleText {
-				lastVisibleText = merged
-				if err := func() error {
-					var flushErr error
-					outputThrottle.Do(func() {
-						flushErr = flushTaskOutputProgress()
-					})
-					return flushErr
-				}(); err != nil {
-					return err
-				}
-			}
-		}
 		if eventText != "" && ev.IsFinalResponse() {
 			currentText := streamedText.String()
 			if eventText != currentText {
@@ -646,9 +604,6 @@ func (h *BaldaHandler) runTurnWithDelivery(
 				responseSource = "fire_and_forget"
 			case strings.TrimSpace(responseText) != "":
 				if taskBackedDelivery {
-					if err := flushTaskOutputProgress(); err != nil {
-						return err
-					}
 					if err := h.dispatchTaskDelivery(ctx, taskID, locator, sessionID, responseText, "final"); err != nil {
 						return err
 					}
@@ -672,9 +627,6 @@ func (h *BaldaHandler) runTurnWithDelivery(
 				}
 				if terminalMessage != "" {
 					if taskBackedDelivery {
-						if err := flushTaskOutputProgress(); err != nil {
-							return err
-						}
 						if err := h.dispatchTaskDelivery(ctx, taskID, locator, sessionID, terminalMessage, "terminal"); err != nil {
 							return err
 						}
@@ -758,40 +710,6 @@ func terminalTurnMessage(reason genai.FinishReason) string {
 		return "The provider ended the turn without a usable reply. Please try again."
 	default:
 		return "The provider ended the turn without a usable reply. Please try again."
-	}
-}
-
-func mergeVisibleText(existing string, next string) string {
-	existing = strings.TrimSpace(existing)
-	next = strings.TrimSpace(next)
-	switch {
-	case next == "":
-		return existing
-	case existing == "":
-		return next
-	case next == existing:
-		return existing
-	case strings.HasPrefix(next, existing):
-		return next
-	case strings.Contains(existing, next):
-		return existing
-	default:
-		return existing + "\n\n" + next
-	}
-}
-
-func visibleTextDelta(previous string, current string) string {
-	previous = strings.TrimSpace(previous)
-	current = strings.TrimSpace(current)
-	switch {
-	case current == "", current == previous:
-		return ""
-	case previous == "":
-		return current
-	case strings.HasPrefix(current, previous):
-		return strings.TrimSpace(strings.TrimPrefix(current, previous))
-	default:
-		return current
 	}
 }
 

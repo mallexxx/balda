@@ -395,44 +395,33 @@ func TestRunTurn_TaskBackedProgressUsesDeliveryActor(t *testing.T) {
 	gotTexts := deliveryTextsFromCommands(t, bus.commands)
 	wantTexts := []string{
 		"Plan update\n- [in progress] Run tests",
-		"draft answer",
 		baldaRunTurnFinalAnswerText,
 	}
 	if strings.Join(gotTexts, "\n---\n") != strings.Join(wantTexts, "\n---\n") {
 		t.Fatalf("delivery texts = %#v, want %#v", gotTexts, wantTexts)
 	}
 	agentEvents := taskEventsOfType(bus.eventEnvs, swarm.TaskEventAgentProgress, swarm.TaskEventAgentResult)
-	if len(agentEvents) != 3 {
-		t.Fatalf("agent task events = %d, want 3", len(agentEvents))
+	if len(agentEvents) != 2 {
+		t.Fatalf("agent task events = %d, want 2", len(agentEvents))
 	}
 	if got := agentEvents[0].Meta["event_type"]; got != swarm.TaskEventAgentProgress {
 		t.Fatalf("event[0] type = %q, want %q", got, swarm.TaskEventAgentProgress)
 	}
-	if got := agentEvents[2].Meta["event_type"]; got != swarm.TaskEventAgentResult {
-		t.Fatalf("event[2] type = %q, want %q", got, swarm.TaskEventAgentResult)
+	if got := taskEventPayload(t, agentEvents[0])["kind"]; got != "plan" {
+		t.Fatalf("event[0] kind = %v, want plan", got)
+	}
+	if got := agentEvents[1].Meta["event_type"]; got != swarm.TaskEventAgentResult {
+		t.Fatalf("event[1] type = %q, want %q", got, swarm.TaskEventAgentResult)
+	}
+	if got := taskEventPayload(t, agentEvents[1])["kind"]; got != nil {
+		t.Fatalf("event[1] kind = %v, want nil", got)
 	}
 }
 
-func TestRunTurn_TaskBackedOutputProgressCoalescesDeltas(t *testing.T) {
+func TestRunTurn_TaskBackedVisibleOutputOnlySendsFinalReply(t *testing.T) {
 	t.Parallel()
 
 	h, _, bus, tasks := newBaldaRunTurnTaskTestHandler(t)
-	baseTime := time.Date(2026, 6, 2, 8, 0, 0, 0, time.UTC)
-	times := []time.Time{
-		baseTime,
-		baseTime.Add(time.Second),
-		baseTime.Add(telegramProgressThrottleInterval),
-		baseTime.Add(2 * telegramProgressThrottleInterval),
-	}
-	timeIdx := 0
-	h.now = func() time.Time {
-		if timeIdx >= len(times) {
-			return times[len(times)-1]
-		}
-		current := times[timeIdx]
-		timeIdx++
-		return current
-	}
 	if _, err := tasks.Create(context.Background(), baldastate.SwarmTaskRecord{
 		ID:        "task-2",
 		SessionID: "session-1",
@@ -467,7 +456,50 @@ func TestRunTurn_TaskBackedOutputProgressCoalescesDeltas(t *testing.T) {
 	}
 
 	gotTexts := deliveryTextsFromCommands(t, bus.commands)
-	wantTexts := []string{"Hello", "there friend", "Hello there friend!"}
+	wantTexts := []string{"Hello there friend!"}
+	if strings.Join(gotTexts, "\n---\n") != strings.Join(wantTexts, "\n---\n") {
+		t.Fatalf("delivery texts = %#v, want %#v", gotTexts, wantTexts)
+	}
+	agentEvents := taskEventsOfType(bus.eventEnvs, swarm.TaskEventAgentProgress, swarm.TaskEventAgentResult)
+	if len(agentEvents) != 1 {
+		t.Fatalf("agent task events = %d, want 1", len(agentEvents))
+	}
+	if got := agentEvents[0].Meta["event_type"]; got != swarm.TaskEventAgentResult {
+		t.Fatalf("event[0] type = %q, want %q", got, swarm.TaskEventAgentResult)
+	}
+}
+
+func TestRunTurn_TaskBackedDuplicatePartialAndFinalOnlyDeliversOnce(t *testing.T) {
+	t.Parallel()
+
+	h, _, bus, tasks := newBaldaRunTurnTaskTestHandler(t)
+	if _, err := tasks.Create(context.Background(), baldastate.SwarmTaskRecord{
+		ID:        "task-3",
+		SessionID: "session-1",
+		Objective: "run turn",
+		Status:    baldastate.SwarmTaskStatusRunning,
+	}, "test", nil); err != nil {
+		t.Fatalf("Create() error = %v", err)
+	}
+
+	adkRunner, sessionID := newBaldaRunTurnTestRunnerWithEvents(t, func(invocationID string) []*adksession.Event {
+		partial := adksession.NewEvent(invocationID)
+		partial.Partial = true
+		partial.Content = genai.NewContentFromText(baldaRunTurnFinalAnswerText, genai.RoleModel)
+
+		done := adksession.NewEvent(invocationID)
+		done.Content = genai.NewContentFromText(baldaRunTurnFinalAnswerText, genai.RoleModel)
+		done.TurnComplete = true
+
+		return []*adksession.Event{partial, done}
+	})
+	locator := baldatelegram.NewLocator(9001, 77)
+	if err := h.runTurnWithDelivery(context.Background(), "hello", adkRunner, "tg-101", sessionID, "task-3", sessionID, locator, 41, baldachannel.ProgressPolicy{}, true); err != nil {
+		t.Fatalf("runTurnWithDelivery() error = %v", err)
+	}
+
+	gotTexts := deliveryTextsFromCommands(t, bus.commands)
+	wantTexts := []string{baldaRunTurnFinalAnswerText}
 	if strings.Join(gotTexts, "\n---\n") != strings.Join(wantTexts, "\n---\n") {
 		t.Fatalf("delivery texts = %#v, want %#v", gotTexts, wantTexts)
 	}
@@ -1561,6 +1593,16 @@ func taskEventsOfType(events []swarm.Envelope, types ...string) []swarm.Envelope
 		}
 	}
 	return out
+}
+
+func taskEventPayload(t *testing.T, env swarm.Envelope) map[string]any {
+	t.Helper()
+
+	var payload map[string]any
+	if err := json.Unmarshal([]byte(env.PayloadJSON), &payload); err != nil {
+		t.Fatalf("decode task event payload: %v", err)
+	}
+	return payload
 }
 
 func newBaldaRunTurnTestRunnerWithEvents(
