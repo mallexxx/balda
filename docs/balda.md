@@ -353,26 +353,48 @@ published image is built from the tagged source tree with
 `Dockerfile.release`, so the Balda binary comes from the release commit rather
 than from the npm package.
 
-The published image keeps the same operational contract:
+The published GHCR image is intentionally minimal. It contains only the
+`/usr/local/bin/balda` binary and an absolute Balda entrypoint. It does not
+bundle provider CLIs such as `codex`, `opencode`, `copilot`, `gemini`, or
+`claude`, and it is not the documented all-in-one runtime equivalent of local
+Compose.
 
-- entrypoint: `balda`
-- working directory: `/workspace`
-- runtime user: `node`
-- bundled provider CLIs: `codex`, `opencode`, `copilot`, `gemini`, `claude`
+Treat `ghcr.io/normahq/balda:latest` as a source stage for downstream bot
+images. Copy `balda` from it, then add exactly the provider CLI runtime you
+want in your own final image. A concrete Codex example:
 
-Typical host-checkout usage looks like:
+```dockerfile
+FROM node:24-bookworm-slim AS cli-builder
+RUN npm install -g @openai/codex
 
-```bash
-docker run --rm \
-  -v "$PWD:/workspace" \
-  -v balda-home:/home/node \
-  ghcr.io/normahq/balda:latest init
+FROM ghcr.io/normahq/balda:latest AS balda
+
+FROM node:24-bookworm-slim
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends \
+      ca-certificates \
+      git \
+      openssh-client \
+      ripgrep \
+ && rm -rf /var/lib/apt/lists/*
+
+COPY --from=cli-builder /usr/local/lib/node_modules /usr/local/lib/node_modules
+COPY --from=cli-builder /usr/local/bin/codex /usr/local/bin/codex
+COPY --from=balda /usr/local/bin/balda /usr/local/bin/balda
+
+WORKDIR /workspace
+ENTRYPOINT ["balda"]
 ```
 
-With a mounted project checkout, Balda still resolves `.env`,
-`.config/balda/config.yaml`, `.config/balda/state.db`, `.git`, and workspace
-mode state from `/workspace`. The named `balda-home` volume remains the place
-to persist provider CLI auth/config written under `/home/node`.
+In that pattern, your final runtime image owns provider auth, provider
+environment variables, any extra system packages, and any persisted home
+directory layout required by the selected CLI.
+
+For the bundled local runtime flow, keep using the root `Dockerfile` and
+`compose.yaml`. That Compose path still mounts the host checkout into
+`/workspace`, keeps `.env`, `.config/balda/config.yaml`,
+`.config/balda/state.db`, and `.git` on the host, and persists provider CLI
+auth/config in the named `balda-home` volume.
 
 The published image is released from Git tags through `release.yaml` and is
 currently tagged only as `latest`. OCI labels still record the release tag,

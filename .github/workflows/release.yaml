@@ -124,14 +124,7 @@ jobs:
         run: |
           set -euo pipefail
 
-          docker run --rm --entrypoint sh balda-release:test -lc '
-            balda --help >/dev/null &&
-            command -v codex &&
-            command -v opencode &&
-            command -v gemini &&
-            command -v claude &&
-            command -v copilot
-          '
+          docker run --rm balda-release:test --help >/dev/null
 
       - name: Log in to GHCR
         uses: docker/login-action@v3
@@ -154,7 +147,7 @@ jobs:
             BUILD_DATE=${{ env.build_date }}
           labels: |
             org.opencontainers.image.title=balda
-            org.opencontainers.image.description=Balda Telegram runtime with bundled provider CLIs
+            org.opencontainers.image.description=Balda binary carrier image for downstream bot builds
             org.opencontainers.image.source=https://github.com/${{ github.repository }}
             org.opencontainers.image.url=https://github.com/${{ github.repository }}
             org.opencontainers.image.revision=${{ github.sha }}

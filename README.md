@@ -145,22 +145,40 @@ Balda also publishes an official container image to
 `ghcr.io/normahq/balda:latest`.
 
 This image is built from the tagged source tree with a separate
-[`Dockerfile.release`](Dockerfile.release). It keeps the same `balda` entrypoint
-and bundles the currently documented provider CLIs: `codex`, `opencode`,
-`copilot`, `gemini`, and `claude`.
+[`Dockerfile.release`](Dockerfile.release). Unlike the local Compose image, the
+published GHCR image is a minimal carrier for the `balda` binary only. It does
+not bundle `codex`, `opencode`, `copilot`, `gemini`, or `claude`.
 
-For a host checkout, mount the repository into `/workspace` and persist
-`/home/node` if you want provider login state to survive container recreation:
+Use it as a source stage in your own multistage Dockerfile, then add only the
+provider CLI runtime you want in the final image. For example, a Codex-based
+runtime can copy `balda` from GHCR and install Codex separately:
 
-```bash
-docker run --rm \
-  -v "$PWD:/workspace" \
-  -v balda-home:/home/node \
-  ghcr.io/normahq/balda:latest init
+```dockerfile
+FROM node:24-bookworm-slim AS cli-builder
+RUN npm install -g @openai/codex
+
+FROM ghcr.io/normahq/balda:latest AS balda
+
+FROM node:24-bookworm-slim
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends \
+      ca-certificates \
+      git \
+      openssh-client \
+      ripgrep \
+ && rm -rf /var/lib/apt/lists/*
+
+COPY --from=cli-builder /usr/local/lib/node_modules /usr/local/lib/node_modules
+COPY --from=cli-builder /usr/local/bin/codex /usr/local/bin/codex
+COPY --from=balda /usr/local/bin/balda /usr/local/bin/balda
+
+WORKDIR /workspace
+ENTRYPOINT ["balda"]
 ```
 
-Provider credentials are still external to the image. Pass them through env
-vars or run provider login commands inside the container.
+Local Docker Compose still uses the root [`Dockerfile`](Dockerfile) and
+[`compose.yaml`](compose.yaml), which remain the bundled-CLI runtime for
+workspace-oriented local project work.
 
 ## Configure Any Provider Runtime
 
