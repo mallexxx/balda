@@ -141,7 +141,9 @@ jobs:
           file: ./Dockerfile.release
           platforms: linux/amd64,linux/arm64
           push: true
-          tags: ${{ env.image }}:latest
+          tags: |
+            ${{ env.image }}:latest
+            ${{ env.image }}:${{ env.version }}
           build-args: |
             VERSION=${{ env.version }}
             COMMIT=${{ github.sha }}
