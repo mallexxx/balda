@@ -3,6 +3,7 @@ package telegram
 import (
 	"encoding/json"
 	"fmt"
+	"strconv"
 	"strings"
 
 	baldasession "github.com/normahq/balda/internal/apps/balda/session"
@@ -37,6 +38,24 @@ func NewLocator(chatID int64, topicID int) baldasession.SessionLocator {
 		}
 	}
 	return locator
+}
+
+// LocatorFromAddressKey rebuilds a canonical Telegram locator from "<chat_id>:<topic_id>".
+func LocatorFromAddressKey(addressKey string) (baldasession.SessionLocator, error) {
+	trimmed := strings.TrimSpace(addressKey)
+	chatPart, topicPart, ok := strings.Cut(trimmed, ":")
+	if !ok {
+		return baldasession.SessionLocator{}, fmt.Errorf("telegram address key %q must be <chat_id>:<topic_id>", addressKey)
+	}
+	chatID, err := strconv.ParseInt(strings.TrimSpace(chatPart), 10, 64)
+	if err != nil {
+		return baldasession.SessionLocator{}, fmt.Errorf("parse telegram chat_id from %q: %w", addressKey, err)
+	}
+	topicID, err := strconv.Atoi(strings.TrimSpace(topicPart))
+	if err != nil {
+		return baldasession.SessionLocator{}, fmt.Errorf("parse telegram topic_id from %q: %w", addressKey, err)
+	}
+	return NewLocator(chatID, topicID), nil
 }
 
 // DecodeLocator decodes a Telegram locator payload from canonical session locator fields.

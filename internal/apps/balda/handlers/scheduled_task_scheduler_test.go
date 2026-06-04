@@ -119,6 +119,60 @@ func TestScheduledTaskSchedulerDispatchTask_PublishesWithoutRestoringSession(t *
 	}
 }
 
+func TestScheduledTaskSchedulerReconcileConfiguredTasks_LocatorTarget(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	store := newSchedulerTaskStore(t)
+	now := time.Date(2026, time.May, 14, 15, 0, 0, 0, time.UTC)
+
+	scheduler := &ScheduledTaskScheduler{
+		taskStore: store,
+		owner:     newOwnerStoreForTest(t, 101, 9001),
+		logger:    zerolog.Nop(),
+		now:       func() time.Time { return now },
+		config: ScheduledTaskSchedulerConfig{
+			Tasks: []ConfiguredScheduledTask{
+				{
+					ID:      "managed-task",
+					Cron:    "@every 2s",
+					Target:  "locator",
+					Key:     "telegram:-1002667079342:8939",
+					Content: "review queue",
+					ReportTo: &ConfiguredScheduledTaskTarget{
+						Target: "locator",
+						Key:    "telegram:9001:0",
+					},
+				},
+			},
+		},
+	}
+
+	if err := scheduler.reconcileConfiguredTasks(ctx); err != nil {
+		t.Fatalf("reconcileConfiguredTasks() error = %v", err)
+	}
+
+	managed, ok, err := store.GetByID(ctx, "managed-task")
+	if err != nil {
+		t.Fatalf("GetByID() error = %v", err)
+	}
+	if !ok {
+		t.Fatal("GetByID() = not found, want found")
+	}
+	if got, want := managed.SessionID, testLocatorTopicSessionID; got != want {
+		t.Fatalf("SessionID = %q, want %q", got, want)
+	}
+	if got, want := managed.AddressKey, "-1002667079342:8939"; got != want {
+		t.Fatalf("AddressKey = %q, want %q", got, want)
+	}
+	if !managed.ReportToEnabled {
+		t.Fatal("ReportToEnabled = false, want true")
+	}
+	if got, want := managed.ReportToAddressKey, "9001:0"; got != want {
+		t.Fatalf("ReportToAddressKey = %q, want %q", got, want)
+	}
+}
+
 func TestScheduledTaskSchedulerDispatchTask_IdempotentForSameDueSlot(t *testing.T) {
 	t.Parallel()
 

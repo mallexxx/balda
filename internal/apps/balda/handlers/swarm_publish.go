@@ -57,13 +57,6 @@ func (h *BaldaHandler) RunSessionTurnPayload(ctx context.Context, payload actors
 	ts, err := h.sessionManager.GetSession(payload.Locator)
 	if err != nil {
 		userID := strings.TrimSpace(payload.UserID)
-		if userID == "" {
-			h.logger.Debug().
-				Str("session_id", payload.Locator.SessionID).
-				Str("address_key", payload.Locator.AddressKey).
-				Msg("dropping queued turn for inactive session without restore user")
-			return nil
-		}
 		ts, err = h.sessionManager.RestoreSession(ctx, baldasession.SessionContext{
 			Locator: payload.Locator,
 			UserID:  userID,
@@ -71,6 +64,13 @@ func (h *BaldaHandler) RunSessionTurnPayload(ctx context.Context, payload actors
 		if err != nil {
 			if !errors.Is(err, baldasession.ErrNoPersistedSession) {
 				return fmt.Errorf("restore session for queued turn: %w", err)
+			}
+			if userID == "" {
+				h.logger.Debug().
+					Str("session_id", payload.Locator.SessionID).
+					Str("address_key", payload.Locator.AddressKey).
+					Msg("dropping queued turn for unknown session without transport user")
+				return nil
 			}
 			ts, err = h.sessionManager.EnsureSession(ctx, baldasession.SessionContext{
 				Locator: payload.Locator,

@@ -7,6 +7,7 @@ import (
 
 	"github.com/normahq/balda/internal/apps/balda/auth"
 	baldatelegram "github.com/normahq/balda/internal/apps/balda/channel/telegram"
+	"github.com/normahq/balda/internal/apps/balda/locatorref"
 	"github.com/normahq/balda/internal/apps/balda/session"
 	baldastate "github.com/normahq/balda/internal/apps/balda/state"
 	"github.com/normahq/balda/internal/apps/balda/swarm"
@@ -30,7 +31,7 @@ type goalTaskService interface {
 }
 
 // CommandHandler handles Balda chat commands such as /topic, /goal, /reset,
-// /restart, /close, /cancel, and /user.
+// /restart, /locator, /close, /cancel, and /user.
 type CommandHandler struct {
 	ownerStore        *auth.OwnerStore
 	collaboratorStore *auth.CollaboratorStore
@@ -71,6 +72,8 @@ func (h *CommandHandler) onCommand(ctx context.Context, event *events.CommandEve
 		return h.onTopicCommand(ctx, commandCtx)
 	case "reset", "restart":
 		return h.onResetCommand(ctx, commandCtx)
+	case "locator":
+		return h.onLocatorCommand(ctx, commandCtx)
 	case "close":
 		return h.onCloseCommand(ctx, commandCtx)
 	case "cancel":
@@ -235,6 +238,26 @@ func (h *CommandHandler) onTopicCommand(ctx context.Context, commandCtx baldatel
 	}
 
 	return nil
+}
+
+func (h *CommandHandler) onLocatorCommand(ctx context.Context, commandCtx baldatelegram.CommandContext) error {
+	if !h.canUseSessionCommand(ctx, commandCtx.UserID) {
+		if err := sendPlain(ctx, h.actorDispatcher, commandHandlerActorAddress, commandCtx.Locator, "Only the bot owner or collaborators can use this command."); err != nil {
+			return err
+		}
+		return nil
+	}
+
+	if strings.TrimSpace(commandCtx.Args) != "" {
+		if err := sendPlain(ctx, h.actorDispatcher, commandHandlerActorAddress, commandCtx.Locator, "Usage: /locator"); err != nil {
+			return err
+		}
+		return nil
+	}
+
+	ref := locatorref.Format(commandCtx.Locator)
+	message := fmt.Sprintf("Transport: %s\nLocator: %s\n\nUse in scheduler/webhook config:\ntarget: locator\nkey: %s", commandCtx.Locator.ChannelType, ref, ref)
+	return sendPlain(ctx, h.actorDispatcher, commandHandlerActorAddress, commandCtx.Locator, message)
 }
 
 func (h *CommandHandler) onCloseCommand(ctx context.Context, commandCtx baldatelegram.CommandContext) error {

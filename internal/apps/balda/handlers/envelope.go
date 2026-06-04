@@ -7,12 +7,14 @@ import (
 
 	"github.com/normahq/balda/internal/apps/balda/auth"
 	baldatelegram "github.com/normahq/balda/internal/apps/balda/channel/telegram"
+	"github.com/normahq/balda/internal/apps/balda/locatorref"
 	baldasession "github.com/normahq/balda/internal/apps/balda/session"
 )
 
 const (
-	envelopeTargetAlias = "alias"
-	envelopeAliasOwner  = "owner"
+	envelopeTargetAlias   = "alias"
+	envelopeAliasOwner    = "owner"
+	envelopeTargetLocator = "locator"
 )
 
 type envelopeTarget struct {
@@ -32,7 +34,7 @@ func resolveEnvelopeTarget(
 	target envelopeTarget,
 ) (resolvedEnvelopeTarget, error) {
 	targetKind := strings.ToLower(strings.TrimSpace(target.Target))
-	key := strings.ToLower(strings.TrimSpace(target.Key))
+	key := strings.TrimSpace(target.Key)
 	if targetKind == "" {
 		return resolvedEnvelopeTarget{}, fmt.Errorf("envelope target is required")
 	}
@@ -42,7 +44,7 @@ func resolveEnvelopeTarget(
 
 	switch targetKind {
 	case envelopeTargetAlias:
-		if key != envelopeAliasOwner {
+		if strings.ToLower(key) != envelopeAliasOwner {
 			return resolvedEnvelopeTarget{}, fmt.Errorf("unsupported alias target %q", target.Key)
 		}
 		if ownerStore == nil {
@@ -64,6 +66,18 @@ func resolveEnvelopeTarget(
 			UserID:  baldatelegram.UserID(owner.UserID),
 			TopicID: 0,
 		}, nil
+	case envelopeTargetLocator:
+		locator, err := locatorref.Parse(target.Key)
+		if err != nil {
+			return resolvedEnvelopeTarget{}, err
+		}
+		resolved := resolvedEnvelopeTarget{Locator: locator}
+		if address, ok, decodeErr := baldatelegram.DecodeLocator(locator); decodeErr != nil {
+			return resolvedEnvelopeTarget{}, decodeErr
+		} else if ok {
+			resolved.TopicID = address.TopicID
+		}
+		return resolved, nil
 	default:
 		return resolvedEnvelopeTarget{}, fmt.Errorf("unsupported envelope target %q", target.Target)
 	}

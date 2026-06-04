@@ -216,6 +216,7 @@ Built-in provider types:
 - `/goal <objective>`: owner/collaborator; start goal work from the current session context in an isolated GoalKeeper workspace/state. The goal workspace is created from `balda.workspace.base_branch`, exported back automatically on success, and preserved for recovery if export fails. `/goal` requires `balda.workspace.mode` to resolve to an enabled git-worktree mode. Goal updates use `balda.telegram.formatting_mode`; terminal updates include Result, Artifacts, Confidence, and Next action sections. Only one `/goal` run can be active per session. See the [goal workflow doc](docs/goal-workflow.md).
 - `/goal clear`: owner/collaborator; stop active `/goal` work for the current session only.
 - `/reset`, `/restart`: owner/collaborator; restart the current session history without closing the chat or topic. Works in any current session context.
+- `/locator`: owner/collaborator; show the current transport type and a pasteable locator ref for scheduler/webhook `target: locator` config.
 - `/close`: owner/collaborator, direct messages only; reset the current session history. In a topic, it also closes that topic.
 - `/cancel`: owner/collaborator; cancel the current session turn and drop queued turns for that session. It does not stop active `/goal` work.
 - `/user add`: owner only; generate a collaborator invite link.
@@ -289,14 +290,14 @@ Common settings:
 - `balda.provider`: provider ID selected during `balda init`.
 - `balda.telegram.token`: Telegram bot token, usually supplied by `.env` as `BALDA_TELEGRAM_TOKEN`.
 - `balda.telegram.webhook.auth_token`: required when Telegram webhook mode is enabled; Telegram sends it as `X-Telegram-Bot-Api-Secret-Token`.
-- `balda.webhooks.*`: optional local inbound webhook receiver for external event-to-session ingress. Each route defines `path`, `prompt_template`, `envelope` (`target`, `key`, optional `mode=task|session`, optional `report_to`), `auth` (`type=none|header`, `header`, `value` or `secret_env`), and `dedupe` (`source=request_id|header|body_sha256`, optional `header` for header source).
+- `balda.webhooks.*`: optional local inbound webhook receiver for external event-to-session ingress. Each route defines `path`, `prompt_template`, `envelope` (`target`, `key`, optional `mode=task|session`, optional `report_to`), `auth` (`type=none|header`, `header`, `value` or `secret_env`), and `dedupe` (`source=request_id|header|body_sha256`, optional `header` for header source). Use `target: locator` with a `/locator` value in `key` to route directly to a specific session context.
 - `balda.webhooks.*` security: set route `auth` (for example shared-token header) and keep `listen_addr` private (localhost/private network) or front it with trusted gateway auth.
 - `balda.sessions.persistence`: `sqlite` by default; keeps conversation history across restarts until the session is explicitly closed.
 - `balda.memory.enabled`: `true` by default; controls `${balda.state_dir}/MEMORY.md` and `balda.memory.*` MCP tools.
 - `balda.goal.max_iterations`: maximum `/goal` worker-validator loop iterations; defaults to `25`.
 - `balda.nats.*`: built-in command/event runtime settings. Defaults bind to `127.0.0.1` on a random local port, keep monitoring disabled, and store runtime files under `${balda.state_dir}/nats`.
 - `balda.swarm`: optional advanced runtime tuning for goals, scheduled work, retries, and webhook delivery. Most installs should leave it at defaults.
-- `balda.scheduler.tasks`: startup-reconciled recurring tasks. Each task has `id`, `cron`, and `envelope` with `target`, `key`, `content`, and optional `report_to`. Scheduled work publishes first-class task commands; replies are fire-and-forget unless `report_to` is set.
+- `balda.scheduler.tasks`: startup-reconciled recurring tasks. Each task has `id`, `cron`, and `envelope` with `target`, `key`, `content`, and optional `report_to`. Scheduled work publishes first-class task commands; replies are fire-and-forget unless `report_to` is set. Use `target: locator` with a `/locator` value in `key` to target a specific session.
 - `balda.workspace.mode`: `auto` by default; uses git worktrees when Balda runs in a git repository.
 - `balda.workspace.sessions_dir`: directory name under `balda.state_dir` used for per-session worktrees (defaults to `sessions`).
 - `balda.mcp_servers`: extra MCP server IDs added to every Balda-started session.

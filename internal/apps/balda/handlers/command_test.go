@@ -135,6 +135,61 @@ func TestCommandHandlerOnCommand_RestartWithArgsShowsUsage(t *testing.T) {
 	assertLastSentContains(t, tgClient, "Usage: /restart")
 }
 
+func TestCommandHandlerOnCommand_LocatorShowsCurrentTransportAndRef(t *testing.T) {
+	handler, sm, turns, tgClient := newCommandHandlerTestHarness(t)
+
+	topicID := 123
+	err := handler.onCommand(context.Background(), newCommandEvent("locator", "", 101, 9001, &topicID))
+	if err != nil {
+		t.Fatalf("onCommand() error = %v", err)
+	}
+
+	if len(sm.resetCalls) != 0 {
+		t.Fatalf("ResetSession calls = %d, want 0", len(sm.resetCalls))
+	}
+	if len(turns.cancelCalls) != 0 {
+		t.Fatalf("CancelSession calls = %d, want 0", len(turns.cancelCalls))
+	}
+	assertLastSentContains(t, tgClient, "Transport: telegram")
+	assertLastSentContains(t, tgClient, "Locator: telegram:9001:123")
+	assertLastSentContains(t, tgClient, "target: locator")
+	assertLastSentContains(t, tgClient, "key: telegram:9001:123")
+}
+
+func TestCommandHandlerOnCommand_LocatorWithArgsShowsUsage(t *testing.T) {
+	handler, sm, turns, tgClient := newCommandHandlerTestHarness(t)
+
+	err := handler.onCommand(context.Background(), newCommandEvent("locator", "now", 101, 9001, nil))
+	if err != nil {
+		t.Fatalf("onCommand() error = %v", err)
+	}
+
+	if len(sm.resetCalls) != 0 {
+		t.Fatalf("ResetSession calls = %d, want 0", len(sm.resetCalls))
+	}
+	if len(turns.cancelCalls) != 0 {
+		t.Fatalf("CancelSession calls = %d, want 0", len(turns.cancelCalls))
+	}
+	assertLastSentContains(t, tgClient, "Usage: /locator")
+}
+
+func TestCommandHandlerOnCommand_LocatorUnauthorized(t *testing.T) {
+	handler, sm, turns, tgClient := newCommandHandlerTestHarness(t)
+
+	err := handler.onCommand(context.Background(), newCommandEvent("locator", "", 999, 9001, nil))
+	if err != nil {
+		t.Fatalf("onCommand() error = %v", err)
+	}
+
+	if len(sm.resetCalls) != 0 {
+		t.Fatalf("ResetSession calls = %d, want 0", len(sm.resetCalls))
+	}
+	if len(turns.cancelCalls) != 0 {
+		t.Fatalf("CancelSession calls = %d, want 0", len(turns.cancelCalls))
+	}
+	assertLastSentContains(t, tgClient, "Only the bot owner or collaborators can use this command.")
+}
+
 func TestCommandHandlerOnCommand_ResetUnauthorized(t *testing.T) {
 	handler, sm, turns, tgClient := newCommandHandlerTestHarness(t)
 

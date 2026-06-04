@@ -60,6 +60,44 @@ func TestNormalizeInboundWebhookConfig_AllowsRouteWithoutReportTo(t *testing.T) 
 	}
 }
 
+func TestNormalizeInboundWebhookConfig_AllowsLocatorTarget(t *testing.T) {
+	t.Parallel()
+
+	got, err := normalizeInboundWebhookConfig(InboundWebhookConfig{
+		Enabled: true,
+		Routes: map[string]InboundWebhookRouteConfig{
+			"webhook1": {
+				Path:           "/webhook1",
+				PromptTemplate: "{{.RawBody}}",
+				Envelope: InboundWebhookRouteEnvelopeConfig{
+					Target: "locator",
+					Key:    "telegram:-1002667079342:8939",
+					ReportTo: &InboundWebhookRouteTargetConfig{
+						Target: "locator",
+						Key:    "telegram:9001:0",
+					},
+				},
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("normalizeInboundWebhookConfig() error = %v", err)
+	}
+	route, ok := got.Routes["/webhook1"]
+	if !ok {
+		t.Fatal("route /webhook1 missing")
+	}
+	if route.Target != (envelopeTarget{Target: envelopeTargetLocator, Key: "telegram:-1002667079342:8939"}) {
+		t.Fatalf("target = %+v, want locator target", route.Target)
+	}
+	if route.ReportTo == nil {
+		t.Fatal("report_to = nil, want locator report_to")
+	}
+	if got, want := route.ReportTo.Key, "telegram:9001:0"; got != want {
+		t.Fatalf("report_to.key = %q, want %q", got, want)
+	}
+}
+
 func TestNormalizeInboundWebhookConfig_RejectsDuplicatePaths(t *testing.T) {
 	t.Parallel()
 
@@ -317,6 +355,40 @@ func TestInboundWebhookReceiver_AcceptsAndPublishesCommand(t *testing.T) {
 	}
 	if got, want := executor.payload.DedupeKey, "webhook:webhook1:req-1"; got != want {
 		t.Fatalf("dedupe_key = %q, want %q", got, want)
+	}
+}
+
+func TestInboundWebhookReceiver_AcceptsLocatorTarget(t *testing.T) {
+	t.Parallel()
+
+	executor := &fakeInboundTurnExecutor{}
+	receiver := newInboundWebhookReceiverForTest(t)
+	receiver.balda = executor
+	receiver.routes = map[string]inboundWebhookRoute{
+		"/webhook1": {
+			Name:           "webhook1",
+			Path:           "/webhook1",
+			PromptTemplate: template.Must(template.New("webhook1").Option("missingkey=error").Parse("{{.RawBody}}")),
+			Target:         envelopeTarget{Target: envelopeTargetLocator, Key: "telegram:-1002667079342:8939"},
+			Mode:           inboundWebhookRouteModeTask,
+			Auth:           inboundWebhookAuthPolicy{Type: inboundWebhookAuthTypeNone},
+			Dedupe:         inboundWebhookDedupePolicy{Source: inboundWebhookDedupeSourceRequestID},
+		},
+	}
+
+	req := httptest.NewRequest(http.MethodPost, "/webhook1", bytes.NewBufferString("payload"))
+	rec := httptest.NewRecorder()
+
+	receiver.handleInboundWebhook(rec, req)
+
+	if got, want := rec.Code, http.StatusAccepted; got != want {
+		t.Fatalf("status = %d, want %d", got, want)
+	}
+	if got, want := executor.payload.Locator.SessionID, testLocatorTopicSessionID; got != want {
+		t.Fatalf("payload locator session_id = %q, want %q", got, want)
+	}
+	if got := executor.payload.UserID; got != "" {
+		t.Fatalf("payload user_id = %q, want empty", got)
 	}
 }
 

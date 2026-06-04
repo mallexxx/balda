@@ -518,6 +518,7 @@ session-start snapshot. New or restored sessions read the latest file.
     - `prompt_template`: Go `text/template` rendered with `RequestID`, `Path`, `Method`, `RawBody`, and `Headers`
   - optional `envelope`:
     - `target` + `key`: destination address (defaults to `alias` + `owner`)
+      - `target=locator` consumes a locator ref in the form `<channel_type>:<address_key>`; `/locator` prints the current session value
     - `mode`: `task` (default) or `session`
     - `report_to`: optional destination for progress/final replies
   - optional `auth`:
@@ -636,6 +637,7 @@ Balda runs with a single provider per process (`balda.provider`).
   - concurrent `/goal` runs in the same session are rejected.
   - `/goal clear` stops active goal work for the current session only.
 - `/reset`, `/restart` (owner/collaborator): restart the current session history without closing the chat/topic. Both commands work in the current DM, public-chat, or thread-scoped session.
+- `/locator` (owner/collaborator): replies with the current transport type and locator ref in the public config form `<channel_type>:<address_key>`. Use that value with `target: locator` in scheduler/webhook config.
 - `/close` (DM only, owner/collaborator): resets the current session history. In topic contexts, it also closes that topic.
 - `/cancel` (owner/collaborator): cancels the current session turn and drops queued turns for that session. It does not stop active `/goal` work.
 - `/user add` (owner only): generates a collaborator invite link for this bot.
@@ -939,6 +941,7 @@ Each configured task has `id`, `cron`, and an `envelope` with `target`, `key`,
 
 - Eligibility: only `status=active` tasks with `next_run_at <= now` are polled.
 - Dispatch path: due tasks resolve the envelope target by `target`/`key`, persist its canonical locator (`channel_type`, `address_key`, `address_json`, `session_id`), and publish a durable task command. Session restore and execution happen after command delivery.
+- Locator target form: `target=locator`, `key=<channel_type>:<address_key>`; `/locator` prints a paste-ready value for the current session.
 - Delivery: scheduled tasks are fire-and-forget by default. If `envelope.report_to` is set, the session turn delivers progress/final replies to that locator.
 - Idempotency key: each due slot uses deterministic `last_dispatch_key = <task_id>@<due_next_run_at_rfc3339nano>`.
 - Startup reconciliation: configured task IDs are upserted, and persisted tasks not present in config are deleted from the scheduler state.
@@ -960,6 +963,7 @@ Each configured task has `id`, `cron`, and an `envelope` with `target`, `key`,
 - Route resolution:
   - request path must match a configured route `path`
   - destination comes from route `envelope.target` + `envelope.key` (default `alias:owner`)
+  - `target=locator` accepts `<channel_type>:<address_key>` in `key`; `/locator` prints the current session value
   - route `envelope.mode` decides publish target:
     - `task` (default): publish webhook task command; task execution later emits the session command
     - `session`: publish session command directly
@@ -1056,6 +1060,7 @@ Each configured task has `id`, `cron`, and an `envelope` with `target`, `key`,
 9. Non-terminal provider progress sends throttled typing indicators in DM and public chats; thinking placeholders are DM-only.
 10. Final assistant response uses configured `balda.telegram.formatting_mode` with fallback retry without formatting on transport or formatting-validation errors.
 11. `/reset` and `/restart` restart the current session in any supported chat/thread context without closing the underlying chat/topic.
-12. `/close` in a topic resets history and closes that topic; `/close` in a DM main chat resets that chat's current main session.
-13. With `balda.sessions.persistence=sqlite`, restart restores conversation history and explicit `/reset`, `/restart`, or `/close` clears it for the current session.
-14. `balda eval-fixtures` validates deterministic scenario fixtures in `testdata/scenarios` and checks golden event manifests; use `--scenario` and `--actual-events` for event-type comparison.
+12. `/locator` returns the current session locator in the config form `<channel_type>:<address_key>`.
+13. `/close` in a topic resets history and closes that topic; `/close` in a DM main chat resets that chat's current main session.
+14. With `balda.sessions.persistence=sqlite`, restart restores conversation history and explicit `/reset`, `/restart`, or `/close` clears it for the current session.
+15. `balda eval-fixtures` validates deterministic scenario fixtures in `testdata/scenarios` and checks golden event manifests; use `--scenario` and `--actual-events` for event-type comparison.

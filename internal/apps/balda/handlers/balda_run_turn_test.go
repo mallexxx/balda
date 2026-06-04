@@ -1456,6 +1456,40 @@ func TestRunTurnTaskWithDelivery_HardFailureSuggestsReset(t *testing.T) {
 	}
 }
 
+func TestRunSessionTurnPayload_RestoresPersistedSessionWithoutPayloadUserID(t *testing.T) {
+	t.Parallel()
+
+	h := newBaldaRunTurnHandlerWithChannel(nil, nil)
+	locator := baldatelegram.NewLocator(9001, 77)
+	store := &fakeBaldaRestoreSessionStore{
+		record: baldastate.SessionRecord{
+			SessionID:   locator.SessionID,
+			UserID:      "tg-101",
+			ChannelType: locator.ChannelType,
+			AddressKey:  locator.AddressKey,
+			AddressJSON: locator.AddressJSON,
+			AgentName:   "auto",
+			Status:      baldastate.SessionStatusActive,
+		},
+		foundByAddress: true,
+	}
+	builder := &fakeBaldaRestoreAgentBuilder{createErr: errors.New("restore create failed")}
+	runtimeManager := &fakeBaldaRestoreRuntimeManager{providerID: "balda-provider"}
+	h.sessionManager = newBaldaRestoreSessionManager(t, builder, runtimeManager, store)
+
+	err := h.RunSessionTurnPayload(context.Background(), actors.SessionTurnPayload{
+		Text:    "hello",
+		Locator: locator,
+		Deliver: false,
+	})
+	if err == nil {
+		t.Fatal("RunSessionTurnPayload() error = nil, want non-nil")
+	}
+	if !strings.Contains(err.Error(), "restore session for queued turn") || !strings.Contains(err.Error(), "restore create failed") {
+		t.Fatalf("RunSessionTurnPayload() error = %v", err)
+	}
+}
+
 func TestRunTurn_DoesNotAppendFinishReasonMessageWhenFinalTextExists(t *testing.T) {
 	t.Parallel()
 

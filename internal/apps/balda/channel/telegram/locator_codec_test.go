@@ -66,6 +66,26 @@ func TestDecodeLocator_InvalidTelegramAddressJSON(t *testing.T) {
 	}
 }
 
+func TestLocatorFromAddressKey(t *testing.T) {
+	locator, err := LocatorFromAddressKey("-1002667079342:8939")
+	if err != nil {
+		t.Fatalf("LocatorFromAddressKey() error = %v", err)
+	}
+	if got, want := locator, NewLocator(-1002667079342, 8939); got != want {
+		t.Fatalf("LocatorFromAddressKey() = %+v, want %+v", got, want)
+	}
+}
+
+func TestLocatorFromAddressKey_Invalid(t *testing.T) {
+	_, err := LocatorFromAddressKey("oops")
+	if err == nil {
+		t.Fatal("LocatorFromAddressKey() error = nil, want non-nil")
+	}
+	if !strings.Contains(err.Error(), "<chat_id>:<topic_id>") {
+		t.Fatalf("LocatorFromAddressKey() error = %v", err)
+	}
+}
+
 func TestUserID(t *testing.T) {
 	if got := UserID(101); got != "tg-101" {
 		t.Fatalf("UserID() = %q, want %q", got, "tg-101")
