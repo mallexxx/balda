@@ -9,8 +9,10 @@ import (
 	"net/http"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/normahq/balda/internal/apps/balda/actors"
+	"github.com/normahq/balda/internal/apps/balda/actors/goalkeeper"
 	"github.com/normahq/balda/internal/apps/balda/auth"
 	baldachannel "github.com/normahq/balda/internal/apps/balda/channel"
 	baldazulip "github.com/normahq/balda/internal/apps/balda/channel/zulip"
@@ -65,6 +67,7 @@ type ZulipBaldaHandler struct {
 	listenAddr        string
 	webhookPath       string
 	enabled           bool
+	goalMaxIterations int
 	logger            zerolog.Logger
 
 	mu      sync.RWMutex
@@ -90,6 +93,7 @@ type zulipBaldaHandlerParams struct {
 	ZulipListenAddr    string `name:"balda_zulip_listen_addr"`
 	ZulipWebhookPath   string `name:"balda_zulip_webhook_path"`
 	ZulipEnabled       bool   `name:"balda_zulip_webhook_enabled"`
+	MaxIterations      int    `name:"balda_goal_max_iterations"`
 	Logger             zerolog.Logger
 }
 
@@ -110,6 +114,7 @@ func NewZulipBaldaHandler(params zulipBaldaHandlerParams) *ZulipBaldaHandler {
 		listenAddr:        strings.TrimSpace(params.ZulipListenAddr),
 		webhookPath:       strings.TrimSpace(params.ZulipWebhookPath),
 		enabled:           params.ZulipEnabled,
+		goalMaxIterations: normalizeGoalMaxIterations(params.MaxIterations),
 		logger:            params.Logger.With().Str("component", "balda.handler.zulip").Logger(),
 	}
 
@@ -253,7 +258,7 @@ func (h *ZulipBaldaHandler) handleCommand(
 	locator baldasession.SessionLocator,
 	senderID int,
 	text string,
-	_ bool,
+	isDM bool,
 ) {
 	fields := strings.Fields(text)
 	if len(fields) == 0 {
@@ -266,7 +271,7 @@ func (h *ZulipBaldaHandler) handleCommand(
 	}
 
 	transportUserID := int64(senderID)
-	if !h.canAccessCollaboratorScope(ctx, transportUserID) {
+	if cmd != "start" && !h.canAccessCollaboratorScope(ctx, transportUserID) {
 		_ = h.sendPlain(ctx, locator, "Only the bot owner or collaborators can use this bot.")
 		return
 	}
@@ -281,7 +286,9 @@ func (h *ZulipBaldaHandler) handleCommand(
 	case "locator":
 		h.handleLocatorCommand(ctx, locator)
 	case "topic":
-		_ = h.sendPlain(ctx, locator, "Zulip already has topics — organize conversations using stream topics.")
+		h.handleTopicCommand(ctx, locator, senderID, args, isDM)
+	case "goal":
+		h.handleGoalCommand(ctx, locator, senderID, args)
 	case "close":
 		h.handleCloseCommand(ctx, locator, senderID)
 	case "user":
@@ -297,21 +304,59 @@ func (h *ZulipBaldaHandler) handleStartCommand(
 	senderID int,
 	args string,
 ) {
+	if args == "" {
+		ownerID := h.getOwnerID()
+		if ownerID != 0 {
+			_ = h.sendPlain(ctx, locator, "Bot owner is already registered.")
+			return
+		}
+		_ = h.sendPlain(
+			ctx, locator,
+			"Welcome to Balda Bot!\n\nTo authenticate:\n"+
+				"• /start owner=<your_owner_token>\n"+
+				"• /start invite=<your_invite_token>",
+		)
+		return
+	}
+
+	key, value, ok := strings.Cut(args, "=")
+	if !ok || strings.TrimSpace(value) == "" {
+		_ = h.sendPlain(
+			ctx, locator,
+			"Invalid /start format. Use one of:\n"+
+				"• /start owner=<your_owner_token>\n"+
+				"• /start invite=<your_invite_token>",
+		)
+		return
+	}
+	mode := strings.TrimSpace(key)
+	token := strings.TrimSpace(value)
+
+	if mode == "invite" {
+		h.handleInviteStart(ctx, locator, senderID, token)
+		return
+	}
+
+	if mode != "owner" {
+		_ = h.sendPlain(
+			ctx, locator,
+			"Invalid /start format. Use one of:\n"+
+				"• /start owner=<your_owner_token>\n"+
+				"• /start invite=<your_invite_token>",
+		)
+		return
+	}
+
 	ownerID := h.getOwnerID()
 	if ownerID != 0 {
-		_ = h.sendPlain(ctx, locator, "Bot owner is already registered.")
+		if ownerID == int64(senderID) {
+			_ = h.sendPlain(ctx, locator, "You are already registered as the bot owner.")
+		} else {
+			_ = h.sendPlain(ctx, locator, "Bot owner is already registered.")
+		}
 		return
 	}
-	if args == "" {
-		_ = h.sendPlain(ctx, locator, "Welcome to Balda Bot!\n\nTo authenticate as owner:\n/start owner=<your_owner_token>")
-		return
-	}
-	key, value, ok := strings.Cut(args, "=")
-	if !ok || strings.TrimSpace(key) != "owner" || strings.TrimSpace(value) == "" {
-		_ = h.sendPlain(ctx, locator, "Usage: /start owner=<your_owner_token>")
-		return
-	}
-	token := strings.TrimSpace(value)
+
 	if token != h.authToken {
 		_ = h.sendPlain(ctx, locator, "Invalid authentication token. Please try again.")
 		return
@@ -330,6 +375,53 @@ func (h *ZulipBaldaHandler) handleStartCommand(
 	h.setOwnerID(newOwnerID)
 	log.Info().Int64("owner_id", newOwnerID).Msg("zulip: owner registered")
 	_ = h.sendPlain(ctx, locator, "You are now registered as the bot owner.")
+}
+
+func (h *ZulipBaldaHandler) handleInviteStart(
+	ctx context.Context,
+	locator baldasession.SessionLocator,
+	senderID int,
+	token string,
+) {
+	userIDStr := fmt.Sprintf("%d", senderID)
+	if h.ownerStore.IsOwner(int64(senderID)) {
+		_ = h.sendPlain(ctx, locator, "You are already the bot owner.")
+		return
+	}
+	if h.collaboratorStore != nil {
+		if _, ok, err := h.collaboratorStore.GetCollaborator(ctx, userIDStr); err != nil {
+			h.logger.Warn().Err(err).Str("user_id", userIDStr).Msg("failed to check collaborator")
+		} else if ok {
+			_ = h.sendPlain(ctx, locator, "You are already a collaborator.")
+			return
+		}
+	}
+	if h.inviteStore == nil || h.collaboratorStore == nil {
+		_ = h.sendPlain(ctx, locator, "Failed to process invite. Please try again.")
+		return
+	}
+	invite, err := h.inviteStore.GetInvite(ctx, token)
+	if err != nil {
+		h.logger.Warn().Err(err).Str("token", token).Msg("zulip: failed to get invite")
+		_ = h.sendPlain(ctx, locator, "Failed to process invite. Please try again.")
+		return
+	}
+	if invite == nil {
+		_ = h.sendPlain(ctx, locator, "This invite token is invalid or has expired.")
+		return
+	}
+	collaborator := auth.Collaborator{
+		UserID:  userIDStr,
+		AddedBy: invite.CreatedBy,
+		AddedAt: time.Now(),
+	}
+	if err := h.collaboratorStore.AddCollaborator(ctx, collaborator); err != nil {
+		h.logger.Error().Err(err).Msg("zulip: failed to add collaborator from invite")
+		_ = h.sendPlain(ctx, locator, "Failed to complete registration. Please try again.")
+		return
+	}
+	log.Info().Str("user_id", userIDStr).Str("invited_by", invite.CreatedBy).Msg("zulip: user registered as collaborator via invite")
+	_ = h.sendPlain(ctx, locator, "Welcome! You are now a bot collaborator.")
 }
 
 func (h *ZulipBaldaHandler) handleResetCommand(
@@ -421,7 +513,7 @@ func (h *ZulipBaldaHandler) handleUserCommand(
 		return
 	}
 	switch fields[0] {
-	case "invite", "add":
+	case "add", "invite":
 		h.handleUserInvite(ctx, locator, senderID)
 	case "list":
 		h.handleUserList(ctx, locator)
@@ -438,9 +530,9 @@ func (h *ZulipBaldaHandler) handleUserCommand(
 
 func (h *ZulipBaldaHandler) sendUserUsage(ctx context.Context, locator baldasession.SessionLocator) {
 	usage := "Usage:\n" +
-		"• /user invite - Generate invite token\n" +
-		"• /user list - Show collaborators\n" +
-		"• /user remove <user_id> - Remove collaborator"
+		"• /user add - Generate invite token\n" +
+		"• /user list - Show collaborators and active invites\n" +
+		"• /user remove <user_id> - Remove collaborator by ID\n"
 	_ = h.sendPlain(ctx, locator, usage)
 }
 
@@ -459,7 +551,7 @@ func (h *ZulipBaldaHandler) handleUserInvite(
 		_ = h.sendPlain(ctx, locator, "Failed to create invite. Please try again.")
 		return
 	}
-	msg := fmt.Sprintf("Invite token created:\n%s\n\nHave the collaborator send:\n/start owner=%s", token, token)
+	msg := fmt.Sprintf("Invite token created:\n%s\n\nHave the collaborator send:\n/start invite=%s", token, token)
 	_ = h.sendPlain(ctx, locator, msg)
 }
 
@@ -467,23 +559,43 @@ func (h *ZulipBaldaHandler) handleUserList(
 	ctx context.Context,
 	locator baldasession.SessionLocator,
 ) {
+	var lines []string
+
 	collaborators, err := h.collaboratorStore.ListCollaborators(ctx)
 	if err != nil {
 		_ = h.sendPlain(ctx, locator, "Failed to list collaborators. Please try again.")
 		return
 	}
-	if len(collaborators) == 0 {
-		_ = h.sendPlain(ctx, locator, "No collaborators.")
-		return
-	}
-	lines := []string{"Collaborators:"}
-	for _, c := range collaborators {
-		name := c.UserID
-		if strings.TrimSpace(c.FirstName) != "" {
-			name += " (" + c.FirstName + ")"
+	if len(collaborators) > 0 {
+		lines = append(lines, "Collaborators:")
+		for _, c := range collaborators {
+			name := "unknown"
+			if strings.TrimSpace(c.Username) != "" {
+				name = c.Username
+			} else if strings.TrimSpace(c.FirstName) != "" {
+				name = c.FirstName
+			}
+			lines = append(lines, fmt.Sprintf("• %s (%s) - added %s",
+				c.UserID, name, c.AddedAt.Format("2006-01-02 15:04")))
 		}
-		lines = append(lines, fmt.Sprintf("• %s - added %s", name, c.AddedAt.Format("2006-01-02 15:04")))
+	} else {
+		lines = append(lines, "No collaborators")
 	}
+
+	if h.inviteStore != nil {
+		invites, err := h.inviteStore.ListInvites(ctx)
+		if err != nil {
+			_ = h.sendPlain(ctx, locator, "Failed to list invites. Please try again.")
+			return
+		}
+		if len(invites) > 0 {
+			lines = append(lines, "", "Active Invites:")
+			for _, inv := range invites {
+				lines = append(lines, fmt.Sprintf("expires %s", inv.ExpiresAt.Format("2006-01-02 15:04")))
+			}
+		}
+	}
+
 	_ = h.sendPlain(ctx, locator, strings.Join(lines, "\n"))
 }
 
@@ -502,6 +614,126 @@ func (h *ZulipBaldaHandler) handleUserRemove(
 		return
 	}
 	_ = h.sendPlain(ctx, locator, fmt.Sprintf("Collaborator removed: %s", userID))
+}
+
+func (h *ZulipBaldaHandler) handleGoalCommand(
+	ctx context.Context,
+	locator baldasession.SessionLocator,
+	senderID int,
+	args string,
+) {
+	objective := strings.TrimSpace(args)
+	if objective == "" {
+		_ = h.sendPlain(ctx, locator, "Usage:\n/goal <objective>\n/goal clear")
+		return
+	}
+	if strings.EqualFold(objective, "clear") {
+		if h.actorDispatcher == nil {
+			_ = h.sendPlain(ctx, locator, "Goal control is unavailable right now. Please try again.")
+			return
+		}
+		if err := submitGoalClearControl(
+			ctx, h.actorDispatcher, locator, baldazulip.UserID(senderID), "goal cleared by user", true,
+		); err != nil {
+			h.logger.Warn().Err(err).Str("session_id", locator.SessionID).Msg("failed to submit goal clear control")
+			_ = h.sendPlain(ctx, locator, "Could not clear goal run.")
+		}
+		return
+	}
+	started, err := h.submitGoalTask(ctx, locator, objective, baldazulip.UserID(senderID))
+	if err != nil {
+		h.logger.Warn().Err(err).Str("session_id", locator.SessionID).Msg("failed to start /goal run")
+		_ = h.sendPlain(ctx, locator, "Could not start goal run.")
+		return
+	}
+	if !started {
+		_ = h.sendPlain(ctx, locator, "A goal run is already active for this session.")
+	}
+}
+
+func (h *ZulipBaldaHandler) submitGoalTask(
+	ctx context.Context,
+	locator baldasession.SessionLocator,
+	objective string,
+	transportUserID string,
+) (bool, error) {
+	if h.taskService != nil {
+		activeGoals, err := h.taskService.ListActiveGoalTasksBySession(ctx, locator.SessionID)
+		if err != nil {
+			return false, fmt.Errorf("list active goal tasks: %w", err)
+		}
+		if len(activeGoals) > 0 {
+			return false, nil
+		}
+	}
+	maxIterations := normalizeGoalMaxIterations(h.goalMaxIterations)
+	env, err := goalkeeper.GoalTaskEnvelope(locator, objective, transportUserID, maxIterations)
+	if err != nil {
+		return false, err
+	}
+	if h.actorDispatcher == nil {
+		return false, fmt.Errorf("swarm runtime is unavailable")
+	}
+	if _, err = h.actorDispatcher.Dispatch(ctx, env); err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
+func (h *ZulipBaldaHandler) handleTopicCommand(
+	ctx context.Context,
+	locator baldasession.SessionLocator,
+	senderID int,
+	args string,
+	isDM bool,
+) {
+	if isDM {
+		_ = h.sendPlain(ctx, locator, "This command is only available in stream messages.")
+		return
+	}
+	topicName := strings.TrimSpace(args)
+	if topicName == "" {
+		_ = h.sendPlain(ctx, locator, "Usage: /topic <name>")
+		return
+	}
+	baldaProviderID := strings.TrimSpace(h.sessionManager.BaldaProviderID())
+	if baldaProviderID == "" {
+		_ = h.sendPlain(ctx, locator, "Balda is not ready right now.")
+		return
+	}
+
+	streamID, ok := baldazulip.StreamIDFromLocator(locator)
+	if !ok {
+		_ = h.sendPlain(ctx, locator, "Could not determine stream ID from current context.")
+		return
+	}
+
+	h.logger.Info().
+		Int("sender_id", senderID).
+		Int("stream_id", streamID).
+		Str("topic_name", topicName).
+		Msg("creating zulip topic session")
+
+	topicLocator := baldazulip.NewStreamLocator(streamID, topicName)
+	transportUserID := baldazulip.UserID(senderID)
+	if err := h.sessionManager.CreateSession(ctx, baldasession.SessionContext{
+		Locator: topicLocator,
+		UserID:  transportUserID,
+	}, topicName); err != nil {
+		h.logger.Error().Err(err).Str("topic_name", topicName).Msg("failed to create zulip topic session")
+		_ = h.sendPlain(ctx, locator, "Could not create topic session.")
+		return
+	}
+	metadata := h.sessionManager.GetAgentMetadata(baldaProviderID)
+	welcomeMsg := welcome.BuildAgentWelcomeMessage(
+		topicName, topicLocator.SessionID, metadata.Type, metadata.Model, metadata.MCPServers,
+	)
+	if err := h.zulipAdapter.SendAgentReply(ctx, topicLocator, welcomeMsg); err != nil {
+		h.logger.Warn().Err(err).Str("topic_name", topicName).Msg("failed to send welcome to new topic")
+		_ = h.sendPlain(ctx, locator, fmt.Sprintf("Session created for topic '%s'.", topicName))
+		return
+	}
+	_ = h.sendPlain(ctx, locator, fmt.Sprintf("Session created. Post in topic '%s' to continue.", topicName))
 }
 
 func (h *ZulipBaldaHandler) handleMessage(
@@ -529,7 +761,7 @@ func (h *ZulipBaldaHandler) handleMessage(
 		return
 	}
 
-	if err := h.enqueueTurn(ctx, text, ts, locator); err != nil {
+	if err := h.enqueueTurn(ctx, text, ts, locator, isDM); err != nil {
 		if swarm.IsCommandQueueFull(err) {
 			_ = h.sendPlain(ctx, locator, "Session command queue is full. Please wait or use /cancel.")
 			return
@@ -608,6 +840,7 @@ func (h *ZulipBaldaHandler) enqueueTurn(
 	text string,
 	ts *baldasession.TopicSession,
 	locator baldasession.SessionLocator,
+	isDM bool,
 ) error {
 	if ts == nil {
 		return fmt.Errorf("topic session is required")
@@ -615,7 +848,7 @@ func (h *ZulipBaldaHandler) enqueueTurn(
 	if h.actorDispatcher == nil {
 		return fmt.Errorf("swarm runtime is unavailable")
 	}
-	progressPolicy := baldachannel.ProgressPolicy{Typing: true, Thinking: false}
+	progressPolicy := baldachannel.ProgressPolicy{Typing: true, Thinking: isDM}
 	payload := actors.SessionTurnPayload{
 		Text:           text,
 		Locator:        locator,

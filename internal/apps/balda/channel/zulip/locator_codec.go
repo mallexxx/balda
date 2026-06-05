@@ -149,6 +149,16 @@ func dmLocatorFromAddressKey(addressKey string) (baldasession.SessionLocator, er
 	return NewDMLocator(userID), nil
 }
 
+// StreamIDFromLocator extracts the stream ID from a Zulip stream locator.
+// Returns (0, false) if the locator is not a Zulip stream locator.
+func StreamIDFromLocator(locator baldasession.SessionLocator) (int, bool) {
+	addr, ok, err := DecodeLocator(locator)
+	if !ok || err != nil || addr.Type != "stream" {
+		return 0, false
+	}
+	return addr.StreamID, true
+}
+
 // UserID returns a Zulip transport user identifier string.
 func UserID(userID int) string {
 	return fmt.Sprintf("%s-%d", zulipSessionIDPrefix, userID)
