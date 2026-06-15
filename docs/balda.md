@@ -396,7 +396,7 @@ For the bundled local runtime flow, keep using the root `Dockerfile` and
 `.config/balda/state.db`, and `.git` on the host, and persists provider CLI
 auth/config in the named `balda-home` volume.
 
-The published image is released from Git tags through `release.yaml` and is
+The published image is released from Git tags through `release.yml` and is
 currently tagged only as `latest`. OCI labels still record the release tag,
 commit SHA, source repository, and build timestamp.
 
