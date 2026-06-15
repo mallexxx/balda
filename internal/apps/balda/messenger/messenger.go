@@ -163,20 +163,13 @@ func (m *Messenger) SendAgentReplyWithResult(ctx context.Context, chatID int64, 
 		}
 		return AgentReplyResult{FirstMessageID: messageID, LastMessageID: messageID, MessageCount: 1}, nil
 	case telegramfmt.ModeRichMarkdown:
-		for _, chunk := range telegramfmt.SplitMarkdownMessageChunks(text) {
-			messageID, err := m.sendRichMessageWithFallback(ctx, chatID, richMarkdown(chunk), topicID, func(ctx context.Context) (int, error) {
-				return m.sendMarkdownLegacy(ctx, chatID, chunk, topicID)
-			})
-			if err != nil {
-				return AgentReplyResult{}, err
-			}
-			if result.MessageCount == 0 {
-				result.FirstMessageID = messageID
-			}
-			result.LastMessageID = messageID
-			result.MessageCount++
+		messageID, err := m.sendRichMessageWithFallback(ctx, chatID, richMarkdown(text), topicID, func(ctx context.Context) (int, error) {
+			return m.sendPlainLegacy(ctx, chatID, text, topicID)
+		})
+		if err != nil {
+			return AgentReplyResult{}, err
 		}
-		return result, nil
+		return AgentReplyResult{FirstMessageID: messageID, LastMessageID: messageID, MessageCount: 1}, nil
 	case telegramfmt.ModeHTML:
 		messageID, err := m.sendMessageWithMode(ctx, chatID, telegramfmt.HTML(text), topicID, telegramfmt.TelegramParseMode(telegramfmt.ModeHTML), "send message with HTML")
 		if err != nil {

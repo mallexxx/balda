@@ -1067,7 +1067,7 @@ Each configured task has `id`, `cron`, and an `envelope` with `target`, `key`,
 7. Restart clears active process sessions; persisted non-owner sessions are lazy-restored from metadata when addressed again, while the owner main-DM session is bootstrapped during startup.
 8. Polling mode resumes from persisted Telegram offset in balda state DB.
 9. Non-terminal provider progress sends throttled typing indicators in DM and public chats; thinking placeholders are DM-only.
-10. Final assistant response uses configured `balda.telegram.formatting_mode`; rich modes retry once through the corresponding legacy path on transport or formatting-validation errors.
+10. Final assistant response uses configured `balda.telegram.formatting_mode`; `rich_markdown` retries once as plain text on rich-message delivery errors, and `rich_html` retries once through the legacy HTML path.
 11. `/reset` and `/restart` cancel current session work, clear history, and immediately start a fresh runtime session in any supported chat/thread context without closing the underlying chat/topic.
 12. `/locator` returns the current session locator in the config form `<channel_type>:<address_key>`.
 13. `/close` in a topic resets history and closes that topic; `/close` in a DM main chat resets that chat's current main session.

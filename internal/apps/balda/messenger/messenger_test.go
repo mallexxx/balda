@@ -444,40 +444,37 @@ func TestSendMarkdown_DoesNotSplitStandaloneSeparator(t *testing.T) {
 	}
 }
 
-func TestSendAgentReply_RichMarkdownSplitsOnStandaloneSeparator(t *testing.T) {
+func TestSendAgentReply_RichMarkdownPreservesStandaloneSeparator(t *testing.T) {
 	t.Parallel()
 
 	tgClient := &fakeChatActionClient{}
 	m := NewMessenger(tgClient, zerolog.Nop())
 
-	result, err := m.SendAgentReplyWithResult(context.Background(), 9001, "**first**\n\n---\n\nsecond", 77)
+	const input = "**first**\n\n---\n\nsecond"
+	result, err := m.SendAgentReplyWithResult(context.Background(), 9001, input, 77)
 	if err != nil {
 		t.Fatalf("SendAgentReplyWithResult() error = %v", err)
 	}
 
-	if len(tgClient.richMessages) != 2 {
-		t.Fatalf("rich message calls = %d, want 2", len(tgClient.richMessages))
+	if len(tgClient.richMessages) != 1 {
+		t.Fatalf("rich message calls = %d, want 1", len(tgClient.richMessages))
 	}
-	if result.FirstMessageID != 1 || result.LastMessageID != 2 || result.MessageCount != 2 {
-		t.Fatalf("result = %+v, want first=1 last=2 count=2", result)
+	if result.FirstMessageID != 1 || result.LastMessageID != 1 || result.MessageCount != 1 {
+		t.Fatalf("result = %+v, want first=1 last=1 count=1", result)
 	}
-	for i, msg := range tgClient.richMessages {
-		if msg.MessageThreadId == nil || *msg.MessageThreadId != 77 {
-			t.Fatalf("rich message[%d].message_thread_id = %v, want 77", i, msg.MessageThreadId)
-		}
-		if msg.RichMessage.Markdown == nil {
-			t.Fatalf("rich message[%d].markdown = nil, want payload", i)
-		}
+	got := tgClient.richMessages[0]
+	if got.MessageThreadId == nil || *got.MessageThreadId != 77 {
+		t.Fatalf("rich message message_thread_id = %v, want 77", got.MessageThreadId)
 	}
-	if got := *tgClient.richMessages[0].RichMessage.Markdown; got != "**first**" {
-		t.Fatalf("first rich markdown = %q, want first chunk", got)
+	if got.RichMessage.Markdown == nil {
+		t.Fatal("rich markdown = nil, want payload")
 	}
-	if got := *tgClient.richMessages[1].RichMessage.Markdown; got != testSecondRichChunk {
-		t.Fatalf("second rich markdown = %q, want second chunk", got)
+	if payload := *got.RichMessage.Markdown; payload != input {
+		t.Fatalf("rich markdown = %q, want original input", payload)
 	}
 }
 
-func TestSendAgentReply_RichMarkdownFallsBackToLegacyMarkdownV2(t *testing.T) {
+func TestSendAgentReply_RichMarkdownFallsBackToPlainText(t *testing.T) {
 	t.Parallel()
 
 	tgClient := &fakeChatActionClient{
@@ -492,7 +489,8 @@ func TestSendAgentReply_RichMarkdownFallsBackToLegacyMarkdownV2(t *testing.T) {
 	}
 	m := NewMessenger(tgClient, zerolog.Nop())
 
-	result, err := m.SendAgentReplyWithResult(context.Background(), 9001, "**final**", 77)
+	const input = "**final**\n\n---\n\n![bad](https://example.invalid/missing.png)"
+	result, err := m.SendAgentReplyWithResult(context.Background(), 9001, input, 77)
 	if err != nil {
 		t.Fatalf("SendAgentReplyWithResult() error = %v", err)
 	}
@@ -503,8 +501,11 @@ func TestSendAgentReply_RichMarkdownFallsBackToLegacyMarkdownV2(t *testing.T) {
 	if len(tgClient.messages) != 1 {
 		t.Fatalf("legacy message calls = %d, want 1 fallback", len(tgClient.messages))
 	}
-	if tgClient.messages[0].ParseMode == nil || *tgClient.messages[0].ParseMode != testParseModeMarkdownV2 {
-		t.Fatalf("fallback parse_mode = %v, want MarkdownV2", tgClient.messages[0].ParseMode)
+	if tgClient.messages[0].ParseMode != nil {
+		t.Fatalf("fallback parse_mode = %v, want nil", *tgClient.messages[0].ParseMode)
+	}
+	if tgClient.messages[0].Text != input {
+		t.Fatalf("fallback text = %q, want original input", tgClient.messages[0].Text)
 	}
 	if result.FirstMessageID != 1 || result.LastMessageID != 1 || result.MessageCount != 1 {
 		t.Fatalf("result = %+v, want fallback message metadata", result)

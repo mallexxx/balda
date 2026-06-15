@@ -32,8 +32,8 @@ Balda behavior:
 
 - Sends Markdown/plain text with Telegram rich messages.
 - Preserves fenced code block content.
-- Splits final agent replies into multiple Telegram messages on standalone `---` separator lines outside fenced code blocks.
-- Retries with legacy MarkdownV2 conversion if rich-message delivery fails.
+- Preserves standalone `---` separator lines for Telegram rich-message handling.
+- Retries as plain text with no `parse_mode` if rich-message delivery fails.
 
 Not supported or not recommended:
 
@@ -41,7 +41,6 @@ Not supported or not recommended:
 - Do not pre-escape Telegram MarkdownV2 reserved characters in agent instructions.
 - Do not rely on exact rendered bullet glyphs; Balda may normalize list markers for Telegram.
 - Do not rely on raw Telegram entity syntax in Markdown mode.
-- Do not use `---` as prose decoration on its own line unless a message split is intended.
 
 Example model output:
 
@@ -56,14 +55,14 @@ go test ./...
 ```
 ~~~
 
-Message split example:
+Separator example:
 
 ~~~markdown
-First Telegram message.
+First section.
 
 ---
 
-Second Telegram message.
+Second section.
 ~~~
 
 ## Rich HTML Mode
@@ -117,6 +116,7 @@ Run <code>balda start</code>.
 
 Use `markdownv2` only when you need the older Telegram `parse_mode=MarkdownV2` path.
 Balda converts Markdown/plain text to MarkdownV2, escapes reserved characters, normalizes list indentation, and trims converter-added leading/trailing newlines.
+Standalone `---` separator lines outside fenced code blocks split final agent replies into multiple Telegram messages in this legacy mode.
 
 ## Legacy HTML Mode
 
