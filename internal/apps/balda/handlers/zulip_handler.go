@@ -53,27 +53,31 @@ type zulipMessage struct {
 
 // ZulipBaldaHandler handles inbound Zulip webhook messages.
 type ZulipBaldaHandler struct {
-	ownerStore        *auth.OwnerStore
-	inviteStore       *auth.InviteStore
-	collaboratorStore *auth.CollaboratorStore
-	zulipAdapter      *baldazulip.Adapter
-	sessionManager    *baldasession.Manager
-	turnDispatcher    actors.TurnQueue
-	actorDispatcher   actortransport.Dispatcher
-	taskService       *swarm.TaskService
-	authToken         string
-	baldaProviderName string
-	webhookToken      string
-	listenAddr        string
-	webhookPath       string
-	enabled           bool
-	goalMaxIterations int
-	allowedOwners     []string
-	logger            zerolog.Logger
+	ownerStore           *auth.OwnerStore
+	inviteStore          *auth.InviteStore
+	collaboratorStore    *auth.CollaboratorStore
+	zulipAdapter         *baldazulip.Adapter
+	zulipClient          *baldazulip.Client
+	sessionManager       *baldasession.Manager
+	turnDispatcher       actors.TurnQueue
+	actorDispatcher      actortransport.Dispatcher
+	taskService          *swarm.TaskService
+	authToken            string
+	baldaProviderName    string
+	webhookToken         string
+	listenAddr           string
+	webhookPath          string
+	enabled              bool
+	goalMaxIterations    int
+	allowedOwners        []string
+	eventsPollingEnabled bool
+	streamOnlyWithSession bool
+	logger               zerolog.Logger
 
-	mu      sync.RWMutex
-	ownerID int64
-	server  *http.Server
+	mu           sync.RWMutex
+	ownerID      int64
+	server       *http.Server
+	pollerCancel context.CancelFunc
 }
 
 type zulipBaldaHandlerParams struct {
@@ -84,41 +88,47 @@ type zulipBaldaHandlerParams struct {
 	InviteStore       *auth.InviteStore
 	CollaboratorStore *auth.CollaboratorStore
 	ZulipAdapter      *baldazulip.Adapter
+	ZulipClient       *baldazulip.Client
 	SessionManager    *baldasession.Manager
 	TurnDispatcher    *actors.TurnDispatcher
 	ActorDispatcher   actortransport.Dispatcher
 	TaskService       *swarm.TaskService `optional:"true"`
-	AuthToken           string   `name:"balda_auth_token"`
-	BaldaProviderID     string   `name:"balda_provider"`
-	ZulipWebhookToken   string   `name:"balda_zulip_webhook_token"`
-	ZulipListenAddr     string   `name:"balda_zulip_listen_addr"`
-	ZulipWebhookPath    string   `name:"balda_zulip_webhook_path"`
-	ZulipEnabled        bool     `name:"balda_zulip_webhook_enabled"`
-	ZulipAllowedOwners  []string `name:"balda_zulip_allowed_owners"`
-	MaxIterations       int      `name:"balda_goal_max_iterations"`
-	Logger              zerolog.Logger
+	AuthToken                string   `name:"balda_auth_token"`
+	BaldaProviderID          string   `name:"balda_provider"`
+	ZulipWebhookToken        string   `name:"balda_zulip_webhook_token"`
+	ZulipListenAddr          string   `name:"balda_zulip_listen_addr"`
+	ZulipWebhookPath         string   `name:"balda_zulip_webhook_path"`
+	ZulipEnabled             bool     `name:"balda_zulip_webhook_enabled"`
+	ZulipAllowedOwners       []string `name:"balda_zulip_allowed_owners"`
+	ZulipEventsPolling       bool     `name:"balda_zulip_events_polling_enabled"`
+	ZulipStreamOnlyWithSession bool   `name:"balda_zulip_stream_only_with_session"`
+	MaxIterations            int      `name:"balda_goal_max_iterations"`
+	Logger                   zerolog.Logger
 }
 
 // NewZulipBaldaHandler creates a ZulipBaldaHandler and registers lifecycle hooks.
 func NewZulipBaldaHandler(params zulipBaldaHandlerParams) *ZulipBaldaHandler {
 	h := &ZulipBaldaHandler{
-		ownerStore:        params.OwnerStore,
-		inviteStore:       params.InviteStore,
-		collaboratorStore: params.CollaboratorStore,
-		zulipAdapter:      params.ZulipAdapter,
-		sessionManager:    params.SessionManager,
-		turnDispatcher:    params.TurnDispatcher,
-		actorDispatcher:   params.ActorDispatcher,
-		taskService:       params.TaskService,
-		authToken:         strings.TrimSpace(params.AuthToken),
-		baldaProviderName: strings.TrimSpace(params.BaldaProviderID),
-		webhookToken:      strings.TrimSpace(params.ZulipWebhookToken),
-		listenAddr:        strings.TrimSpace(params.ZulipListenAddr),
-		webhookPath:       strings.TrimSpace(params.ZulipWebhookPath),
-		enabled:           params.ZulipEnabled,
-		goalMaxIterations: normalizeGoalMaxIterations(params.MaxIterations),
-		allowedOwners:     params.ZulipAllowedOwners,
-		logger:            params.Logger.With().Str("component", "balda.handler.zulip").Logger(),
+		ownerStore:            params.OwnerStore,
+		inviteStore:           params.InviteStore,
+		collaboratorStore:     params.CollaboratorStore,
+		zulipAdapter:          params.ZulipAdapter,
+		zulipClient:           params.ZulipClient,
+		sessionManager:        params.SessionManager,
+		turnDispatcher:        params.TurnDispatcher,
+		actorDispatcher:       params.ActorDispatcher,
+		taskService:           params.TaskService,
+		authToken:             strings.TrimSpace(params.AuthToken),
+		baldaProviderName:     strings.TrimSpace(params.BaldaProviderID),
+		webhookToken:          strings.TrimSpace(params.ZulipWebhookToken),
+		listenAddr:            strings.TrimSpace(params.ZulipListenAddr),
+		webhookPath:           strings.TrimSpace(params.ZulipWebhookPath),
+		enabled:               params.ZulipEnabled,
+		goalMaxIterations:     normalizeGoalMaxIterations(params.MaxIterations),
+		allowedOwners:         params.ZulipAllowedOwners,
+		eventsPollingEnabled:  params.ZulipEventsPolling,
+		streamOnlyWithSession: params.ZulipStreamOnlyWithSession,
+		logger:                params.Logger.With().Str("component", "balda.handler.zulip").Logger(),
 	}
 
 	params.LC.Append(fx.Hook{
@@ -163,10 +173,24 @@ func (h *ZulipBaldaHandler) onStart(_ context.Context) error {
 		}
 	}()
 
+	if h.eventsPollingEnabled && h.zulipClient != nil {
+		pollerCtx, cancel := context.WithCancel(context.Background())
+		h.pollerCancel = cancel
+		poller := baldazulip.NewEventsPoller(h.zulipClient, h.handlePolledEvent, h.logger)
+		go func() {
+			h.logger.Info().Msg("zulip events poller starting")
+			poller.Run(pollerCtx)
+			h.logger.Info().Msg("zulip events poller stopped")
+		}()
+	}
+
 	return nil
 }
 
 func (h *ZulipBaldaHandler) onStop(ctx context.Context) error {
+	if h.pollerCancel != nil {
+		h.pollerCancel()
+	}
 	if h.server == nil {
 		return nil
 	}
@@ -762,6 +786,15 @@ func (h *ZulipBaldaHandler) handleMessage(
 		return
 	}
 
+	// With stream_only_with_session, only process stream messages when an
+	// active session already exists for this topic (set by /start or @mention).
+	if h.streamOnlyWithSession && !isDM {
+		existing, _ := h.sessionManager.GetSession(locator)
+		if existing == nil {
+			return
+		}
+	}
+
 	transportUserID := baldazulip.UserID(senderID)
 	providerName := h.getProviderName()
 
@@ -1082,4 +1115,48 @@ func (h *ZulipBaldaHandler) locatorFromPayload(payload zulipWebhookPayload) bald
 		return baldazulip.NewDMLocator(payload.Message.SenderID)
 	}
 	return baldazulip.NewStreamLocator(payload.Message.StreamID, payload.Message.Subject)
+}
+
+// handlePolledEvent processes a message event from the Events API long-poller.
+// It filters out: bot's own messages, already-handled @mentions and DMs (those
+// arrive via webhook), and stream messages with no active session when
+// stream_only_with_session is enabled.
+func (h *ZulipBaldaHandler) handlePolledEvent(ctx context.Context, ev baldazulip.EventMessage) {
+	msg := ev.Message
+
+	// Skip the bot's own messages.
+	botEmail := ""
+	if h.zulipClient != nil {
+		botEmail = h.zulipClient.BotEmail()
+	}
+	if botEmail != "" && strings.EqualFold(msg.SenderEmail, botEmail) {
+		return
+	}
+
+	// Webhook already handles @mentions and DMs — skip them here.
+	for _, flag := range ev.Flags {
+		if flag == "mentioned" || flag == "wildcard_mentioned" {
+			return
+		}
+	}
+	if msg.Type == "private" {
+		return
+	}
+
+	// Build a synthetic webhook payload so we can reuse processMessage.
+	payload := zulipWebhookPayload{
+		BotEmail: botEmail,
+		Data:     msg.Content,
+		Trigger:  "stream",
+		Message: zulipMessage{
+			ID:          msg.ID,
+			SenderID:    msg.SenderID,
+			SenderEmail: msg.SenderEmail,
+			Type:        msg.Type,
+			StreamID:    msg.StreamID,
+			Subject:     msg.Subject,
+			Content:     msg.Content,
+		},
+	}
+	h.processMessage(ctx, payload)
 }

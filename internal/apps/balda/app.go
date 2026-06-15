@@ -399,6 +399,18 @@ func Module(
 				fx.ResultTags(`name:"balda_zulip_allowed_owners"`),
 			),
 		),
+		fx.Provide(
+			fx.Annotate(
+				func() bool { return cfg.Balda.Zulip.EventsPolling.Enabled },
+				fx.ResultTags(`name:"balda_zulip_events_polling_enabled"`),
+			),
+		),
+		fx.Provide(
+			fx.Annotate(
+				func() bool { return cfg.Balda.Zulip.StreamOnlyWithSession },
+				fx.ResultTags(`name:"balda_zulip_stream_only_with_session"`),
+			),
+		),
 		fx.Provide(func(provider baldastate.Provider) (*auth.OwnerStore, error) {
 			return auth.NewOwnerStore(provider.AppKV())
 		}),

@@ -12,6 +12,7 @@ import (
 )
 
 const defaultHTTPTimeout = 15 * time.Second
+const eventsHTTPTimeout = 120 * time.Second // > 90s Zulip long-poll window
 
 // Client is a low-level Zulip REST client.
 type Client struct {
@@ -116,6 +117,107 @@ func (c *Client) postMessage(ctx context.Context, form url.Values) (int, error) 
 func (c *Client) postTyping(ctx context.Context, form url.Values) error {
 	_, err := c.post(ctx, "/api/v1/typing", form)
 	return err
+}
+
+// BotEmail returns the bot's email address.
+func (c *Client) BotEmail() string { return c.botEmail }
+
+// eventsQueueInfo holds the result of a successful events queue registration.
+type eventsQueueInfo struct {
+	QueueID     string
+	LastEventID int
+}
+
+type eventsRegisterResponse struct {
+	Result      string `json:"result"`
+	Msg         string `json:"msg"`
+	QueueID     string `json:"queue_id"`
+	LastEventID int    `json:"last_event_id"`
+}
+
+// EventMessage is a single event from the Zulip Events API.
+type EventMessage struct {
+	ID      int              `json:"id"`
+	Type    string           `json:"type"`
+	Message EventMessageBody `json:"message"`
+	Flags   []string         `json:"flags"`
+}
+
+// EventMessageBody is the message payload within an EventMessage.
+type EventMessageBody struct {
+	ID          int      `json:"id"`
+	SenderID    int      `json:"sender_id"`
+	SenderEmail string   `json:"sender_email"`
+	Type        string   `json:"type"`
+	StreamID    int      `json:"stream_id"`
+	Subject     string   `json:"subject"`
+	Content     string   `json:"content"`
+	Flags       []string `json:"flags"`
+}
+
+type eventsGetResponse struct {
+	Result string         `json:"result"`
+	Msg    string         `json:"msg"`
+	Events []EventMessage `json:"events"`
+}
+
+func (c *Client) registerEventsQueue(ctx context.Context) (eventsQueueInfo, error) {
+	typesJSON, _ := json.Marshal([]string{"message"})
+	form := url.Values{}
+	form.Set("event_types", string(typesJSON))
+	body, err := c.post(ctx, "/api/v1/register", form)
+	if err != nil {
+		return eventsQueueInfo{}, fmt.Errorf("register events queue: %w", err)
+	}
+	var resp eventsRegisterResponse
+	if err := json.Unmarshal(body, &resp); err != nil {
+		return eventsQueueInfo{}, fmt.Errorf("decode register response: %w", err)
+	}
+	if resp.Result != "success" {
+		return eventsQueueInfo{}, fmt.Errorf("register events queue: %s", resp.Msg)
+	}
+	return eventsQueueInfo{QueueID: resp.QueueID, LastEventID: resp.LastEventID}, nil
+}
+
+func (c *Client) getEvents(ctx context.Context, queueID string, lastEventID int) ([]EventMessage, error) {
+	params := url.Values{}
+	params.Set("queue_id", queueID)
+	params.Set("last_event_id", fmt.Sprintf("%d", lastEventID))
+	params.Set("dont_block", "false")
+
+	endpoint := c.baseURL + "/api/v1/events?" + params.Encode()
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
+	if err != nil {
+		return nil, fmt.Errorf("build events request: %w", err)
+	}
+	req.SetBasicAuth(c.botEmail, c.apiKey)
+
+	longPollHTTP := &http.Client{Timeout: eventsHTTPTimeout}
+	resp, err := longPollHTTP.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("events GET: %w", err)
+	}
+	defer resp.Body.Close()
+
+	raw, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("read events response: %w", err)
+	}
+	if resp.StatusCode == http.StatusBadRequest {
+		return nil, fmt.Errorf("events queue expired or invalid: %s", string(raw))
+	}
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return nil, fmt.Errorf("events GET HTTP %d: %s", resp.StatusCode, string(raw))
+	}
+
+	var evResp eventsGetResponse
+	if err := json.Unmarshal(raw, &evResp); err != nil {
+		return nil, fmt.Errorf("decode events response: %w", err)
+	}
+	if evResp.Result != "success" {
+		return nil, fmt.Errorf("events GET: %s", evResp.Msg)
+	}
+	return evResp.Events, nil
 }
 
 func (c *Client) post(
