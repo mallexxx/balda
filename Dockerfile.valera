@@ -1,0 +1,26 @@
+ARG GO_IMAGE=golang:1.26.4-bookworm
+FROM --platform=$BUILDPLATFORM ${GO_IMAGE} AS builder
+
+WORKDIR /src
+COPY balda/go.mod balda/go.sum ./
+# norma-fork is a local replace directive at ../norma-fork relative to /src
+COPY norma-fork/ /norma-fork/
+RUN go mod download
+COPY balda/ .
+
+ARG VERSION=dev
+ARG COMMIT=unknown
+ARG BUILD_DATE=unknown
+ARG TARGETOS
+ARG TARGETARCH
+
+RUN CGO_ENABLED=0 GOOS=${TARGETOS:-linux} GOARCH=${TARGETARCH:-arm64} \
+    go build -trimpath \
+      -ldflags="-s -w -X main.version=${VERSION} -X main.commit=${COMMIT} -X main.date=${BUILD_DATE}" \
+      -o /out/balda ./cmd/balda
+
+FROM alpine:3
+RUN apk add --no-cache ca-certificates tzdata
+COPY --from=builder /out/balda /usr/local/bin/balda
+WORKDIR /workspace
+ENTRYPOINT ["/usr/local/bin/balda"]
