@@ -2,9 +2,11 @@ package agent
 
 import (
 	"context"
+	"iter"
 	"os"
 	"path/filepath"
 	"reflect"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -13,9 +15,14 @@ import (
 	"github.com/normahq/norma/pkg/runtime/agentconfig"
 	"github.com/normahq/norma/pkg/runtime/agentfactory"
 	runtimeconfig "github.com/normahq/norma/pkg/runtime/appconfig"
+	"github.com/normahq/norma/pkg/runtime/hostedagent"
 	"github.com/normahq/norma/pkg/runtime/mcpregistry"
 	"github.com/normahq/norma/pkg/runtime/sessionstate"
+	adkagent "google.golang.org/adk/agent"
+	"google.golang.org/adk/model"
+	"google.golang.org/adk/runner"
 	adksession "google.golang.org/adk/session"
+	"google.golang.org/genai"
 )
 
 func TestMergeMCPServerIDsWithBase(t *testing.T) {
@@ -501,6 +508,101 @@ func TestCreateRuntimeSession_RequiresBaldaSessionIDState(t *testing.T) {
 	if !strings.Contains(err.Error(), "balda session id is required") {
 		t.Fatalf("CreateRuntimeSession() error = %q, want missing balda session id", err)
 	}
+}
+
+func TestHostedAgentIncludesPersistentSessionHistory(t *testing.T) {
+	t.Parallel()
+
+	capture := &historyCaptureModel{}
+	ag, err := hostedagent.New(hostedagent.Config{
+		Name:        "hosted-history",
+		Description: "Hosted session history test agent",
+		Model:       capture,
+	})
+	if err != nil {
+		t.Fatalf("hostedagent.New() error = %v", err)
+	}
+	sessionSvc := adksession.InMemoryService()
+	r, err := runner.New(runner.Config{
+		AppName:        "norma-balda",
+		Agent:          ag,
+		SessionService: sessionSvc,
+	})
+	if err != nil {
+		t.Fatalf("runner.New() error = %v", err)
+	}
+	created, err := sessionSvc.Create(context.Background(), &adksession.CreateRequest{
+		AppName:   "norma-balda",
+		UserID:    "tg-201",
+		SessionID: "tg-201-0",
+	})
+	if err != nil {
+		t.Fatalf("session.Create() error = %v", err)
+	}
+
+	runHostedHistoryTurn(t, r, created.Session.ID(), "remember alpha")
+	runHostedHistoryTurn(t, r, created.Session.ID(), "what should you remember?")
+
+	if got := len(capture.requests); got != 2 {
+		t.Fatalf("model requests = %d, want 2", got)
+	}
+	secondTexts := requestTexts(capture.requests[1])
+	for _, want := range []string{"remember alpha", "acknowledged 1", "what should you remember?"} {
+		if !containsString(secondTexts, want) {
+			t.Fatalf("second request texts = %#v, want %q", secondTexts, want)
+		}
+	}
+}
+
+func runHostedHistoryTurn(t *testing.T, r *runner.Runner, sessionID string, text string) {
+	t.Helper()
+
+	for _, err := range r.Run(context.Background(), "tg-201", sessionID, genai.NewContentFromText(text, genai.RoleUser), adkagent.RunConfig{}) {
+		if err != nil {
+			t.Fatalf("runner.Run(%q) error = %v", text, err)
+		}
+	}
+}
+
+type historyCaptureModel struct {
+	requests []*model.LLMRequest
+}
+
+func (*historyCaptureModel) Name() string {
+	return "history-capture"
+}
+
+func (m *historyCaptureModel) GenerateContent(_ context.Context, req *model.LLMRequest, _ bool) iter.Seq2[*model.LLMResponse, error] {
+	m.requests = append(m.requests, req)
+	reply := genai.NewContentFromText("acknowledged "+strconv.Itoa(len(m.requests)), genai.RoleModel)
+	return func(yield func(*model.LLMResponse, error) bool) {
+		yield(&model.LLMResponse{Content: reply}, nil)
+	}
+}
+
+func requestTexts(req *model.LLMRequest) []string {
+	var texts []string
+	for _, content := range req.Contents {
+		if content == nil {
+			continue
+		}
+		for _, part := range content.Parts {
+			if part == nil || part.Text == "" {
+				continue
+			}
+			texts = append(texts, part.Text)
+		}
+	}
+	return texts
+}
+
+func containsString(values []string, want string) bool {
+	for _, value := range values {
+		if value == want {
+			return true
+		}
+	}
+	return false
 }
 
 func TestCurrentRepoBranch_Fallbacks(t *testing.T) {
