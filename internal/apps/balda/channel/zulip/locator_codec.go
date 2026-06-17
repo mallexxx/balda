@@ -143,6 +143,9 @@ func streamLocatorFromAddressKey(addressKey string) (baldasession.SessionLocator
 			addressKey, err,
 		)
 	}
+	if strings.TrimSpace(topic) == "" {
+		return baldasession.SessionLocator{}, fmt.Errorf("zulip topic from %q is required", addressKey)
+	}
 	return NewStreamLocator(streamID, topic), nil
 }
 
@@ -166,6 +169,9 @@ func validateLocatorAddress(address LocatorAddress) error {
 	case addressTypeStream:
 		if address.StreamID <= 0 {
 			return fmt.Errorf("zulip stream locator requires positive stream_id")
+		}
+		if strings.TrimSpace(address.Topic) == "" {
+			return fmt.Errorf("zulip stream locator requires topic")
 		}
 	case addressTypeDM:
 		if address.UserID <= 0 {

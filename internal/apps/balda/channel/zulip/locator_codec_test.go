@@ -62,6 +62,7 @@ func TestLocatorFromAddressKeyRejectsNonPositiveIDs(t *testing.T) {
 	}{
 		{name: "zero stream", addressKey: "s:0:ops", wantMarker: "stream_id"},
 		{name: "negative stream", addressKey: "s:-1:ops", wantMarker: "stream_id"},
+		{name: "empty stream topic", addressKey: "s:42:", wantMarker: "topic"},
 		{name: "zero dm", addressKey: "dm:0", wantMarker: "user_id"},
 		{name: "negative dm", addressKey: "dm:-1", wantMarker: "user_id"},
 	}
@@ -86,6 +87,7 @@ func TestDecodeLocatorRejectsInvalidAddress(t *testing.T) {
 		wantMarker  string
 	}{
 		{name: "zero stream", addressJSON: `{"type":"stream","stream_id":0,"topic":"ops"}`, wantMarker: "stream_id"},
+		{name: "empty stream topic", addressJSON: `{"type":"stream","stream_id":42}`, wantMarker: "topic"},
 		{name: "zero dm", addressJSON: `{"type":"dm","user_id":0}`, wantMarker: "user_id"},
 		{name: "unknown type", addressJSON: `{"type":"unknown"}`, wantMarker: "unsupported"},
 	}

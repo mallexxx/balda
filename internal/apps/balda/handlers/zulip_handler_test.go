@@ -413,6 +413,13 @@ func TestZulipBaldaHandlerRejectsInvalidAuthenticatedPayload(t *testing.T) {
 				"message":{"sender_id":101,"sender_email":"user@example.com","type":"stream","subject":"ops"}
 			}`,
 		},
+		{
+			name: "missing stream subject",
+			body: `{
+				"token":"expected-token",
+				"message":{"sender_id":101,"sender_email":"user@example.com","type":"stream","stream_id":42}
+			}`,
+		},
 	}
 
 	for _, tt := range tests {
