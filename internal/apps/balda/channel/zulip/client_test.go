@@ -261,6 +261,29 @@ func TestClientSendStreamMessageParsesStructuredHTTPError(t *testing.T) {
 	}
 }
 
+func TestClientSendStreamMessageRejectsSuccessWithoutMessageID(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_ = json.NewEncoder(w).Encode(sendMessageResult{Result: "success"})
+	}))
+	t.Cleanup(server.Close)
+
+	client := NewClient(server.URL, "bot@example.com", "api-key")
+	_, err := client.SendStreamMessage(context.Background(), 42, "ops", "hello")
+	if err == nil {
+		t.Fatal("SendStreamMessage() error = nil, want malformed response error")
+	}
+	var apiErr *APIError
+	if !errors.As(err, &apiErr) {
+		t.Fatalf("SendStreamMessage() error = %T, want APIError", err)
+	}
+	if apiErr.StatusCode != http.StatusOK || apiErr.Code != "MALFORMED_RESPONSE" {
+		t.Fatalf("APIError = %+v, want malformed response code", apiErr)
+	}
+	if !strings.Contains(apiErr.Message, "missing positive id") {
+		t.Fatalf("APIError.Message = %q, want missing id context", apiErr.Message)
+	}
+}
+
 func TestClientSendStreamTypingParsesStructuredOKError(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		_ = json.NewEncoder(w).Encode(sendMessageResult{

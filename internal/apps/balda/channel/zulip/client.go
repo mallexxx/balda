@@ -178,6 +178,14 @@ func (c *Client) postMessage(ctx context.Context, form url.Values) (int, error) 
 			Message:    result.Msg,
 		}
 	}
+	if result.ID <= 0 {
+		return 0, &APIError{
+			Path:       "/api/v1/messages",
+			StatusCode: http.StatusOK,
+			Code:       "MALFORMED_RESPONSE",
+			Message:    "zulip send message response missing positive id",
+		}
+	}
 	return result.ID, nil
 }
 
