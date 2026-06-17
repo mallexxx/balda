@@ -238,6 +238,43 @@ func TestZulipBaldaHandlerOnStopReturnsShutdownError(t *testing.T) {
 	}
 }
 
+func TestZulipBaldaHandlerOnStopWaitsForWebhookProcessing(t *testing.T) {
+	handler := &ZulipBaldaHandler{
+		server: &http.Server{},
+		logger: zerolog.Nop(),
+	}
+	handler.processWG.Add(1)
+	go func() {
+		time.Sleep(10 * time.Millisecond)
+		handler.processWG.Done()
+	}()
+
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	if err := handler.onStop(ctx); err != nil {
+		t.Fatalf("onStop() error = %v, want nil", err)
+	}
+}
+
+func TestZulipBaldaHandlerOnStopReturnsProcessingWaitError(t *testing.T) {
+	handler := &ZulipBaldaHandler{
+		server: &http.Server{},
+		logger: zerolog.Nop(),
+	}
+	handler.processWG.Add(1)
+	defer handler.processWG.Done()
+
+	ctx, cancel := context.WithTimeout(context.Background(), time.Millisecond)
+	defer cancel()
+	err := handler.onStop(ctx)
+	if err == nil {
+		t.Fatal("onStop() error = nil, want processing wait error")
+	}
+	if !strings.Contains(err.Error(), "wait for zulip webhook processing") {
+		t.Fatalf("onStop() error = %v, want processing wait context", err)
+	}
+}
+
 func TestZulipBaldaHandlerRejectsOversizedWebhookBody(t *testing.T) {
 	handler := &ZulipBaldaHandler{
 		webhookToken: "expected-token",

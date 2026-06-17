@@ -90,6 +90,7 @@ type ZulipBaldaHandler struct {
 	server     *http.Server
 	ln         net.Listener
 	processSem chan struct{}
+	processWG  sync.WaitGroup
 }
 
 type zulipSessionManager interface {
@@ -226,8 +227,26 @@ func (h *ZulipBaldaHandler) onStop(ctx context.Context) error {
 		h.logger.Warn().Err(err).Msg("zulip webhook server shutdown error")
 		return fmt.Errorf("shutdown zulip webhook server: %w", err)
 	}
+	if err := h.waitForWebhookProcessing(ctx); err != nil {
+		h.logger.Warn().Err(err).Msg("zulip webhook processing shutdown wait error")
+		return err
+	}
 	h.ln = nil
 	return nil
+}
+
+func (h *ZulipBaldaHandler) waitForWebhookProcessing(ctx context.Context) error {
+	done := make(chan struct{})
+	go func() {
+		h.processWG.Wait()
+		close(done)
+	}()
+	select {
+	case <-done:
+		return nil
+	case <-ctx.Done():
+		return fmt.Errorf("wait for zulip webhook processing: %w", ctx.Err())
+	}
 }
 
 func (h *ZulipBaldaHandler) initOwnerFromStore() {
@@ -313,7 +332,9 @@ func (h *ZulipBaldaHandler) handleWebhook(w http.ResponseWriter, r *http.Request
 	// Respond immediately; process asynchronously.
 	writeZulipWebhookNoResponse(w)
 
+	h.processWG.Add(1)
 	go func() {
+		defer h.processWG.Done()
 		defer release()
 		h.processWebhookPayload(r.Context(), payload)
 	}()
