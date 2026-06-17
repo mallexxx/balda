@@ -113,6 +113,64 @@ func TestZulipBaldaHandlerOnStartConfiguresHTTPTimeouts(t *testing.T) {
 	}
 }
 
+func TestZulipBaldaHandlerOnStartRejectsInvalidWebhookPath(t *testing.T) {
+	ownerStore, err := auth.NewOwnerStore(&fakeOwnerKVStore{})
+	if err != nil {
+		t.Fatalf("NewOwnerStore() error = %v", err)
+	}
+	handler := &ZulipBaldaHandler{
+		ownerStore:   ownerStore,
+		enabled:      true,
+		listenAddr:   "127.0.0.1:0",
+		webhookPath:  "zulip/webhook",
+		webhookToken: "token",
+		logger:       zerolog.Nop(),
+	}
+
+	err = handler.onStart(context.Background())
+	if err == nil {
+		t.Fatal("onStart() error = nil, want invalid path error")
+	}
+	if !strings.Contains(err.Error(), "balda.zulip.webhook.path") {
+		t.Fatalf("onStart() error = %v, want webhook path context", err)
+	}
+}
+
+func TestNormalizeZulipWebhookPath(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name      string
+		in        string
+		want      string
+		wantError bool
+	}{
+		{name: "default", in: "", want: "/zulip/webhook"},
+		{name: "trimmed", in: " /custom/zulip ", want: "/custom/zulip"},
+		{name: "relative", in: "zulip/webhook", wantError: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			got, err := normalizeZulipWebhookPath(tt.in)
+			if tt.wantError {
+				if err == nil {
+					t.Fatal("normalizeZulipWebhookPath() error = nil, want non-nil")
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("normalizeZulipWebhookPath() error = %v, want nil", err)
+			}
+			if got != tt.want {
+				t.Fatalf("normalizeZulipWebhookPath() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
 func TestZulipBaldaHandlerOnStopReturnsShutdownError(t *testing.T) {
 	block := make(chan struct{})
 	entered := make(chan struct{})

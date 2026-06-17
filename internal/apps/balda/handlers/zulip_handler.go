@@ -172,9 +172,9 @@ func (h *ZulipBaldaHandler) onStart(_ context.Context) error {
 	}
 	h.initOwnerFromStore()
 
-	path := h.webhookPath
-	if path == "" {
-		path = "/zulip/webhook"
+	path, err := normalizeZulipWebhookPath(h.webhookPath)
+	if err != nil {
+		return err
 	}
 	listenAddr := h.listenAddr
 	if listenAddr == "" {
@@ -205,6 +205,17 @@ func (h *ZulipBaldaHandler) onStart(_ context.Context) error {
 	}()
 
 	return nil
+}
+
+func normalizeZulipWebhookPath(path string) (string, error) {
+	trimmed := strings.TrimSpace(path)
+	if trimmed == "" {
+		return "/zulip/webhook", nil
+	}
+	if !strings.HasPrefix(trimmed, "/") {
+		return "", fmt.Errorf("balda.zulip.webhook.path must start with /")
+	}
+	return trimmed, nil
 }
 
 func (h *ZulipBaldaHandler) onStop(ctx context.Context) error {
