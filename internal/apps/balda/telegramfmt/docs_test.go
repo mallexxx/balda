@@ -11,14 +11,17 @@ func TestTelegramFormattingDocsCoverFormatterContract(t *testing.T) {
 
 	doc := readRepoDoc(t, "docs/telegram-formatting.md")
 	for _, want := range []string{
-		"`markdownv2` (default)",
-		"`html`",
+		"`rich_markdown` (default)",
+		"`rich_html`",
+		"`markdownv2`",
 		"`none`",
-		"agent output is normal Markdown or plain text",
-		"Balda converts it to Telegram MarkdownV2",
-		"Splits final agent replies into multiple Telegram messages on standalone `---` separator lines outside fenced code blocks.",
+		"agent output is Markdown or plain text",
+		"Balda sends it with Telegram rich messages",
+		"Preserves standalone `---` separator lines for Telegram rich-message handling.",
+		"Retries as plain text with no `parse_mode` if rich-message delivery fails.",
+		"Standalone `---` separator lines outside fenced code blocks split final agent replies into multiple Telegram messages in this legacy mode.",
 		"Do not pre-escape Telegram MarkdownV2 reserved characters",
-		"Balda escapes unsafe raw text while preserving supported Telegram HTML tags",
+		"Balda sanitizes supported Telegram HTML before sending it as a Telegram rich message",
 		`<blockquote expandable>`,
 		`<tg-time unix="..." format="...">`,
 		`<pre><code class="language-...">...</code></pre>`,

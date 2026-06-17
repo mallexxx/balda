@@ -14,17 +14,25 @@ import (
 	"github.com/tgbotkit/client"
 )
 
-const testParseModeHTML = "HTML"
+const (
+	testParseModeHTML       = "HTML"
+	testParseModeMarkdownV2 = "MarkdownV2"
+	testSecondRichChunk     = "second"
+)
 
 type fakeChatActionClient struct {
 	client.ClientWithResponsesInterface
-	chatActions        []client.SendChatActionJSONRequestBody
-	chatActionResults  []sendChatActionResult
-	chatActionContexts []context.Context
-	messages           []client.SendMessageJSONRequestBody
-	drafts             []client.SendMessageDraftJSONRequestBody
-	sendMessageResults []sendMessageResult
-	messageContexts    []context.Context
+	chatActions          []client.SendChatActionJSONRequestBody
+	chatActionResults    []sendChatActionResult
+	chatActionContexts   []context.Context
+	messages             []client.SendMessageJSONRequestBody
+	drafts               []client.SendMessageDraftJSONRequestBody
+	richMessages         []client.SendRichMessageJSONRequestBody
+	richDrafts           []client.SendRichMessageDraftJSONRequestBody
+	sendMessageResults   []sendMessageResult
+	sendRichResults      []sendRichMessageResult
+	sendRichDraftResults []sendRichDraftResult
+	messageContexts      []context.Context
 }
 
 type sendChatActionResult struct {
@@ -37,12 +45,35 @@ type sendMessageResult struct {
 	err  error
 }
 
+type sendRichMessageResult struct {
+	resp *client.SendRichMessageResponse
+	err  error
+}
+
+type sendRichDraftResult struct {
+	resp *client.SendRichMessageDraftResponse
+	err  error
+}
+
 func successfulSendMessageResponse(messageID int) *client.SendMessageResponse {
 	return &client.SendMessageResponse{
 		HTTPResponse: &http.Response{StatusCode: http.StatusOK, Status: "200 OK"},
 		JSON200: &struct {
 			Ok     client.SendMessage200Ok `json:"ok"`
 			Result client.Message          `json:"result"`
+		}{
+			Ok:     true,
+			Result: client.Message{MessageId: messageID},
+		},
+	}
+}
+
+func successfulSendRichMessageResponse(messageID int) *client.SendRichMessageResponse {
+	return &client.SendRichMessageResponse{
+		HTTPResponse: &http.Response{StatusCode: http.StatusOK, Status: "200 OK"},
+		JSON200: &struct {
+			Ok     client.SendRichMessage200Ok `json:"ok"`
+			Result client.Message              `json:"result"`
 		}{
 			Ok:     true,
 			Result: client.Message{MessageId: messageID},
@@ -89,6 +120,21 @@ func (f *fakeChatActionClient) SendMessageWithResponse(
 	return successfulSendMessageResponse(len(f.messages)), nil
 }
 
+func (f *fakeChatActionClient) SendRichMessageWithResponse(
+	ctx context.Context,
+	body client.SendRichMessageJSONRequestBody,
+	_ ...client.RequestEditorFn,
+) (*client.SendRichMessageResponse, error) {
+	f.messageContexts = append(f.messageContexts, ctx)
+	f.richMessages = append(f.richMessages, body)
+	if len(f.sendRichResults) > 0 {
+		result := f.sendRichResults[0]
+		f.sendRichResults = f.sendRichResults[1:]
+		return result.resp, result.err
+	}
+	return successfulSendRichMessageResponse(len(f.richMessages)), nil
+}
+
 func (f *fakeChatActionClient) SendMessageDraftWithResponse(
 	ctx context.Context,
 	body client.SendMessageDraftJSONRequestBody,
@@ -101,6 +147,30 @@ func (f *fakeChatActionClient) SendMessageDraftWithResponse(
 		JSON200: &struct {
 			Ok     client.SendMessageDraft200Ok `json:"ok"`
 			Result bool                         `json:"result"`
+		}{
+			Ok:     true,
+			Result: true,
+		},
+	}, nil
+}
+
+func (f *fakeChatActionClient) SendRichMessageDraftWithResponse(
+	ctx context.Context,
+	body client.SendRichMessageDraftJSONRequestBody,
+	_ ...client.RequestEditorFn,
+) (*client.SendRichMessageDraftResponse, error) {
+	f.messageContexts = append(f.messageContexts, ctx)
+	f.richDrafts = append(f.richDrafts, body)
+	if len(f.sendRichDraftResults) > 0 {
+		result := f.sendRichDraftResults[0]
+		f.sendRichDraftResults = f.sendRichDraftResults[1:]
+		return result.resp, result.err
+	}
+	return &client.SendRichMessageDraftResponse{
+		HTTPResponse: &http.Response{StatusCode: http.StatusOK, Status: "200 OK"},
+		JSON200: &struct {
+			Ok     client.SendRichMessageDraft200Ok `json:"ok"`
+			Result bool                             `json:"result"`
 		}{
 			Ok:     true,
 			Result: true,
@@ -130,7 +200,7 @@ func TestMessengerDebugLogsDoNotIncludeMessageContent(t *testing.T) {
 			t.Fatalf("debug logs contain message content %q: %s", forbidden, got)
 		}
 	}
-	for _, want := range []string{"draft_text_bytes", "telegram_payload_bytes"} {
+	for _, want := range []string{"rich_payload_bytes", "telegram_payload_bytes"} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("debug logs missing safe metadata %q: %s", want, got)
 		}
@@ -163,15 +233,15 @@ func TestSendPlain_IncludesMessageThreadIDWhenTopicProvided(t *testing.T) {
 		t.Fatalf("SendPlain() error = %v", err)
 	}
 
-	if len(tgClient.messages) != 1 {
-		t.Fatalf("message calls = %d, want 1", len(tgClient.messages))
+	if len(tgClient.richMessages) != 1 {
+		t.Fatalf("rich message calls = %d, want 1", len(tgClient.richMessages))
 	}
-	got := tgClient.messages[0]
+	got := tgClient.richMessages[0]
 	if got.ChatId != 9001 {
 		t.Fatalf("chat_id = %d, want 9001", got.ChatId)
 	}
-	if got.Text != "hello" {
-		t.Fatalf("text = %q, want hello", got.Text)
+	if got.RichMessage.Html == nil || *got.RichMessage.Html != "hello" {
+		t.Fatalf("rich html = %v, want hello", got.RichMessage.Html)
 	}
 	if got.MessageThreadId == nil || *got.MessageThreadId != 77 {
 		t.Fatalf("message_thread_id = %v, want 77", got.MessageThreadId)
@@ -192,6 +262,7 @@ func TestSendPlain_ReturnsResponderError(t *testing.T) {
 		},
 	}
 	m := NewMessenger(tgClient, zerolog.Nop())
+	m.SetTelegramFormattingMode(telegramfmt.ModeNone)
 
 	err := m.SendPlain(context.Background(), 9001, "hello", 0)
 	if err == nil {
@@ -361,11 +432,83 @@ func TestSendMarkdown_DoesNotSplitStandaloneSeparator(t *testing.T) {
 		t.Fatalf("SendMarkdown() error = %v", err)
 	}
 
-	if len(tgClient.messages) != 1 {
-		t.Fatalf("messages calls = %d, want 1", len(tgClient.messages))
+	if len(tgClient.richMessages) != 1 {
+		t.Fatalf("rich messages calls = %d, want 1", len(tgClient.richMessages))
 	}
-	if !strings.Contains(tgClient.messages[0].Text, "first") || !strings.Contains(tgClient.messages[0].Text, "second") {
-		t.Fatalf("message text = %q, want both sections in one message", tgClient.messages[0].Text)
+	if tgClient.richMessages[0].RichMessage.Markdown == nil {
+		t.Fatal("rich markdown = nil, want markdown payload")
+	}
+	got := *tgClient.richMessages[0].RichMessage.Markdown
+	if !strings.Contains(got, "first") || !strings.Contains(got, "second") {
+		t.Fatalf("rich markdown = %q, want both sections in one message", got)
+	}
+}
+
+func TestSendAgentReply_RichMarkdownPreservesStandaloneSeparator(t *testing.T) {
+	t.Parallel()
+
+	tgClient := &fakeChatActionClient{}
+	m := NewMessenger(tgClient, zerolog.Nop())
+
+	const input = "**first**\n\n---\n\nsecond"
+	result, err := m.SendAgentReplyWithResult(context.Background(), 9001, input, 77)
+	if err != nil {
+		t.Fatalf("SendAgentReplyWithResult() error = %v", err)
+	}
+
+	if len(tgClient.richMessages) != 1 {
+		t.Fatalf("rich message calls = %d, want 1", len(tgClient.richMessages))
+	}
+	if result.FirstMessageID != 1 || result.LastMessageID != 1 || result.MessageCount != 1 {
+		t.Fatalf("result = %+v, want first=1 last=1 count=1", result)
+	}
+	got := tgClient.richMessages[0]
+	if got.MessageThreadId == nil || *got.MessageThreadId != 77 {
+		t.Fatalf("rich message message_thread_id = %v, want 77", got.MessageThreadId)
+	}
+	if got.RichMessage.Markdown == nil {
+		t.Fatal("rich markdown = nil, want payload")
+	}
+	if payload := *got.RichMessage.Markdown; payload != input {
+		t.Fatalf("rich markdown = %q, want original input", payload)
+	}
+}
+
+func TestSendAgentReply_RichMarkdownFallsBackToPlainText(t *testing.T) {
+	t.Parallel()
+
+	tgClient := &fakeChatActionClient{
+		sendRichResults: []sendRichMessageResult{
+			{
+				resp: &client.SendRichMessageResponse{
+					HTTPResponse: &http.Response{StatusCode: http.StatusBadRequest, Status: "400 Bad Request"},
+					JSON400:      &client.ErrorResponse{Description: "Bad Request: can't parse entities"},
+				},
+			},
+		},
+	}
+	m := NewMessenger(tgClient, zerolog.Nop())
+
+	const input = "**final**\n\n---\n\n![bad](https://example.invalid/missing.png)"
+	result, err := m.SendAgentReplyWithResult(context.Background(), 9001, input, 77)
+	if err != nil {
+		t.Fatalf("SendAgentReplyWithResult() error = %v", err)
+	}
+
+	if len(tgClient.richMessages) != 1 {
+		t.Fatalf("rich message calls = %d, want 1 failed attempt", len(tgClient.richMessages))
+	}
+	if len(tgClient.messages) != 1 {
+		t.Fatalf("legacy message calls = %d, want 1 fallback", len(tgClient.messages))
+	}
+	if tgClient.messages[0].ParseMode != nil {
+		t.Fatalf("fallback parse_mode = %v, want nil", *tgClient.messages[0].ParseMode)
+	}
+	if tgClient.messages[0].Text != input {
+		t.Fatalf("fallback text = %q, want original input", tgClient.messages[0].Text)
+	}
+	if result.FirstMessageID != 1 || result.LastMessageID != 1 || result.MessageCount != 1 {
+		t.Fatalf("result = %+v, want fallback message metadata", result)
 	}
 }
 
@@ -385,7 +528,7 @@ func TestSendAgentReply_UsesConfiguredFormattingMode(t *testing.T) {
 			input:    "**final answer** with `code`",
 			wantText: "***final answer*** with `code`",
 			wantMode: func() *string {
-				v := "MarkdownV2"
+				v := testParseModeMarkdownV2
 				return &v
 			}(),
 		},
@@ -462,7 +605,7 @@ func TestSendAgentReply_MarkdownV2SplitsOnStandaloneSeparator(t *testing.T) {
 		if msg.MessageThreadId == nil || *msg.MessageThreadId != 77 {
 			t.Fatalf("message[%d].message_thread_id = %v, want 77", i, msg.MessageThreadId)
 		}
-		if msg.ParseMode == nil || *msg.ParseMode != "MarkdownV2" {
+		if msg.ParseMode == nil || *msg.ParseMode != testParseModeMarkdownV2 {
 			t.Fatalf("message[%d].parse_mode = %v, want MarkdownV2", i, msg.ParseMode)
 		}
 	}

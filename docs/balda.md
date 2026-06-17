@@ -15,7 +15,7 @@ Architecture contracts are maintained in:
 - Balda startup prompt includes workspace settings for each session; in git workspace mode it also includes session/base/current-branch context and workspace MCP guidance.
 - Output streaming:
   - Progress updates: non-terminal provider progress emits channel progress. Telegram maps this to throttled typing indicators for all chats, plus DM-only thinking placeholders.
-  - Final assistant response uses `balda.telegram.formatting_mode` (`markdownv2|html|none`; default `markdownv2`).
+  - Final assistant response uses `balda.telegram.formatting_mode` (`rich_markdown|rich_html|markdownv2|html|none`; default `rich_markdown`).
 - Auth model: one-time owner authorization with startup-generated token.
 
 ## User Onboarding Reference
@@ -235,7 +235,7 @@ Example `.env`:
 
 ```dotenv
 BALDA_TELEGRAM_TOKEN=123456:ABCDEF
-BALDA_TELEGRAM_FORMATTING_MODE=markdownv2
+BALDA_TELEGRAM_FORMATTING_MODE=rich_markdown
 BALDA_TELEGRAM_WEBHOOK_ENABLED=true
 BALDA_TELEGRAM_WEBHOOK_URL=https://example.com/telegram/webhook
 ```
@@ -252,7 +252,7 @@ balda:
   provider: <provider_id>
   telegram:
     token: ""
-    formatting_mode: "markdownv2"
+    formatting_mode: "rich_markdown"
 profiles:
   <profile>:
     balda:
@@ -396,7 +396,7 @@ For the bundled local runtime flow, keep using the root `Dockerfile` and
 `.config/balda/state.db`, and `.git` on the host, and persists provider CLI
 auth/config in the named `balda-home` volume.
 
-The published image is released from Git tags through `release.yaml` and is
+The published image is released from Git tags through `release.yml` and is
 currently tagged only as `latest`. OCI labels still record the release tag,
 commit SHA, source repository, and build timestamp.
 
@@ -495,11 +495,13 @@ session-start snapshot. New or restored sessions read the latest file.
     - balda config file key `balda.telegram.token`
   - when `.env` storage is selected, existing `.env` content is preserved and `BALDA_TELEGRAM_TOKEN` is upserted
 - `balda.telegram.formatting_mode`: final assistant response format mode.
-  - allowed values: `markdownv2`, `html`, `none`
-  - default: `markdownv2`
-  - `markdownv2` accepts normal Markdown/plain text from the model and converts it to Telegram MarkdownV2
-  - `html` expects Telegram HTML syntax from the model; Balda escapes unsafe raw text while preserving supported Telegram HTML tags
-  - `none` sends raw text with no formatting mode
+  - allowed values: `rich_markdown`, `rich_html`, `markdownv2`, `html`, `none`
+  - default: `rich_markdown`
+  - `rich_markdown` accepts Markdown/plain text from the model and sends it with Telegram rich messages
+  - `rich_html` accepts rich-message HTML from the model and sends it with Telegram rich messages
+  - `markdownv2` is the legacy mode that converts normal Markdown/plain text to Telegram MarkdownV2
+  - `html` is the legacy mode that sends Telegram HTML with `parse_mode=HTML`
+  - `none` is the legacy mode that sends raw text with no formatting mode
   - invalid values fail startup
   - see [Telegram Message Formatting](telegram-formatting.md) for supported tags, unsupported tags, and escaping behavior
 - `balda.telegram.plan_updates`: surface work-plan snapshots in balda progress (default: `true`)
@@ -619,10 +621,12 @@ Per model turn:
 1. Non-terminal provider progress sends throttled typing indicators for the same chat/topic; DM chats also emit throttled thinking placeholders.
    When `balda.telegram.plan_updates=true`, work-plan snapshots replace generic DM thinking placeholders and are sent as plain-text progress messages in public chats/topics.
 2. Final assistant text uses `balda.telegram.formatting_mode`:
+   - `rich_markdown`: model writes Markdown/plain text; Balda sends Telegram rich Markdown.
+   - `rich_html`: model writes rich-message HTML; Balda sends Telegram rich HTML.
    - `markdownv2`: model writes Markdown/plain text; Balda converts it to Telegram MarkdownV2.
    - `html`: model writes Telegram HTML; Balda escapes unsafe raw text and preserves supported Telegram HTML tags.
    - `none`: Balda sends raw text with no formatting mode.
-3. If a formatted send fails at transport or formatting-validation level, balda retries once without formatting.
+3. If rich-message delivery fails at transport or formatting-validation level, balda retries once using the legacy path for that mode.
 
 ## Topic Sessions
 
@@ -641,7 +645,7 @@ Balda runs with a single provider per process (`balda.provider`).
 - `/goal <objective>` (owner/collaborator): starts goal work from the current session context in an isolated GoalKeeper workspace/state. The goal workspace is created from `balda.workspace.base_branch`, exported back automatically on success, and preserved for recovery when export fails. `/goal` requires `balda.workspace.mode` to resolve to an enabled git-worktree mode. Started/validation/final updates use `balda.telegram.formatting_mode`; terminal updates include Result, Artifacts, Confidence, and Next action sections. See the [goal workflow doc](goal-workflow.md).
   - concurrent `/goal` runs in the same session are rejected.
   - `/goal clear` stops active goal work for the current session only.
-- `/reset`, `/restart` (owner/collaborator): restart the current session history without closing the chat/topic. Both commands work in the current DM, public-chat, or thread-scoped session.
+- `/reset`, `/restart` (owner/collaborator): cancel current session work, clear the current session history, and immediately start a fresh runtime session without closing the chat/topic. Both commands work in the current DM, public-chat, or thread-scoped session.
 - `/locator` (owner/collaborator): replies with the current transport type and locator ref in the public config form `<channel_type>:<address_key>`. Use that value with `target: locator` in scheduler/webhook config.
 - `/close` (DM only, owner/collaborator): resets the current session history. In topic contexts, it also closes that topic.
 - `/cancel` (owner/collaborator): cancels the current session turn and drops queued turns for that session. It does not stop active `/goal` work.
@@ -1063,8 +1067,8 @@ Each configured task has `id`, `cron`, and an `envelope` with `target`, `key`,
 7. Restart clears active process sessions; persisted non-owner sessions are lazy-restored from metadata when addressed again, while the owner main-DM session is bootstrapped during startup.
 8. Polling mode resumes from persisted Telegram offset in balda state DB.
 9. Non-terminal provider progress sends throttled typing indicators in DM and public chats; thinking placeholders are DM-only.
-10. Final assistant response uses configured `balda.telegram.formatting_mode` with fallback retry without formatting on transport or formatting-validation errors.
-11. `/reset` and `/restart` restart the current session in any supported chat/thread context without closing the underlying chat/topic.
+10. Final assistant response uses configured `balda.telegram.formatting_mode`; `rich_markdown` retries once as plain text on rich-message delivery errors, and `rich_html` retries once through the legacy HTML path.
+11. `/reset` and `/restart` cancel current session work, clear history, and immediately start a fresh runtime session in any supported chat/thread context without closing the underlying chat/topic.
 12. `/locator` returns the current session locator in the config form `<channel_type>:<address_key>`.
 13. `/close` in a topic resets history and closes that topic; `/close` in a DM main chat resets that chat's current main session.
 14. With `balda.sessions.persistence=sqlite`, restart restores conversation history and explicit `/reset`, `/restart`, or `/close` clears it for the current session.

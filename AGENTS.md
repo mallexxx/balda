@@ -67,7 +67,7 @@ Recurring scheduling is config-managed via `balda.scheduler.tasks`. It is not a 
 
 - Omnidist profile is authoritative (`.omnidist/omnidist.yaml`, profile `balda`).
 - Version source is Git tags (`version.source: git-tag`).
-- Publish flows are tag-driven via GitHub Actions (`release.yaml`, `omnidist-release.yaml`).
+- Publish flows are tag-driven via GitHub Actions (`release.yml`, `omnidist-release.yml`).
 
 <!-- BEGIN BEADS INTEGRATION v:1 profile:full hash:f65d5d33 -->
 ## Issue Tracking with bd (beads)

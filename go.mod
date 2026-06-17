@@ -13,15 +13,15 @@ require (
 	github.com/modelcontextprotocol/go-sdk v1.5.0
 	github.com/nats-io/nats-server/v2 v2.14.0
 	github.com/nats-io/nats.go v1.52.0
-	github.com/normahq/norma v0.0.6
+	github.com/normahq/norma v0.0.10
 	github.com/pressly/goose/v3 v3.16.0
 	github.com/robfig/cron/v3 v3.0.1
 	github.com/rs/zerolog v1.35.1
 	github.com/spf13/cobra v1.10.2
 	github.com/spf13/viper v1.21.0
 	github.com/stretchr/testify v1.11.1
-	github.com/tgbotkit/client v0.7.0
-	github.com/tgbotkit/runtime v0.0.0-20260512031122-422e9ff94681
+	github.com/tgbotkit/client v0.8.0
+	github.com/tgbotkit/runtime v0.0.0-20260612103623-ae4f1d55fce6
 	go.uber.org/fx v1.24.0
 	google.golang.org/adk v1.3.0
 	google.golang.org/genai v1.57.0

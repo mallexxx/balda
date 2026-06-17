@@ -13,8 +13,9 @@ func TestNormalizeMode(t *testing.T) {
 		in   string
 		want string
 	}{
-		{name: "empty defaults to markdownv2", in: "", want: ModeMarkdownV2},
-		{name: "whitespace defaults to markdownv2", in: " \t\n ", want: ModeMarkdownV2},
+		{name: "empty defaults to rich_markdown", in: "", want: ModeRichMarkdown},
+		{name: "whitespace defaults to rich_markdown", in: " \t\n ", want: ModeRichMarkdown},
+		{name: "trim and lowercase rich html", in: "  RICH_HTML ", want: ModeRichHTML},
 		{name: "trim and lowercase html", in: "  HTml ", want: ModeHTML},
 		{name: "keeps unknown normalized", in: "  MD ", want: "md"},
 	}
@@ -37,7 +38,9 @@ func TestValidateMode(t *testing.T) {
 		want    string
 		wantErr bool
 	}{
-		{name: "default for empty", in: "", want: ModeMarkdownV2},
+		{name: "default for empty", in: "", want: ModeRichMarkdown},
+		{name: "rich_markdown", in: "rich_markdown", want: ModeRichMarkdown},
+		{name: "rich_html", in: "rich_html", want: ModeRichHTML},
 		{name: "markdownv2", in: "markdownv2", want: ModeMarkdownV2},
 		{name: "trim and lowercase", in: "  HTml ", want: ModeHTML},
 		{name: "none", in: "none", want: ModeNone},
@@ -71,10 +74,12 @@ func TestTelegramParseMode(t *testing.T) {
 		in   string
 		want string
 	}{
+		{in: ModeRichMarkdown, want: ""},
+		{in: ModeRichHTML, want: ""},
 		{in: ModeMarkdownV2, want: "MarkdownV2"},
 		{in: ModeHTML, want: "HTML"},
 		{in: ModeNone, want: ""},
-		{in: "", want: "MarkdownV2"},
+		{in: "", want: ""},
 	}
 	for _, tt := range tests {
 		if got := TelegramParseMode(tt.in); got != tt.want {
@@ -93,6 +98,38 @@ func TestPromptRuleAndExample(t *testing.T) {
 		denyRuleParts []string
 		wantExample   string
 	}{
+		{
+			name: "rich_markdown",
+			mode: ModeRichMarkdown,
+			wantRuleParts: []string{
+				"Use Telegram Rich Markdown",
+				"Balda sends it through Telegram rich messages",
+				RichMessagesDocsURL,
+				"Do not pre-escape Telegram MarkdownV2 reserved characters",
+			},
+			denyRuleParts: []string{
+				"Balda converts it to Telegram MarkdownV2",
+				"Use Telegram HTML parse mode",
+			},
+			wantExample: richMarkdownExample,
+		},
+		{
+			name: "rich_html",
+			mode: ModeRichHTML,
+			wantRuleParts: []string{
+				"Use Telegram Rich HTML",
+				RichMessagesDocsURL,
+				"Balda escapes unsafe raw <, >, &",
+			},
+			denyRuleParts: []string{
+				"Telegram HTML parse mode",
+				"Balda converts it to Telegram MarkdownV2",
+				"headings h1-h6",
+				"details/summary",
+				"lists, tables",
+			},
+			wantExample: "<h2>Build</h2><p><b>Status:</b> success</p><p>Run <code>balda start</code>.</p>",
+		},
 		{
 			name: "markdownv2",
 			mode: ModeMarkdownV2,
@@ -133,15 +170,16 @@ func TestPromptRuleAndExample(t *testing.T) {
 			wantExample:   "Build: success. Run balda start.",
 		},
 		{
-			name: "unknown defaults to markdownv2",
+			name: "unknown defaults to rich_markdown",
 			mode: "md",
 			wantRuleParts: []string{
-				"Write normal Markdown or plain text",
-				"Balda converts it to Telegram MarkdownV2",
-				"do not pre-escape Telegram MarkdownV2 reserved characters",
+				"Use Telegram Rich Markdown",
+				"Balda sends it through Telegram rich messages",
+				RichMessagesDocsURL,
+				"Do not pre-escape Telegram MarkdownV2 reserved characters",
 			},
 			denyRuleParts: []string{"Use Telegram HTML parse mode"},
-			wantExample:   "**Build:** success. Run `balda start`.",
+			wantExample:   richMarkdownExample,
 		},
 	}
 
@@ -163,5 +201,36 @@ func TestPromptRuleAndExample(t *testing.T) {
 				t.Fatalf("PromptRuleAndExample(%q) example = %q, want %q", tt.mode, gotExample, tt.wantExample)
 			}
 		})
+	}
+}
+
+func TestRichMarkdownPromptExampleCoversOfficialRichConstructs(t *testing.T) {
+	t.Parallel()
+
+	_, got := PromptRuleAndExample(ModeRichMarkdown)
+	for _, want := range []string{
+		"# Release notes",
+		"**Status:**",
+		"_verified_",
+		"~~obsolete path removed~~",
+		"==highlighted==",
+		"||internal note hidden||",
+		"[the runbook](https://example.com/runbook)",
+		"@owner",
+		"```bash\n",
+		"- [x] Update dependencies",
+		"1. Deploy",
+		"> Keep this summary short.",
+		"| Area | Result |",
+		"[^1]",
+		"$p95 < 250ms$",
+		"<details>",
+		"<summary>More context</summary>",
+		"![diagram](https://example.com/diagram.png)",
+		"\n---\n",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("rich markdown example missing %q in:\n%s", want, got)
+		}
 	}
 }
