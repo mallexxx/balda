@@ -42,6 +42,7 @@ const (
 	zulipWebhookProcessingTimeout  = 5 * time.Minute
 	zulipWebhookMaxConcurrentTasks = 16
 	zulipMessageTypeStream         = "stream"
+	zulipTriggerMention            = "mention"
 )
 
 // zulipWebhookPayload is the payload Zulip sends to the webhook endpoint.
@@ -338,7 +339,7 @@ func validateZulipWebhookPayload(payload zulipWebhookPayload) error {
 func (h *ZulipBaldaHandler) processMessage(ctx context.Context, payload zulipWebhookPayload) {
 	locator := h.locatorFromPayload(payload)
 	senderID := payload.Message.SenderID
-	text := strings.TrimSpace(payload.Data)
+	text := normalizeZulipMessageText(payload)
 	isDM := payload.Message.Type == chatTypePrivate
 
 	h.logger.Debug().
@@ -353,12 +354,46 @@ func (h *ZulipBaldaHandler) processMessage(ctx context.Context, payload zulipWeb
 	}
 
 	// Auto-claim: @mention from an allowed owner takes over the topic without /start.
-	if payload.Trigger == "mention" && h.isAllowedOwner(payload.Message.SenderEmail) {
+	if payload.Trigger == zulipTriggerMention && h.isAllowedOwner(payload.Message.SenderEmail) {
 		h.handleAutoClaimMention(ctx, locator, senderID, payload.Message.SenderEmail, text, isDM)
 		return
 	}
 
 	h.handleMessage(ctx, locator, senderID, text, isDM)
+}
+
+func normalizeZulipMessageText(payload zulipWebhookPayload) string {
+	text := strings.TrimSpace(payload.Data)
+	if strings.TrimSpace(payload.Trigger) != zulipTriggerMention {
+		return text
+	}
+	return stripLeadingZulipMentions(text)
+}
+
+func stripLeadingZulipMentions(text string) string {
+	trimmed := strings.TrimSpace(text)
+	for {
+		next, ok := trimLeadingZulipMention(trimmed)
+		if !ok {
+			return trimmed
+		}
+		trimmed = strings.TrimSpace(next)
+	}
+}
+
+func trimLeadingZulipMention(text string) (string, bool) {
+	for _, prefix := range []string{"@**", "@_**"} {
+		if !strings.HasPrefix(text, prefix) {
+			continue
+		}
+		rest := text[len(prefix):]
+		end := strings.Index(rest, "**")
+		if end < 0 {
+			return text, false
+		}
+		return rest[end+len("**"):], true
+	}
+	return text, false
 }
 
 func (h *ZulipBaldaHandler) handleCommand(

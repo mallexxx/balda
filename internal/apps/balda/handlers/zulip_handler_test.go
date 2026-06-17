@@ -282,6 +282,55 @@ func TestZulipBaldaHandlerAutoClaimBareMentionSendsOneWelcome(t *testing.T) {
 	}
 }
 
+func TestZulipBaldaHandlerMentionCommandUsesCommandText(t *testing.T) {
+	ownerStore, err := auth.NewOwnerStore(&fakeOwnerKVStore{})
+	if err != nil {
+		t.Fatalf("NewOwnerStore() error = %v", err)
+	}
+	if _, err := ownerStore.RegisterOwner(101, 0); err != nil {
+		t.Fatalf("RegisterOwner() error = %v", err)
+	}
+
+	tests := []struct {
+		name string
+		data string
+	}{
+		{name: "normal mention", data: "@**Balda** /locator"},
+		{name: "silent mention", data: "@_**Balda** /locator"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			dispatcher := &recordingZulipDispatcher{}
+			handler := &ZulipBaldaHandler{
+				ownerStore:      ownerStore,
+				actorDispatcher: dispatcher,
+				logger:          zerolog.Nop(),
+				ownerID:         101,
+			}
+
+			handler.processMessage(context.Background(), zulipWebhookPayload{
+				Data:    tt.data,
+				Trigger: "mention",
+				Message: zulipMessage{
+					SenderID:    101,
+					SenderEmail: "owner@example.com",
+					Type:        zulipMessageTypeStream,
+					StreamID:    42,
+					Subject:     "ops",
+				},
+			})
+
+			payloads := zulipDeliveryPayloads(t, dispatcher.commands)
+			if len(payloads) != 1 {
+				t.Fatalf("delivery payloads = %d, want locator reply", len(payloads))
+			}
+			if !strings.Contains(payloads[0].Text, "Transport: zulip") {
+				t.Fatalf("reply = %q, want locator response", payloads[0].Text)
+			}
+		})
+	}
+}
+
 func TestZulipBaldaHandlerStartIsDirectMessageOnly(t *testing.T) {
 	ownerStore, err := auth.NewOwnerStore(&fakeOwnerKVStore{})
 	if err != nil {
