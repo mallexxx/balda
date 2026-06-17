@@ -135,11 +135,11 @@ func (a *taskDeliveryActor) Handle(ctx context.Context, envelope any) error {
 func (a *taskDeliveryActor) dispatchDelivery(ctx context.Context, payload DeliveryPayload) (string, error) {
 	switch payload.Mode {
 	case DeliveryModeAgentReply:
-		return a.channel.SendAgentReplyWithProviderMessageID(ctx, payload.Locator, payload.Text)
+		return a.channel.SendAgentReplyWithProviderMessageIDAndProfile(ctx, payload.Locator, payload.Profile, payload.Text)
 	case DeliveryModePlain:
 		return "", a.channel.SendPlain(ctx, payload.Locator, payload.Text)
 	case DeliveryModeMarkdown:
-		return "", a.channel.SendMarkdown(ctx, payload.Locator, payload.Text)
+		return "", a.channel.SendMarkdownWithProfile(ctx, payload.Locator, payload.Profile, payload.Text)
 	case DeliveryModeDraftPlain:
 		return "", a.channel.SendDraftPlain(ctx, payload.Locator, payload.DraftID, payload.Text)
 	case DeliveryModeChatAction:

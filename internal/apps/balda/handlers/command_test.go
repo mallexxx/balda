@@ -10,6 +10,7 @@ import (
 	"github.com/normahq/balda/internal/apps/balda/actors"
 	"github.com/normahq/balda/internal/apps/balda/auth"
 	baldatelegram "github.com/normahq/balda/internal/apps/balda/channel/telegram"
+	"github.com/normahq/balda/internal/apps/balda/deliverycmd"
 	"github.com/normahq/balda/internal/apps/balda/messenger"
 	"github.com/normahq/balda/internal/apps/balda/session"
 	baldastate "github.com/normahq/balda/internal/apps/balda/state"
@@ -616,7 +617,8 @@ func TestCommandHandlerSubmitGoalTask_PublishesDurableCommandOnly(t *testing.T) 
 	bus := &recordingHandlerCommandBus{}
 	handler := &CommandHandler{actorDispatcher: bus, goalMaxIterations: 7}
 
-	started, err := handler.submitGoalTask(ctx, locator, "deploy release", testTelegramUserID101)
+	profile := deliverycmd.Profile{FormattingMode: "rich_markdown"}
+	started, err := handler.submitGoalTaskWithProfile(ctx, locator, profile, "deploy release", testTelegramUserID101)
 	if err != nil {
 		t.Fatalf("submitGoalTask() error = %v", err)
 	}
@@ -628,7 +630,8 @@ func TestCommandHandlerSubmitGoalTask_PublishesDurableCommandOnly(t *testing.T) 
 	}
 	var payload struct {
 		Goal *struct {
-			MaxIterations int `json:"max_iterations"`
+			MaxIterations   int                 `json:"max_iterations"`
+			DeliveryProfile deliverycmd.Profile `json:"delivery_profile"`
 		} `json:"goal"`
 	}
 	if err := json.Unmarshal([]byte(bus.commands[0].PayloadJSON), &payload); err != nil {
@@ -636,6 +639,9 @@ func TestCommandHandlerSubmitGoalTask_PublishesDurableCommandOnly(t *testing.T) 
 	}
 	if payload.Goal == nil || payload.Goal.MaxIterations != 7 {
 		t.Fatalf("goal payload = %+v, want max_iterations=7 from config", payload.Goal)
+	}
+	if payload.Goal.DeliveryProfile.FormattingMode != profile.FormattingMode {
+		t.Fatalf("delivery profile mode = %q, want %q", payload.Goal.DeliveryProfile.FormattingMode, profile.FormattingMode)
 	}
 }
 

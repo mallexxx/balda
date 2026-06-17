@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/normahq/balda/internal/apps/balda/actors/goalkeeper"
+	"github.com/normahq/balda/internal/apps/balda/deliverycmd"
 	"github.com/normahq/balda/internal/apps/balda/progress"
 	"github.com/normahq/balda/internal/apps/balda/session"
 	baldastate "github.com/normahq/balda/internal/apps/balda/state"
@@ -42,7 +43,8 @@ func TestGoalKeeperActorCompletesPassingRun(t *testing.T) {
 		PlanUpdatesEnabled: false,
 		Logger:             zerolog.Nop(),
 	})
-	env, err := goalkeeper.GoalTaskEnvelope(locator, "ship release", "101", 3)
+	profile := deliverycmd.Profile{FormattingMode: "rich_markdown"}
+	env, err := goalkeeper.GoalTaskEnvelopeWithProfile(locator, profile, "ship release", "101", 3)
 	if err != nil {
 		t.Fatalf("GoalTaskEnvelope() error = %v", err)
 	}
@@ -81,6 +83,9 @@ func TestGoalKeeperActorCompletesPassingRun(t *testing.T) {
 	for _, payload := range payloads {
 		if payload.Mode != DeliveryModeAgentReply {
 			t.Fatalf("delivery payload mode = %q, want %q", payload.Mode, DeliveryModeAgentReply)
+		}
+		if payload.Profile.FormattingMode != profile.FormattingMode {
+			t.Fatalf("delivery profile mode = %q, want %q", payload.Profile.FormattingMode, profile.FormattingMode)
 		}
 	}
 }

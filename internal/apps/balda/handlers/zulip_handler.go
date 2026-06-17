@@ -18,6 +18,7 @@ import (
 	"github.com/normahq/balda/internal/apps/balda/auth"
 	baldachannel "github.com/normahq/balda/internal/apps/balda/channel"
 	baldazulip "github.com/normahq/balda/internal/apps/balda/channel/zulip"
+	"github.com/normahq/balda/internal/apps/balda/deliverycmd"
 	"github.com/normahq/balda/internal/apps/balda/locatorref"
 	baldasession "github.com/normahq/balda/internal/apps/balda/session"
 	"github.com/normahq/balda/internal/apps/balda/swarm"
@@ -991,7 +992,7 @@ func (h *ZulipBaldaHandler) submitGoalTask(
 		}
 	}
 	maxIterations := normalizeGoalMaxIterations(h.goalMaxIterations)
-	env, err := goalkeeper.GoalTaskEnvelope(locator, objective, transportUserID, maxIterations)
+	env, err := goalkeeper.GoalTaskEnvelopeWithProfile(locator, deliverycmd.Profile{FormattingMode: "markdown"}, objective, transportUserID, maxIterations)
 	if err != nil {
 		return false, err
 	}

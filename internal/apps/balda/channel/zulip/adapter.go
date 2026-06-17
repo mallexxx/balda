@@ -8,6 +8,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/normahq/balda/internal/apps/balda/deliverycmd"
 	baldasession "github.com/normahq/balda/internal/apps/balda/session"
 	"github.com/rs/zerolog"
 )
@@ -47,6 +48,19 @@ func (a *Adapter) SendMarkdown(
 	locator baldasession.SessionLocator,
 	text string,
 ) error {
+	return a.SendMarkdownWithProfile(ctx, locator, deliverycmd.Profile{}, text)
+}
+
+// SendMarkdownWithProfile sends a Markdown message using Zulip's target formatting profile.
+func (a *Adapter) SendMarkdownWithProfile(
+	ctx context.Context,
+	locator baldasession.SessionLocator,
+	profile deliverycmd.Profile,
+	text string,
+) error {
+	if strings.EqualFold(strings.TrimSpace(profile.FormattingMode), "plain") {
+		return a.SendPlain(ctx, locator, text)
+	}
 	_, err := a.sendWithPlainFallback(ctx, locator, text)
 	return err
 }
@@ -68,6 +82,26 @@ func (a *Adapter) SendAgentReplyWithProviderMessageID(
 	locator baldasession.SessionLocator,
 	text string,
 ) (string, error) {
+	return a.SendAgentReplyWithProviderMessageIDAndProfile(ctx, locator, deliverycmd.Profile{}, text)
+}
+
+// SendAgentReplyWithProviderMessageIDAndProfile sends agent output using Zulip's target formatting profile.
+func (a *Adapter) SendAgentReplyWithProviderMessageIDAndProfile(
+	ctx context.Context,
+	locator baldasession.SessionLocator,
+	profile deliverycmd.Profile,
+	text string,
+) (string, error) {
+	if strings.EqualFold(strings.TrimSpace(profile.FormattingMode), "plain") {
+		msgID, err := a.send(ctx, locator, text)
+		if err != nil {
+			return "", err
+		}
+		if msgID <= 0 {
+			return "", nil
+		}
+		return strconv.Itoa(msgID), nil
+	}
 	msgID, err := a.sendWithPlainFallback(ctx, locator, text)
 	if err != nil {
 		return "", err

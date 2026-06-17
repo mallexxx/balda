@@ -136,7 +136,7 @@ func (h *CommandHandler) onGoalCommand(ctx context.Context, commandCtx baldatele
 		return nil
 	}
 
-	started, err := h.submitGoalTask(ctx, commandCtx.Locator, objective, baldatelegram.UserID(commandCtx.UserID))
+	started, err := h.submitGoalTaskWithProfile(ctx, commandCtx.Locator, commandCtx.DeliveryProfile, objective, baldatelegram.UserID(commandCtx.UserID))
 	if err != nil {
 		log.Warn().Err(err).Str("session_id", commandCtx.Locator.SessionID).Msg("failed to start /goal run")
 		if sendErr := sendAgentReply(ctx, h.actorDispatcher, commandHandlerActorAddress, commandCtx.Locator, "Could not start goal run."); sendErr != nil {

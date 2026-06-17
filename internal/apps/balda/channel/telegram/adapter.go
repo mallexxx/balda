@@ -6,6 +6,7 @@ import (
 	"strconv"
 
 	baldachannel "github.com/normahq/balda/internal/apps/balda/channel"
+	"github.com/normahq/balda/internal/apps/balda/deliverycmd"
 	"github.com/normahq/balda/internal/apps/balda/messenger"
 	baldasession "github.com/normahq/balda/internal/apps/balda/session"
 	"github.com/rs/zerolog"
@@ -47,13 +48,14 @@ type MessageContext struct {
 
 // CommandContext is the balda-facing Telegram command shape.
 type CommandContext struct {
-	Locator baldasession.SessionLocator
-	ChatID  int64
-	TopicID int
-	UserID  int64
-	Command string
-	Args    string
-	IsDM    bool
+	Locator         baldasession.SessionLocator
+	DeliveryProfile deliverycmd.Profile
+	ChatID          int64
+	TopicID         int
+	UserID          int64
+	Command         string
+	Args            string
+	IsDM            bool
 }
 
 // TopicLifecycleContext is the balda-facing Telegram topic lifecycle shape.
@@ -156,6 +158,9 @@ func (a *Adapter) CommandContextFromEvent(event *events.CommandEvent) (CommandCo
 
 	return CommandContext{
 		Locator: NewLocator(event.Message.Chat.Id, topicID),
+		DeliveryProfile: deliverycmd.Profile{
+			FormattingMode: a.messenger.TelegramFormattingMode(),
+		},
 		ChatID:  event.Message.Chat.Id,
 		TopicID: topicID,
 		UserID:  event.Message.From.Id,
@@ -205,9 +210,17 @@ func (a *Adapter) SendPlain(ctx context.Context, locator baldasession.SessionLoc
 
 // SendMarkdown sends a Markdown reply to the locator.
 func (a *Adapter) SendMarkdown(ctx context.Context, locator baldasession.SessionLocator, text string) error {
+	return a.SendMarkdownWithProfile(ctx, locator, deliverycmd.Profile{}, text)
+}
+
+// SendMarkdownWithProfile sends a Markdown reply using a request-scoped formatting profile.
+func (a *Adapter) SendMarkdownWithProfile(ctx context.Context, locator baldasession.SessionLocator, profile deliverycmd.Profile, text string) error {
 	chatID, topicID, err := telegramTuple(locator)
 	if err != nil {
 		return err
+	}
+	if profile.FormattingMode != "" {
+		return a.messenger.SendMarkdownWithMode(ctx, chatID, text, topicID, profile.FormattingMode)
 	}
 	return a.messenger.SendMarkdown(ctx, chatID, text, topicID)
 }
@@ -223,11 +236,21 @@ func (a *Adapter) SendAgentReply(ctx context.Context, locator baldasession.Sessi
 
 // SendAgentReplyWithProviderMessageID sends final agent output and returns the provider message ID when available.
 func (a *Adapter) SendAgentReplyWithProviderMessageID(ctx context.Context, locator baldasession.SessionLocator, text string) (string, error) {
+	return a.SendAgentReplyWithProviderMessageIDAndProfile(ctx, locator, deliverycmd.Profile{}, text)
+}
+
+// SendAgentReplyWithProviderMessageIDAndProfile sends final agent output using a request-scoped formatting profile.
+func (a *Adapter) SendAgentReplyWithProviderMessageIDAndProfile(ctx context.Context, locator baldasession.SessionLocator, profile deliverycmd.Profile, text string) (string, error) {
 	chatID, topicID, err := telegramTuple(locator)
 	if err != nil {
 		return "", err
 	}
-	result, err := a.messenger.SendAgentReplyWithResult(ctx, chatID, text, topicID)
+	var result messenger.AgentReplyResult
+	if profile.FormattingMode != "" {
+		result, err = a.messenger.SendAgentReplyWithResultAndMode(ctx, chatID, text, topicID, profile.FormattingMode)
+	} else {
+		result, err = a.messenger.SendAgentReplyWithResult(ctx, chatID, text, topicID)
+	}
 	if err != nil {
 		return "", err
 	}

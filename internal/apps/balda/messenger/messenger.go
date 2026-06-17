@@ -50,6 +50,14 @@ func (m *Messenger) SetTelegramFormattingMode(mode string) {
 	m.telegramFormattingMode = telegramfmt.NormalizeMode(mode)
 }
 
+// TelegramFormattingMode returns the normalized configured Telegram formatting mode.
+func (m *Messenger) TelegramFormattingMode() string {
+	if m == nil {
+		return telegramfmt.ModeRichMarkdown
+	}
+	return telegramfmt.NormalizeMode(m.telegramFormattingMode)
+}
+
 // SendDraftPlain sends a plain-text draft (no parse_mode).
 func (m *Messenger) SendDraftPlain(ctx context.Context, chatID int64, draftID int, text string, topicID int) error {
 	if m.richMessagesEnabled() {
@@ -121,7 +129,12 @@ func (m *Messenger) sendPlainLegacy(ctx context.Context, chatID int64, text stri
 
 // SendMarkdown converts standard Markdown to Telegram MarkdownV2 and sends.
 func (m *Messenger) SendMarkdown(ctx context.Context, chatID int64, text string, topicID int) error {
-	if m.richMessagesEnabled() {
+	return m.SendMarkdownWithMode(ctx, chatID, text, topicID, m.TelegramFormattingMode())
+}
+
+// SendMarkdownWithMode sends Markdown using the supplied formatting mode without mutating messenger state.
+func (m *Messenger) SendMarkdownWithMode(ctx context.Context, chatID int64, text string, topicID int, mode string) error {
+	if telegramRichMessagesEnabled(mode) {
 		_, err := m.sendRichMessageWithFallback(ctx, chatID, richMarkdown(text), topicID, func(ctx context.Context) (int, error) {
 			return m.sendMarkdownLegacy(ctx, chatID, text, topicID)
 		})
@@ -152,8 +165,13 @@ func (m *Messenger) SendAgentReply(ctx context.Context, chatID int64, text strin
 
 // SendAgentReplyWithResult sends final model output and returns provider message metadata.
 func (m *Messenger) SendAgentReplyWithResult(ctx context.Context, chatID int64, text string, topicID int) (AgentReplyResult, error) {
+	return m.SendAgentReplyWithResultAndMode(ctx, chatID, text, topicID, m.TelegramFormattingMode())
+}
+
+// SendAgentReplyWithResultAndMode sends final model output using the supplied formatting mode without mutating messenger state.
+func (m *Messenger) SendAgentReplyWithResultAndMode(ctx context.Context, chatID int64, text string, topicID int, mode string) (AgentReplyResult, error) {
 	var result AgentReplyResult
-	switch telegramfmt.NormalizeMode(m.telegramFormattingMode) {
+	switch telegramfmt.NormalizeMode(mode) {
 	case telegramfmt.ModeRichHTML:
 		messageID, err := m.sendRichMessageWithFallback(ctx, chatID, richHTML(telegramfmt.HTML(text)), topicID, func(ctx context.Context) (int, error) {
 			return m.sendMessageWithMode(ctx, chatID, telegramfmt.HTML(text), topicID, telegramfmt.TelegramParseMode(telegramfmt.ModeHTML), "send message with HTML")
@@ -199,7 +217,11 @@ func (m *Messenger) SendAgentReplyWithResult(ctx context.Context, chatID int64, 
 }
 
 func (m *Messenger) richMessagesEnabled() bool {
-	switch telegramfmt.NormalizeMode(m.telegramFormattingMode) {
+	return telegramRichMessagesEnabled(m.TelegramFormattingMode())
+}
+
+func telegramRichMessagesEnabled(mode string) bool {
+	switch telegramfmt.NormalizeMode(mode) {
 	case telegramfmt.ModeRichMarkdown, telegramfmt.ModeRichHTML:
 		return true
 	default:

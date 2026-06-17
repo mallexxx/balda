@@ -126,6 +126,7 @@ type taskEnvelopePayload struct {
 type goalTaskPayload struct {
 	TaskID          string                      `json:"task_id,omitempty"`
 	Locator         baldasession.SessionLocator `json:"locator"`
+	DeliveryProfile deliverycmd.Profile         `json:"delivery_profile,omitempty,omitzero"`
 	Objective       string                      `json:"objective"`
 	TransportUserID string                      `json:"transport_user_id"`
 	MaxIterations   int                         `json:"max_iterations,omitempty"`
@@ -231,12 +232,23 @@ func GoalTaskEnvelope(
 	transportUserID string,
 	maxIterations int,
 ) (swarm.Envelope, error) {
+	return GoalTaskEnvelopeWithProfile(locator, deliverycmd.Profile{}, objective, transportUserID, maxIterations)
+}
+
+func GoalTaskEnvelopeWithProfile(
+	locator baldasession.SessionLocator,
+	deliveryProfile deliverycmd.Profile,
+	objective string,
+	transportUserID string,
+	maxIterations int,
+) (swarm.Envelope, error) {
 	taskID := "goal-" + locator.SessionID + "-" + uuid.NewString()
 	payload := taskEnvelopePayload{
 		Kind: taskPayloadKindGoal,
 		Goal: &goalTaskPayload{
 			TaskID:          taskID,
 			Locator:         locator,
+			DeliveryProfile: normalizeGoalDeliveryProfile(deliveryProfile),
 			Objective:       strings.TrimSpace(objective),
 			TransportUserID: strings.TrimSpace(transportUserID),
 			MaxIterations:   normalizeGoalMaxIterations(maxIterations),
@@ -298,7 +310,7 @@ func (a *Actor) runGoal(ctx context.Context, env swarm.Envelope, payload goalTas
 	}); err != nil {
 		return swarm.TransientError(err)
 	}
-	if err := a.deliver(ctx, taskID, payload.Locator, fmt.Sprintf("Goal run started. Max iterations: %d.\n\nObjective: %s", maxIterations, objective), "started"); err != nil {
+	if err := a.deliver(ctx, taskID, payload, fmt.Sprintf("Goal run started. Max iterations: %d.\n\nObjective: %s", maxIterations, objective), "started"); err != nil {
 		return err
 	}
 
@@ -338,7 +350,7 @@ func (a *Actor) runGoal(ctx context.Context, env swarm.Envelope, payload goalTas
 			if setErr := a.tasks.SetResult(ctx, taskID, result.toTaskResult(false, artifacts, &taskExportResultV1{Status: "canceled"}), baldastate.SwarmTaskStatusCanceled, actorName, "goal run canceled"); setErr != nil {
 				return swarm.TransientError(setErr)
 			}
-			return a.deliver(ctx, taskID, payload.Locator, "Goal run canceled.", "canceled")
+			return a.deliver(ctx, taskID, payload, "Goal run canceled.", "canceled")
 		}
 		reason := redactSecrets(err.Error())
 		if cleanupErr := goalRun.CleanupResources(ctx); cleanupErr != nil {
@@ -347,7 +359,7 @@ func (a *Actor) runGoal(ctx context.Context, env swarm.Envelope, payload goalTas
 		if setErr := a.tasks.SetResult(ctx, taskID, result.toTaskResult(false, artifacts, &taskExportResultV1{Status: "failed", Error: reason}), baldastate.SwarmTaskStatusFailed, actorName, reason); setErr != nil {
 			return swarm.TransientError(setErr)
 		}
-		return a.deliver(ctx, taskID, payload.Locator, "Goal run failed: "+reason, "failed")
+		return a.deliver(ctx, taskID, payload, "Goal run failed: "+reason, "failed")
 	}
 	if reviewerPassed(result.validatorOutput) {
 		finalization, exportErr := goalRun.Finalize(ctx, payload.Objective, result.workerOutput, result.validatorOutput)
@@ -363,7 +375,7 @@ func (a *Actor) runGoal(ctx context.Context, env swarm.Envelope, payload goalTas
 			if setErr := a.tasks.SetResult(ctx, taskID, taskResult, baldastate.SwarmTaskStatusFailed, actorName, exportSummary.Error); setErr != nil {
 				return swarm.TransientError(setErr)
 			}
-			return a.deliver(ctx, taskID, payload.Locator, a.renderTaskOutcome(ctx, taskID, "Goal validation passed, but export failed."), "export-failed")
+			return a.deliver(ctx, taskID, payload, a.renderTaskOutcome(ctx, taskID, "Goal validation passed, but export failed."), "export-failed")
 		}
 		taskResult := result.toTaskResult(true, artifacts, exportSummary)
 		if err := a.tasks.SetResult(ctx, taskID, taskResult, baldastate.SwarmTaskStatusCompleted, actorName, ""); err != nil {
@@ -372,7 +384,7 @@ func (a *Actor) runGoal(ctx context.Context, env swarm.Envelope, payload goalTas
 		if cleanupErr := goalRun.CleanupResources(ctx); cleanupErr != nil {
 			a.logger.Warn().Err(cleanupErr).Str("task_id", taskID).Msg("failed to cleanup completed goal run")
 		}
-		return a.deliver(ctx, taskID, payload.Locator, a.renderTaskOutcome(ctx, taskID, "Goal run completed."), "completed")
+		return a.deliver(ctx, taskID, payload, a.renderTaskOutcome(ctx, taskID, "Goal run completed."), "completed")
 	}
 	if cleanupErr := goalRun.CleanupResources(ctx); cleanupErr != nil {
 		a.logger.Warn().Err(cleanupErr).Str("task_id", taskID).Msg("failed to cleanup max-iteration goal run")
@@ -381,7 +393,7 @@ func (a *Actor) runGoal(ctx context.Context, env swarm.Envelope, payload goalTas
 	if err := a.tasks.SetResult(ctx, taskID, taskResult, baldastate.SwarmTaskStatusFailed, actorName, "max iterations reached"); err != nil {
 		return swarm.TransientError(err)
 	}
-	return a.deliver(ctx, taskID, payload.Locator, a.renderTaskOutcome(ctx, taskID, "Goal run reached max iterations without passing validation."), "max-iterations")
+	return a.deliver(ctx, taskID, payload, a.renderTaskOutcome(ctx, taskID, "Goal run reached max iterations without passing validation."), "max-iterations")
 }
 
 func (a *Actor) ensureGoalTask(ctx context.Context, payload goalTaskPayload) error {
@@ -447,7 +459,7 @@ func (a *Actor) ensureNoOtherActiveGoal(ctx context.Context, taskID string, payl
 		}), baldastate.SwarmTaskStatusCanceled, actorName, reason); setErr != nil {
 			return false, swarm.TransientError(setErr)
 		}
-		if err := a.deliver(ctx, taskID, payload.Locator, "A goal run is already active for this session.", "already-active"); err != nil {
+		if err := a.deliver(ctx, taskID, payload, "A goal run is already active for this session.", "already-active"); err != nil {
 			return false, err
 		}
 		return true, nil
@@ -600,7 +612,7 @@ func (a *Actor) recordStepStarted(ctx context.Context, payload goalTaskPayload, 
 	}); err != nil {
 		return swarm.TransientError(err)
 	}
-	return a.deliver(ctx, payload.TaskID, payload.Locator, fmt.Sprintf("Goal iteration %d/%d: %s started.", iteration, normalizeGoalMaxIterations(payload.MaxIterations), step), "started:"+step+":"+strconv.Itoa(iteration))
+	return a.deliver(ctx, payload.TaskID, payload, fmt.Sprintf("Goal iteration %d/%d: %s started.", iteration, normalizeGoalMaxIterations(payload.MaxIterations), step), "started:"+step+":"+strconv.Itoa(iteration))
 }
 
 func (a *Actor) recordStepCompleted(
@@ -643,7 +655,7 @@ func (a *Actor) recordStepProgress(
 		(*deliverySeq)++
 	}
 	suffix := fmt.Sprintf("progress:%s:%s:%d:%03d", kind, step, iteration, valueOrZero(deliverySeq))
-	if err := a.deliver(ctx, payload.TaskID, payload.Locator, text, suffix); err != nil {
+	if err := a.deliver(ctx, payload.TaskID, payload, text, suffix); err != nil {
 		return err
 	}
 	if err := a.tasks.AppendEvent(ctx, payload.TaskID, swarm.TaskEventAgentProgress, actorName, "", map[string]any{
@@ -787,7 +799,7 @@ func (a *Actor) renderTaskOutcome(ctx context.Context, taskID string, fallback s
 func (a *Actor) deliver(
 	ctx context.Context,
 	taskID string,
-	locator baldasession.SessionLocator,
+	payload goalTaskPayload,
 	text string,
 	dedupeSuffix string,
 ) error {
@@ -798,11 +810,12 @@ func (a *Actor) deliver(
 	if message == "" {
 		return nil
 	}
-	locator = normalizeGoalDeliveryLocator(locator)
-	env, err := deliverycmd.AgentReplyEnvelope(
+	locator := normalizeGoalDeliveryLocator(payload.Locator)
+	env, err := deliverycmd.AgentReplyEnvelopeWithProfile(
 		strings.TrimSpace(taskID),
 		swarm.ActorAddress{Target: swarm.ActorTypeGoalkeeper, Key: taskID},
 		locator,
+		normalizeGoalDeliveryProfile(payload.DeliveryProfile),
 		message,
 		dedupeSuffix,
 	)
@@ -820,6 +833,10 @@ func normalizeGoalDeliveryLocator(locator baldasession.SessionLocator) baldasess
 		locator.ChannelType = "telegram"
 	}
 	return locator
+}
+
+func normalizeGoalDeliveryProfile(profile deliverycmd.Profile) deliverycmd.Profile {
+	return deliverycmd.Profile{FormattingMode: strings.TrimSpace(profile.FormattingMode)}
 }
 
 func normalizeGoalMaxIterations(v int) int {

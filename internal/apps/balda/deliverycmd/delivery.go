@@ -16,6 +16,7 @@ const taskPayloadKindDelivery = "delivery"
 type Payload struct {
 	TaskID  string                      `json:"task_id,omitempty"`
 	Locator baldasession.SessionLocator `json:"locator"`
+	Profile Profile                     `json:"profile,omitempty,omitzero"`
 	Mode    Mode                        `json:"mode"`
 	Text    string                      `json:"text,omitempty"`
 	DraftID int                         `json:"draft_id,omitempty"`
@@ -23,6 +24,11 @@ type Payload struct {
 }
 
 type Mode string
+
+// Profile snapshots delivery-target formatting attributes at request time.
+type Profile struct {
+	FormattingMode string `json:"formatting_mode,omitempty"`
+}
 
 const (
 	ModeAgentReply Mode = "agent_reply"
@@ -39,9 +45,21 @@ func AgentReplyEnvelope(
 	text string,
 	dedupeSuffix string,
 ) (actorlayer.Envelope, error) {
+	return AgentReplyEnvelopeWithProfile(taskID, from, locator, Profile{}, text, dedupeSuffix)
+}
+
+func AgentReplyEnvelopeWithProfile(
+	taskID string,
+	from actorlayer.ActorAddress,
+	locator baldasession.SessionLocator,
+	profile Profile,
+	text string,
+	dedupeSuffix string,
+) (actorlayer.Envelope, error) {
 	return envelope(taskID, from, Payload{
 		TaskID:  strings.TrimSpace(taskID),
 		Locator: locator,
+		Profile: normalizeProfile(profile),
 		Mode:    ModeAgentReply,
 		Text:    strings.TrimSpace(text),
 	}, dedupeSuffix)
@@ -69,9 +87,21 @@ func MarkdownEnvelope(
 	text string,
 	dedupeSuffix string,
 ) (actorlayer.Envelope, error) {
+	return MarkdownEnvelopeWithProfile(taskID, from, locator, Profile{}, text, dedupeSuffix)
+}
+
+func MarkdownEnvelopeWithProfile(
+	taskID string,
+	from actorlayer.ActorAddress,
+	locator baldasession.SessionLocator,
+	profile Profile,
+	text string,
+	dedupeSuffix string,
+) (actorlayer.Envelope, error) {
 	return envelope(taskID, from, Payload{
 		TaskID:  strings.TrimSpace(taskID),
 		Locator: locator,
+		Profile: normalizeProfile(profile),
 		Mode:    ModeMarkdown,
 		Text:    strings.TrimSpace(text),
 	}, dedupeSuffix)
@@ -105,6 +135,10 @@ func ChatActionEnvelope(
 		Mode:    ModeChatAction,
 		Action:  strings.TrimSpace(action),
 	}, "")
+}
+
+func normalizeProfile(profile Profile) Profile {
+	return Profile{FormattingMode: strings.TrimSpace(profile.FormattingMode)}
 }
 
 func Validate(payload Payload) error {

@@ -583,6 +583,35 @@ func TestSendAgentReply_UsesConfiguredFormattingMode(t *testing.T) {
 	}
 }
 
+func TestSendAgentReplyWithResultAndMode_DoesNotMutateConfiguredMode(t *testing.T) {
+	t.Parallel()
+
+	tgClient := &fakeChatActionClient{}
+	m := NewMessenger(tgClient, zerolog.Nop())
+	m.SetAgentReplyFormattingMode(telegramfmt.ModeNone)
+
+	result, err := m.SendAgentReplyWithResultAndMode(context.Background(), 9001, "**final**", 77, telegramfmt.ModeMarkdownV2)
+	if err != nil {
+		t.Fatalf("SendAgentReplyWithResultAndMode() error = %v", err)
+	}
+	if result.MessageCount != 1 {
+		t.Fatalf("MessageCount = %d, want 1", result.MessageCount)
+	}
+	if got := m.TelegramFormattingMode(); got != telegramfmt.ModeNone {
+		t.Fatalf("TelegramFormattingMode() = %q, want %q", got, telegramfmt.ModeNone)
+	}
+	if len(tgClient.messages) != 1 {
+		t.Fatalf("messages calls = %d, want 1", len(tgClient.messages))
+	}
+	got := tgClient.messages[0].ParseMode
+	if got == nil || *got != testParseModeMarkdownV2 {
+		if got == nil {
+			t.Fatal("parse_mode = nil, want MarkdownV2")
+		}
+		t.Fatalf("parse_mode = %q, want MarkdownV2", *got)
+	}
+}
+
 func TestSendAgentReply_MarkdownV2SplitsOnStandaloneSeparator(t *testing.T) {
 	t.Parallel()
 

@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/normahq/balda/internal/apps/balda/deliverycmd"
 	baldasession "github.com/normahq/balda/internal/apps/balda/session"
 )
 
@@ -46,11 +47,21 @@ func (r *Router) SendMarkdown(
 	locator baldasession.SessionLocator,
 	text string,
 ) error {
+	return r.SendMarkdownWithProfile(ctx, locator, deliverycmd.Profile{}, text)
+}
+
+// SendMarkdownWithProfile sends a Markdown message using a request-scoped delivery profile.
+func (r *Router) SendMarkdownWithProfile(
+	ctx context.Context,
+	locator baldasession.SessionLocator,
+	profile deliverycmd.Profile,
+	text string,
+) error {
 	adapter, err := r.adapterFor(locator)
 	if err != nil {
 		return err
 	}
-	return adapter.SendMarkdown(ctx, locator, text)
+	return adapter.SendMarkdownWithProfile(ctx, locator, profile, text)
 }
 
 // SendAgentReply sends an agent reply via the appropriate adapter.
@@ -73,11 +84,21 @@ func (r *Router) SendAgentReplyWithProviderMessageID(
 	locator baldasession.SessionLocator,
 	text string,
 ) (string, error) {
+	return r.SendAgentReplyWithProviderMessageIDAndProfile(ctx, locator, deliverycmd.Profile{}, text)
+}
+
+// SendAgentReplyWithProviderMessageIDAndProfile sends an agent reply using a request-scoped delivery profile.
+func (r *Router) SendAgentReplyWithProviderMessageIDAndProfile(
+	ctx context.Context,
+	locator baldasession.SessionLocator,
+	profile deliverycmd.Profile,
+	text string,
+) (string, error) {
 	adapter, err := r.adapterFor(locator)
 	if err != nil {
 		return "", err
 	}
-	return adapter.SendAgentReplyWithProviderMessageID(ctx, locator, text)
+	return adapter.SendAgentReplyWithProviderMessageIDAndProfile(ctx, locator, profile, text)
 }
 
 // SendDraftPlain sends a draft plain text message via the appropriate adapter.
