@@ -815,6 +815,53 @@ func TestZulipBaldaHandlerUserCommandsHandleMissingCollaboratorStore(t *testing.
 	}
 }
 
+func TestZulipBaldaHandlerTopicHandlesMissingSessionManager(t *testing.T) {
+	locator := baldazulip.NewStreamLocator(42, "ops")
+	dispatcher := &recordingZulipDispatcher{}
+	handler := &ZulipBaldaHandler{
+		actorDispatcher: dispatcher,
+		logger:          zerolog.Nop(),
+	}
+
+	handler.handleTopicCommand(context.Background(), locator, 101, "support", false)
+
+	payloads := zulipDeliveryPayloads(t, dispatcher.commands)
+	if len(payloads) != 1 {
+		t.Fatalf("delivery payloads = %d, want not-ready reply", len(payloads))
+	}
+	if payloads[0].Text != "Balda is not ready right now." {
+		t.Fatalf("reply = %q, want not-ready reply", payloads[0].Text)
+	}
+}
+
+func TestZulipBaldaHandlerMessageHandlesMissingSessionManager(t *testing.T) {
+	ownerStore, err := auth.NewOwnerStore(&fakeOwnerKVStore{})
+	if err != nil {
+		t.Fatalf("NewOwnerStore() error = %v", err)
+	}
+	if _, err := ownerStore.RegisterOwner(101, 0); err != nil {
+		t.Fatalf("RegisterOwner() error = %v", err)
+	}
+	locator := baldazulip.NewDMLocator(101)
+	dispatcher := &recordingZulipDispatcher{}
+	handler := &ZulipBaldaHandler{
+		ownerStore:      ownerStore,
+		actorDispatcher: dispatcher,
+		logger:          zerolog.Nop(),
+		ownerID:         101,
+	}
+
+	handler.handleMessage(context.Background(), locator, 101, "hello", true)
+
+	payloads := zulipDeliveryPayloads(t, dispatcher.commands)
+	if len(payloads) != 1 {
+		t.Fatalf("delivery payloads = %d, want not-ready reply", len(payloads))
+	}
+	if payloads[0].Text != "Balda is not ready right now. Please try again." {
+		t.Fatalf("reply = %q, want not-ready reply", payloads[0].Text)
+	}
+}
+
 func TestZulipBaldaHandlerReturnsDeliveryError(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusBadGateway)

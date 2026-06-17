@@ -1008,6 +1008,10 @@ func (h *ZulipBaldaHandler) handleTopicCommand(
 		_ = h.sendPlain(ctx, locator, "Usage: /topic <name>")
 		return
 	}
+	if h.sessionManager == nil {
+		_ = h.sendPlain(ctx, locator, "Balda is not ready right now.")
+		return
+	}
 	baldaProviderID := strings.TrimSpace(h.sessionManager.BaldaProviderID())
 	if baldaProviderID == "" {
 		_ = h.sendPlain(ctx, locator, "Balda is not ready right now.")
@@ -1090,6 +1094,10 @@ func (h *ZulipBaldaHandler) getOrCreateSession(
 	providerName string,
 	isDM bool,
 ) (*baldasession.TopicSession, error) {
+	if h.sessionManager == nil {
+		_ = h.sendPlain(ctx, locator, "Balda is not ready right now. Please try again.")
+		return nil, fmt.Errorf("session manager is unavailable")
+	}
 	existing, _ := h.sessionManager.GetSession(locator)
 	if existing != nil {
 		return existing, nil
@@ -1369,6 +1377,9 @@ func (h *ZulipBaldaHandler) canAccessCollaboratorScope(ctx context.Context, user
 }
 
 func (h *ZulipBaldaHandler) getProviderName() string {
+	if h.sessionManager == nil {
+		return strings.TrimSpace(h.baldaProviderName)
+	}
 	providerName := strings.TrimSpace(h.sessionManager.BaldaProviderID())
 	if providerName == "" {
 		providerName = strings.TrimSpace(h.baldaProviderName)
