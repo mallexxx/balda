@@ -534,7 +534,7 @@ func TestZulipBaldaHandlerAutoClaimBareMentionSendsOneWelcome(t *testing.T) {
 		ownerID:           101,
 	}
 
-	handler.handleAutoClaimMention(context.Background(), locator, 101, "owner@example.com", "", false)
+	handler.handleAutoClaimMention(context.Background(), locator, 101, "owner@example.com", 0, "", false)
 
 	payloads := zulipDeliveryPayloads(t, dispatcher.commands)
 	if len(payloads) != 1 {
@@ -556,7 +556,7 @@ func TestZulipBaldaHandlerAutoClaimHandlesMissingOwnerStore(t *testing.T) {
 		logger:          zerolog.Nop(),
 	}
 
-	handler.handleAutoClaimMention(context.Background(), locator, 101, "owner@example.com", "", false)
+	handler.handleAutoClaimMention(context.Background(), locator, 101, "owner@example.com", 0, "", false)
 
 	payloads := zulipDeliveryPayloads(t, dispatcher.commands)
 	if len(payloads) != 1 {
@@ -945,7 +945,7 @@ func TestZulipBaldaHandlerMessageHandlesMissingSessionManager(t *testing.T) {
 		ownerID:         101,
 	}
 
-	handler.handleMessage(context.Background(), locator, 101, "hello", true)
+	handler.handleMessage(context.Background(), locator, 101, "hello", 0, true)
 
 	payloads := zulipDeliveryPayloads(t, dispatcher.commands)
 	if len(payloads) != 1 {

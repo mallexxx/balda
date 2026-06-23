@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -503,6 +504,30 @@ func (h *BaldaHandler) runTurnWithDelivery(
 					}
 					thinkingIdx++
 				})
+			}
+			// Publish intermediate text and tool use status for non-final turns.
+			if ev.Content != nil {
+				for _, part := range ev.Content.Parts {
+					if part == nil {
+						continue
+					}
+					if part.Text != "" && strings.TrimSpace(part.Text) != "" {
+						if sendErr := sendPlain(ctx, h.actorDispatcher, baldaHandlerActorAddress, locator, part.Text); sendErr != nil {
+							log.Warn().Err(sendErr).Int("topic_id", topicID).Msg("failed to send intermediate text")
+						}
+					}
+					if part.FunctionCall != nil && part.FunctionCall.Name != "" {
+						toolMsg := "⚙️ " + part.FunctionCall.Name
+						if len(part.FunctionCall.Args) > 0 {
+							if argsJSON, err := json.Marshal(part.FunctionCall.Args); err == nil {
+								toolMsg += " " + string(argsJSON)
+							}
+						}
+						if sendErr := sendPlain(ctx, h.actorDispatcher, baldaHandlerActorAddress, locator, toolMsg); sendErr != nil {
+							log.Warn().Err(sendErr).Int("topic_id", topicID).Msg("failed to send tool use status")
+						}
+					}
+				}
 			}
 		}
 		contentRole := ""
